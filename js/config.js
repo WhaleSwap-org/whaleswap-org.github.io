@@ -6,31 +6,31 @@ export const APP_BRAND = 'WhaleSwap';
 export const APP_LOGO = 'assets/1.png';
 
 const networkConfig = {
-    "80002": {
-        slug: "amoy",
-        name: "Amoy",
-        displayName: "Polygon Amoy Testnet",
+    "56": {
+        slug: "bnb",
+        name: "BNB",
+        displayName: "BNB Smart Chain",
         isDefault: false,
-        contractAddress: "0x7A64764074971839bd5A3022beA2450CBc51dEC8",
+        contractAddress: "0x324d9b90A07D587B4FA0D68c22645B9c8D321079",
         contractABI: CONTRACT_ABI,
-        explorer: "https://www.oklink.com/amoy",
-        rpcUrl: "https://rpc-amoy.polygon.technology",
+        explorer: "https://bscscan.com",
+        rpcUrl: "https://bsc-dataseed.binance.org",
         fallbackRpcUrls: [
-            "https://rpc.ankr.com/polygon_amoy",
-            "https://polygon-amoy.blockpi.network/v1/rpc/public",
-            "https://polygon-amoy.public.blastapi.io"
+            "https://bsc-dataseed1.binance.org",
+            "https://bsc-dataseed2.binance.org",
+            "https://bsc-rpc.publicnode.com"
         ],
-        chainId: "0x13882",
+        chainId: "0x38",
         nativeCurrency: {
-            name: "POL",
-            symbol: "POL",
+            name: "BNB",
+            symbol: "BNB",
             decimals: 18
         },
-        // multicall address amoy testnet
+        // Multicall3 standard deployment
         multicallAddress: "0xca11bde05977b3631167028862be2a173976ca11",
-        wsUrl: "wss://polygon-amoy-bor-rpc.publicnode.com",
+        wsUrl: "wss://bsc-rpc.publicnode.com",
         fallbackWsUrls: [
-            "wss://polygon-amoy.public.blastapi.io"
+            "wss://bsc.publicnode.com"
         ]
     },
     "137": {
@@ -38,9 +38,7 @@ const networkConfig = {
         name: "Polygon",
         displayName: "Polygon Mainnet",
         isDefault: true,
-        contractAddress: "0x2F786290BAe87D1e8c01A97e6529030bbCF9f147", // New contract with allowed tokens 08/15/25
-        /* "0x34396a792510d6fb8ec0f70b68b8739456af06c6",  */// old 08/14/25
-        /* "0x8F37e9b4980340b9DE777Baa4B9c5B2fc1BDc837", */ // old 08/13/25
+        contractAddress: "0x324d9b90A07D587B4FA0D68c22645B9c8D321079",
         contractABI: CONTRACT_ABI,
         explorer: "https://polygonscan.com",
         rpcUrl: "https://polygon-rpc.com",
@@ -122,7 +120,6 @@ export const TOKEN_ICON_CONFIG = {
     CHAIN_ID_MAP: {
         '1': 'ethereum',
         '137': 'polygon-pos',
-        '80002': 'polygon-amoy',
         '56': 'binance-smart-chain',
         '42161': 'arbitrum-one',
         '10': 'optimistic-ethereum',
