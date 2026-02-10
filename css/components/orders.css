@@ -1,0 +1,1186 @@
+/* Table container */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 1.25rem;
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+  padding: 0.5rem;
+  min-width: 42rem; /* Reduced from 48rem due to condensed layout */
+  background: var(--bg-secondary);
+  position: relative;
+}
+
+/* Table base styles */
+.orders-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  table-layout: fixed;
+  position: relative;
+  will-change: scroll-position; /* Optimize for scrolling */
+}
+
+.orders-table thead {
+  background-color: var(--bg-tertiary);
+}
+
+/* Column widths - Updated for condensed layout */
+.orders-table th:nth-child(1) {
+  width: 5%;
+} /* ID */
+.orders-table th:nth-child(2) {
+  width: 22%;
+} /* Buy Token (increased to accommodate amount + symbol + price) */
+.orders-table th:nth-child(3) {
+  width: 22%;
+} /* Sell Token (increased to accommodate amount + symbol + price) */
+.orders-table th:nth-child(4) {
+  width: 14%;
+} /* Deal */
+.orders-table th:nth-child(5) {
+  width: 14%;
+} /* Expires */
+.orders-table th:nth-child(6) {
+  width: 10%;
+} /* Status */
+.orders-table th:nth-child(7) {
+  width: 13%;
+} /* Action */
+
+/* Cell styles */
+.orders-table th,
+.orders-table td {
+  padding: 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  vertical-align: top; /* Align content to top for better readability */
+}
+
+/* Ensure status column doesn't clip tooltips */
+.orders-table td.order-status {
+  overflow: visible;
+  position: relative;
+}
+
+/* Status column specific styles */
+.order-status {
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+  position: relative;
+  overflow: visible;
+}
+
+.status-main {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.counterparty-address {
+  font-family: "Courier New", monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: help;
+  opacity: 0.8;
+  transition: opacity 0.2s ease, color 0.2s ease;
+  position: relative;
+}
+
+.counterparty-address:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
+/* Click-to-copy styles */
+.counterparty-address.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--text-secondary);
+  text-underline-offset: 2px;
+}
+
+.counterparty-address.clickable:hover {
+  color: var(--accent-color, #3b82f6);
+  text-decoration-color: var(--accent-color, #3b82f6);
+}
+
+.counterparty-address.clickable:active {
+  transform: scale(0.98);
+}
+
+/* Copy feedback animation */
+.counterparty-address.copied {
+  color: var(--success-color, #10b981) !important;
+  text-decoration-color: var(--success-color, #10b981) !important;
+}
+
+.counterparty-address.copied::after {
+  content: " ✓ Copied!";
+  font-size: 0.7rem;
+  animation: fadeOut 2s ease-in-out forwards;
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Tooltip for full address on hover */
+.counterparty-address[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  z-index: 9999;
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-color);
+  margin-bottom: 0.25rem;
+  pointer-events: none;
+  max-width: 320px;
+  word-wrap: break-word;
+  /* have text inside wrap */
+  text-wrap: wrap;
+}
+
+/* Ensure tooltip doesn't overflow container */
+.counterparty-address[data-tooltip]:hover::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 0.25rem solid transparent;
+  border-top-color: var(--border-color);
+  margin-bottom: 0.125rem;
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* Action column specific styles */
+.action-column {
+  text-align: center;
+  padding: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Fill button styles */
+.fill-button {
+  background-color: #10b981;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.75rem;
+  text-align: center;
+  min-width: 3rem;
+  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2);
+}
+
+.fill-button:hover {
+  background-color: #059669;
+  transform: translateY(-1px);
+}
+
+.fill-button:active {
+  transform: translateY(0);
+}
+
+/* Mine label styles - matches table text */
+.mine-label {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.875rem;
+  text-align: center;
+  display: inline-block;
+}
+
+/* Your order text style (legacy - keeping for backwards compatibility) */
+.your-order {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Open order and targeted order styles */
+.open-order,
+.targeted-order {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.targeted-order {
+  cursor: help;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .orders-table {
+    font-size: 0.9em;
+  }
+
+  /* Adjust token info layout for medium screens */
+  .token-info {
+    gap: 6px;
+  }
+
+  .token-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .token-symbol-row {
+    gap: 6px;
+  }
+
+  .token-symbol {
+    font-size: 0.9em;
+  }
+
+  .token-amount {
+    font-size: 0.85em;
+  }
+
+  .token-price {
+    font-size: 0.75em;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: right;
+    min-width: 80px;
+    font-family: "Courier New", monospace;
+    letter-spacing: 0.3px;
+  }
+}
+
+/* Filter and Pagination Controls */
+.filter-controls {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+}
+
+.filter-controls.bottom-controls {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Filter Toggle */
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.filter-toggle input[type="checkbox"] {
+  cursor: pointer;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.25rem;
+  border: 2px solid #10b981;
+  accent-color: #10b981;
+}
+
+.filter-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* Pagination Controls */
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Page Size Select */
+.page-size-select {
+  padding: 0.5rem 2rem 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236B7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+}
+
+.page-size-select:hover {
+  border-color: #10b981;
+}
+
+.page-size-select:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+/* Pagination Buttons */
+.pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pagination-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.pagination-button:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.pagination-button:disabled {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  border-color: var(--border-color);
+}
+
+.pagination-arrow {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Page Info */
+.page-info {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  min-width: 5rem;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pagination-controls {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .pagination-buttons {
+    justify-content: center;
+  }
+
+  .page-size-select {
+    width: 100%;
+  }
+}
+
+/* Zebra striping for rows */
+.orders-table tbody tr {
+  width: 100%;
+  background-color: var(--bg-secondary);
+}
+
+.orders-table tbody tr:nth-child(even) {
+  background-color: var(--bg-tertiary);
+}
+
+/* Remove any potential conflicting styles */
+.orders-table tr,
+.orders-table td,
+.orders-table th {
+  border: none;
+  margin: 0;
+  padding: 0.75rem;
+}
+
+/* Ensure the table container spans full width */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 1.25rem;
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+  padding: 0.5rem;
+  min-width: 42rem; /* Reduced from 48rem due to condensed layout */
+  background: var(--bg-secondary);
+}
+
+/* Hover effect for rows */
+.orders-table tbody tr:hover {
+  background-color: var(--hover-bg);
+  transition: background-color 0.2s ease;
+}
+
+/* Enhanced token info hover effects */
+.token-info:hover .token-symbol {
+  color: var(--accent-color, #10b981);
+}
+
+.token-info:hover .token-amount {
+  color: var(--text-primary);
+}
+
+.token-info:hover .token-price {
+  color: var(--accent-color, #10b981);
+  font-weight: 600;
+  transform: scale(1.05);
+}
+
+/* Focus states for accessibility */
+.orders-table tbody tr:focus-within {
+  outline: 2px solid var(--accent-color, #10b981);
+  outline-offset: -2px;
+}
+
+.token-info:focus-within {
+  outline: 1px solid var(--accent-color, #10b981);
+  border-radius: 4px;
+  outline-offset: 2px;
+}
+
+/* Loading State Styles */
+.loading-message {
+  padding: 2rem;
+  text-align: center;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 20px auto;
+  border: 4px solid var(--border-color);
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-text {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Place this with other responsive adjustments */
+@media (max-width: 768px) {
+  .loading-spinner {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  /* Adjust table container for mobile */
+  .table-container {
+    min-width: 36rem; /* Further reduced for mobile */
+    padding: 0.25rem;
+  }
+
+  /* Compact token info for mobile */
+  .token-info {
+    gap: 4px;
+  }
+
+  .token-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .token-details {
+    gap: 1px;
+  }
+
+  .token-symbol-row {
+    gap: 4px;
+  }
+
+  .token-symbol {
+    font-size: 0.85em;
+  }
+
+  .token-amount {
+    font-size: 0.8em;
+  }
+
+  .token-price {
+    font-size: 0.7em;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: right;
+    min-width: 70px;
+    font-family: "Courier New", monospace;
+    letter-spacing: 0.2px;
+  }
+
+  /* Reduce cell padding for mobile */
+  .orders-table th,
+  .orders-table td {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .orders-table td:nth-child(2),
+  .orders-table td:nth-child(3) {
+    padding: 0.25rem 0.25rem;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+  .table-container {
+    min-width: 32rem; /* Minimum width for very small screens */
+    padding: 0.125rem;
+  }
+
+  .orders-table {
+    font-size: 0.8em;
+  }
+
+  /* Ultra-compact token info */
+  .token-info {
+    gap: 2px;
+  }
+
+  .token-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .token-details {
+    gap: 0px;
+  }
+
+  .token-symbol-row {
+    gap: 2px;
+  }
+
+  .token-symbol {
+    font-size: 0.8em;
+  }
+
+  .token-amount {
+    font-size: 0.75em;
+  }
+
+  .token-price {
+    font-size: 0.65em;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: right;
+    min-width: 60px;
+    font-family: "Courier New", monospace;
+    letter-spacing: 0.1px;
+  }
+
+  /* Minimal cell padding */
+  .orders-table th,
+  .orders-table td {
+    padding: 0.25rem 0.125rem;
+  }
+
+  .orders-table td:nth-child(2),
+  .orders-table td:nth-child(3) {
+    padding: 0.125rem 0.125rem;
+  }
+}
+
+/* MyOrders specific column widths - Updated for 7-column layout */
+#my-orders .orders-table th:nth-child(1) {
+  width: 5%;
+} /* ID */
+#my-orders .orders-table th:nth-child(2) {
+  width: 22%;
+} /* Buy Token */
+#my-orders .orders-table th:nth-child(3) {
+  width: 22%;
+} /* Sell Token */
+#my-orders .orders-table th:nth-child(4) {
+  width: 14%;
+} /* Deal */
+#my-orders .orders-table th:nth-child(5) {
+  width: 14%;
+} /* Expires */
+#my-orders .orders-table th:nth-child(6) {
+  width: 10%;
+} /* Status */
+#my-orders .orders-table th:nth-child(7) {
+  width: 13%;
+} /* Action */
+
+/* Token display styles */
+.token-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  flex-direction: row;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.token-icon {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.token-icon.small {
+  width: 20px;
+  height: 20px;
+}
+
+.token-icon-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: transparent;
+}
+
+.token-icon-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+}
+
+.token-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.token-link:hover {
+  text-decoration: underline;
+  color: #10b981; /* Match your green theme */
+}
+
+.token-explorer-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.token-link:hover .token-explorer-icon {
+  opacity: 1;
+}
+
+/* Adjust table cell padding for token info */
+.orders-table td:nth-child(2),
+.orders-table td:nth-child(3) {
+  padding: 0.5rem 0.75rem; /* Slightly reduce vertical padding to accommodate token info */
+}
+
+.tab-content-wrapper {
+  position: relative;
+  padding: 20px;
+}
+
+.status-container {
+  margin: 15px 0;
+  padding: 0 20px;
+  min-height: 60px;
+  position: relative;
+}
+
+.status-message {
+  padding: 15px 20px;
+  margin-bottom: 15px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  animation: slideIn 0.3s ease-out;
+  display: block;
+  opacity: 1;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.status-message.status-pending {
+  background-color: rgba(25, 118, 210, 0.1);
+  color: #1976d2;
+  border: 2px solid rgba(25, 118, 210, 0.2);
+}
+
+.status-message.status-success {
+  background-color: rgba(46, 125, 50, 0.1);
+  color: #2e7d32;
+  border: 2px solid rgba(46, 125, 50, 0.2);
+}
+
+.status-message.status-error {
+  background-color: rgba(211, 47, 47, 0.1);
+  color: #d32f2f;
+  border: 2px solid rgba(211, 47, 47, 0.2);
+}
+
+/* Make sure the table doesn't overlap */
+.orders-table-container {
+  margin-top: 20px;
+}
+
+.token-icon.small > * {
+  border: none;
+  background: transparent;
+}
+
+.cancel-order-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.cancel-order-btn:hover {
+  background-color: #c82333;
+}
+
+.cancel-order-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.estimated-price {
+  background-color: rgba(
+    255,
+    247,
+    230,
+    0.5
+  ) !important; /* Light orange background */
+  position: relative;
+}
+
+.estimated-price::after {
+  content: "est";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 0.7em;
+  color: #ff9900;
+  opacity: 0.7;
+}
+
+.token-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0; /* Allow flex items to shrink below content size */
+  flex: 1; /* Take available space */
+}
+
+/* Create a horizontal row for symbol and price */
+.token-symbol-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.token-symbol {
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1; /* Take available space */
+  min-width: 30px; /* Allow shrinking */
+  max-width: 60%; /* Prevent symbol from taking too much space */
+}
+
+.token-amount {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.token-price {
+  font-size: 1em;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0; /* Prevent price from shrinking */
+  font-weight: 500; /* Make total value more prominent */
+  text-align: right; /* Align dollar signs vertically */
+  font-family: "Courier New", monospace; /* Use monospace font for consistent character width */
+  letter-spacing: 0.5px; /* Slight spacing for better readability */
+}
+
+.price-estimate {
+  color: #999;
+  font-style: italic;
+}
+
+.refresh-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 300px;
+  position: relative;
+}
+
+.refresh-prices-button {
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+  background: var(--button-bg);
+  color: var(--text-color);
+}
+
+.refresh-prices-button:hover {
+  background: var(--button-hover-bg);
+  border-color: var(--border-hover-color);
+}
+
+.refresh-prices-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--button-disabled-bg);
+  border-color: var(--border-disabled-color);
+}
+
+.refresh-prices-button:active {
+  transform: scale(0.98);
+}
+
+/* Status indicator styles */
+.refresh-status {
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: 8px;
+  white-space: nowrap;
+  color: var(--text-secondary-color);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.refresh-status.success {
+  color: var(--success-color);
+}
+
+.refresh-status.error {
+  color: var(--error-color);
+}
+
+/* Phase 3: Last updated timestamp styling */
+.last-updated {
+  font-size: 12px;
+  color: var(--text-secondary-color);
+  margin-left: 8px;
+  white-space: nowrap;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+/* These CSS variables should be defined in your theme CSS */
+:root {
+  /* Light theme */
+  --button-bg: #ffffff;
+  --button-hover-bg: #f5f5f5;
+  --button-disabled-bg: #f0f0f0;
+  --border-color: #e0e0e0;
+  --border-hover-color: #d0d0d0;
+  --border-disabled-color: #e0e0e0;
+  --text-color: #333333;
+  --text-secondary-color: #666666;
+  --success-color: #00b894;
+  --error-color: #ff7675;
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  --button-bg: #2c2f33;
+  --button-hover-bg: #363a3f;
+  --button-disabled-bg: #242628;
+  --border-color: #404448;
+  --border-hover-color: #4a4f55;
+  --border-disabled-color: #2f3236;
+  --text-color: #ffffff;
+  --text-secondary-color: #999999;
+  --success-color: #00b894;
+  --error-color: #ff7675;
+}
+
+.bottom-controls {
+  border-top: 1px solid var(--border-color);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.bottom-controls .filter-row {
+  justify-content: space-between;
+}
+
+.bottom-controls .refresh-container {
+  margin-right: auto; /* Push pagination controls to the right */
+}
+
+.token-filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.token-filter,
+.order-sort {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  min-width: 150px;
+  font-size: 0.875rem;
+}
+
+.filter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+/* Advanced Filters Toggle Button */
+.advanced-filters-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.advanced-filters-toggle:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-hover-color);
+}
+
+.advanced-filters-toggle .chevron-icon {
+  transition: transform 0.2s ease;
+}
+
+.advanced-filters-toggle.expanded .chevron-icon {
+  transform: rotate(180deg);
+}
+
+/* Advanced Filters Section */
+.advanced-filters {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* Adjust existing token filters styles */
+.token-filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.token-filter,
+.order-sort {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  min-width: 150px;
+  font-size: 0.875rem;
+}
+
+/* Clean up filter row spacing */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+/* Ensure proper spacing between sections */
+.filter-controls {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+}
+
+/* Add this new style for the filter options row */
+.filter-options {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Add styles for the filter icon */
+.filter-icon {
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.advanced-filters-toggle:hover .filter-icon {
+  opacity: 1;
+}
+
+/* Remove sorting styles */
+th[data-sort] {
+  cursor: default;
+  user-select: none;
+  position: relative;
+}
+
+th[data-sort]:hover {
+  background-color: transparent;
+}
+
+.sort-icon {
+  display: none;
+}
+
+/* Remove active sort state */
+th[data-sort].active-sort {
+  background-color: transparent;
+}
+
+th[data-sort].active-sort .sort-icon {
+  display: none;
+}
+
+.filters-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* No orders message styles */
+.no-orders-message {
+  text-align: center;
+  padding: 2rem 1rem;
+  background: var(--bg-secondary);
+}

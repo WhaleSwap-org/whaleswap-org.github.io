@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Hardhat artifacts and cache
+artifacts/
+cache/
+
+delete_when_done/
+deprecated/
+
+# Browser automation (Cursor MCP)
+.playwright-mcp/
+
+# docs folder
+docs/

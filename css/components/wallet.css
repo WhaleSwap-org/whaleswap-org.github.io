@@ -1,0 +1,381 @@
+.wallet-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
+.network-selector {
+  position: relative;
+}
+
+.network-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 12px;
+  min-width: 196px;
+  min-height: 42px;
+  background: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.network-button:hover {
+  background: var(--background-hover);
+}
+
+.network-button[data-network-status="connected"] {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.network-button[data-network-status="connected"]:hover {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.network-button[data-network-status="wrong-network"] {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.network-button[data-network-status="wrong-network"]:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.network-button[data-network-status="disconnected"] {
+  background: #666;
+  border-color: #666;
+}
+
+.network-button[data-network-status="disconnected"]:hover {
+  background: #777;
+}
+
+.network-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 4px;
+  min-width: 150px;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.network-dropdown[data-network-status="connected"] {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+.network-dropdown[data-network-status="wrong-network"] {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.network-dropdown[data-network-status="disconnected"] {
+  background: rgba(102, 102, 102, 0.12);
+  border-color: rgba(102, 102, 102, 0.45);
+}
+
+.network-dropdown.hidden {
+  display: none;
+}
+
+.network-option {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.network-option:hover,
+.network-option.active {
+  background: var(--background-hover);
+}
+
+.network-dropdown[data-network-status="connected"] .network-option:hover,
+.network-dropdown[data-network-status="connected"] .network-option.active {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.network-dropdown[data-network-status="wrong-network"] .network-option:hover,
+.network-dropdown[data-network-status="wrong-network"] .network-option.active {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.network-dropdown[data-network-status="disconnected"] .network-option:hover,
+.network-dropdown[data-network-status="disconnected"] .network-option.active {
+  background: rgba(102, 102, 102, 0.2);
+}
+
+.wallet-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  min-width: 196px;
+  min-height: 42px;
+  background: #4b6bfb;
+  border: 1px solid #4b6bfb;
+  border-radius: 12px;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 50ms ease;
+}
+
+.wallet-button:hover:not(:disabled) {
+  background: #3a54d6;
+  border-color: #3a54d6;
+}
+
+.wallet-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.wallet-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--background-secondary);
+  padding: 8px 12px;
+  min-width: 196px;
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 50ms ease;
+}
+
+.wallet-info:hover {
+  background: var(--background-hover);
+}
+
+.wallet-info:active {
+  transform: translateY(1px);
+}
+
+.wallet-info.hidden {
+  display: none !important;
+}
+
+.account-address {
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-right: 0;
+  white-space: nowrap;
+}
+
+.wallet-disconnect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #f44336;
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.wallet-disconnect:hover {
+  background: #d32f2f;
+}
+
+.wallet-disconnect svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.chevron-down {
+  transition: transform 0.2s ease;
+}
+
+.network-button:hover .chevron-down {
+  transform: rotate(180deg);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.network-button.single-network {
+  cursor: default;
+}
+
+.network-button.single-network:hover {
+  background: var(--background-secondary);
+}
+
+.network-button.single-network .chevron-down {
+  display: none;
+}
+
+.network-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: transparent;
+  margin-right: 8px;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: normal;
+  border-radius: 20px;
+  position: relative;
+}
+
+.network-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background-color: currentColor;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+.network-badge.connected {
+  background-color: transparent;
+  color: #10b981;
+}
+
+.network-badge.wrong-network {
+  background-color: transparent;
+  color: #ef4444;
+}
+
+.network-badge.disconnected {
+  background-color: transparent;
+  color: #ffffff;
+}
+
+.network-button:hover .network-badge {
+  transform: none;
+  box-shadow: none;
+}
+
+.network-button.single-network {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.wallet-info-popup {
+  position: fixed;
+  z-index: 1200;
+  width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.wallet-info-popup-content {
+  padding: 14px;
+  position: relative;
+}
+
+.wallet-popup-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.wallet-popup-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.wallet-popup-close:hover {
+  background: var(--background-hover);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.wallet-popup-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.wallet-popup-address {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.wallet-popup-address-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--background-hover);
+}
+
+.copy-icon-button {
+  border: 1px solid var(--border-color);
+  background: var(--background-secondary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.copy-icon-button:hover {
+  background: var(--background-hover);
+}
+
+.wallet-popup-actions {
+  display: flex;
+  margin-top: 12px;
+}
+
+.disconnect-button {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.disconnect-button:hover {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: #ef4444;
+}

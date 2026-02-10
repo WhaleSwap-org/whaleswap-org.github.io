@@ -1,0 +1,121 @@
+.debug-panel {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  width: 400px;
+}
+
+.debug-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
+}
+
+.debug-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.debug-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.debug-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.debug-column h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.debug-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.debug-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.debug-option span {
+  font-size: 0.9rem;
+}
+
+.debug-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.select-all-button,
+.apply-button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--button-secondary-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.apply-button {
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.select-all-button:hover,
+.apply-button:hover {
+  opacity: 0.9;
+}
+
+.debug-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.close-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.close-button:hover {
+  background: var(--surface-hover);
+}

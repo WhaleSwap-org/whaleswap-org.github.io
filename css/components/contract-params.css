@@ -1,0 +1,79 @@
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(400px, 1fr));
+  gap: 2rem;
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.param-section h2 {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 1.5rem 0;
+}
+
+.param-section h3 {
+  color: var(--text-primary);
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 0 0 1.25rem 0;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+}
+
+.param-item {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.param-item:last-child {
+  margin-bottom: 0;
+}
+
+.param-item h4 {
+  margin: 0 0 0.35rem 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.param-item p {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.status-enabled {
+  color: var(--success-color) !important;
+}
+
+.status-disabled {
+  color: var(--error-color) !important;
+}
+
+@media (max-width: 900px) {
+  .param-grid {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+
+  .param-section {
+    padding: 1.5rem;
+  }
+}
+
+/* Main heading style */
+.tab-content-wrapper h2 {
+  color: var(--text-primary);
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 2rem 0;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}

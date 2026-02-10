@@ -1,0 +1,315 @@
+<!--
+  WhaleSwap - Decentralized Trading Interface
+  A single-page application for creating and managing peer-to-peer token swaps.
+  Features: wallet connection, token swapping, order management, and dark/light themes.
+-->
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <!-- Head section contains meta info, styles, and script imports -->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WhaleSwap</title>
+    <!-- Favicon using the same logo -->
+    <link rel="icon" type="image/png" href="assets/1.png" />
+    <link rel="shortcut icon" type="image/png" href="assets/1.png" />
+    <!-- Normalize.css for consistent styling across browsers -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css"
+    />
+    <!-- Core styles -->
+    <link rel="stylesheet" href="css/styles.css" />
+    <!-- Component-specific styles -->
+    <link rel="stylesheet" href="css/components/forms.css" />
+    <link rel="stylesheet" href="css/components/orders.css" />
+    <link rel="stylesheet" href="css/components/tabs.css" />
+    <link rel="stylesheet" href="css/components/wallet.css" />
+    <link rel="stylesheet" href="css/components/cleanup.css" />
+    <link rel="stylesheet" href="css/components/contract-params.css" />
+    <link rel="stylesheet" href="css/components/debug.css" />
+    <link rel="stylesheet" href="css/components/toast.css" />
+    <link rel="stylesheet" href="css/components/footer.css" />
+    <!-- Import map for ethers.js library -->
+    <script type="importmap">
+      {
+        "imports": {
+          "ethers": "https://unpkg.com/ethers@5.7.2/dist/ethers.esm.min.js"
+        }
+      }
+    </script>
+    <!-- Main application entry point -->
+    <script type="module" src="js/app.js" defer></script>
+  </head>
+  <!-- Body contains the main application structure -->
+  <body>
+    <div class="container">
+      <!-- Header contains branding, theme toggle, and wallet connection -->
+      <header class="header card">
+        <!-- Logo and app name -->
+        <div class="header-left">
+          <div class="logo-container">
+            <img src="assets/1.png" alt="WhaleSwap Logo" class="logo-image" />
+            <h1>WhaleSwap</h1>
+            <span class="version">v1.0.25</span>
+          </div>
+        </div>
+        <!-- Theme toggle and wallet connection controls -->
+        <div class="header-right">
+          <!-- Light/Dark mode toggle -->
+          <button
+            id="theme-toggle"
+            class="theme-toggle"
+            aria-label="Toggle theme"
+          >
+            <!-- Sun icon for light mode -->
+            <svg
+              class="sun-icon"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+            >
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <!-- Moon icon for dark mode -->
+            <svg
+              class="moon-icon"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+
+          <!-- Wallet connection and network selection -->
+          <div id="wallet-container" class="wallet-container">
+            <!-- Network dropdown selector -->
+            <div class="network-selector">
+              <button class="network-button">
+                <span class="network-badge">Polygon</span>
+                <svg
+                  class="chevron-down"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    d="M6 9l6 6 6-6"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <!-- Network options populated dynamically -->
+              <div class="network-dropdown hidden"></div>
+            </div>
+            <!-- Connect wallet button -->
+            <button id="walletConnect" class="wallet-button">
+              <span class="wallet-button-text">Connect Wallet</span>
+            </button>
+            <!-- Wallet info shown when connected -->
+            <div id="walletInfo" class="wallet-info hidden">
+              <span id="accountAddress" class="account-address"></span>
+            </div>
+          </div>
+        </div>
+      </header>
+      <div id="wallet-popup-container"></div>
+      <!-- Debug panel for development (hidden by default) -->
+      <div class="debug-panel" style="display: none">
+        <!-- Debug controls and options -->
+        <div class="debug-controls">
+          <div class="debug-header">
+            <h3>Debug Settings</h3>
+            <div class="debug-header-actions">
+              <button id="selectAllDebug" class="select-all-button">
+                Select All
+              </button>
+              <button
+                id="closeDebug"
+                class="close-button"
+                aria-label="Close debug panel"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    d="M18 6L6 18M6 6l12 12"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="debug-options">
+            <div class="debug-column">
+              <h4>Core</h4>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="APP" />
+                <span>App</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="WEBSOCKET" />
+                <span>WebSocket</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="WALLET" />
+                <span>Wallet</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="WALLET_UI" />
+                <span>Wallet UI</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="BASE_COMPONENT" />
+                <span>Base Component</span>
+              </label>
+            </div>
+
+            <div class="debug-column">
+              <h4>Orders</h4>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="VIEW_ORDERS" />
+                <span>View Orders</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="CREATE_ORDER" />
+                <span>Create Order</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="MY_ORDERS" />
+                <span>My Orders</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="TAKER_ORDERS" />
+                <span>Taker Orders</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="CLEANUP_ORDERS" />
+                <span>Cleanup Orders</span>
+              </label>
+            </div>
+
+            <div class="debug-column">
+              <h4>Other</h4>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="PRICING" />
+                <span>Pricing</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="TOKENS" />
+                <span>Tokens</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="PRICING_DEFAULT_TO_ONE" />
+                <span>Default Missing Prices to 1</span>
+              </label>
+              <label class="debug-option">
+                <input type="checkbox" data-debug="LIBERDUS_VALIDATION" />
+                <span>WhaleSwap Token Validation</span>
+              </label>
+            </div>
+          </div>
+          <div class="debug-footer">
+            <button id="applyDebug" class="apply-button">Apply Changes</button>
+          </div>
+        </div>
+      </div>
+      <!-- Main application content area -->
+      <main class="main-content">
+        <div class="content-wrapper card">
+          <!-- Navigation tabs for different sections -->
+          <nav class="nav-tabs">
+            <button class="tab-button" data-tab="intro" style="display: block">
+              Intro
+            </button>
+            <button
+              class="tab-button active"
+              data-tab="create-order"
+              style="display: none"
+            >
+              Create Order
+            </button>
+            <button
+              class="tab-button"
+              data-tab="view-orders"
+              style="display: none"
+            >
+              View Orders
+            </button>
+            <button
+              class="tab-button"
+              data-tab="my-orders"
+              style="display: none"
+            >
+              My Orders
+            </button>
+            <button
+              class="tab-button"
+              data-tab="taker-orders"
+              style="display: none"
+            >
+              Invited Orders
+            </button>
+            <button
+              class="tab-button"
+              data-tab="cleanup-orders"
+              style="display: none"
+            >
+              Cleanup
+            </button>
+            <button
+              class="tab-button"
+              data-tab="contract-params"
+              style="display: none"
+            >
+              Parameters
+            </button>
+          </nav>
+
+          <!-- Create Order tab content -->
+          <div id="create-order" class="tab-content active card">
+            <!-- Content will be rendered by CreateOrder component -->
+          </div>
+          <!-- Other tab contents (populated dynamically) -->
+          <div id="intro" class="tab-content card"></div>
+          <div id="view-orders" class="tab-content card"></div>
+          <div id="my-orders" class="tab-content card"></div>
+          <div id="taker-orders" class="tab-content card"></div>
+          <div id="cleanup-orders" class="tab-content card">
+            <div id="cleanup-container" class="cleanup-container"></div>
+          </div>
+          <div id="contract-params" class="tab-content card">
+            <div
+              id="contract-params-container"
+              class="contract-params-container"
+            ></div>
+          </div>
+          <div id="app-footer" class="app-footer"></div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

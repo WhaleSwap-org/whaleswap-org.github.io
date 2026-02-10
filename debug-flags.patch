@@ -1,0 +1,33 @@
+diff --git a/js/config.js b/js/config.js
+index 68352f7..1dddaf0 100644
+--- a/js/config.js
++++ b/js/config.js
+@@ -28,17 +28,17 @@ const networkConfig = {
+ export const getAllNetworks = () => Object.values(networkConfig);
+ 
+ export const DEBUG_CONFIG = {
+-    APP: false,
+-    WEBSOCKET: false,
+-    COMPONENTS: false,
+-    WALLET: false,
+-    VIEW_ORDERS: false,
+-    CREATE_ORDER: false,
+-    MY_ORDERS: false,
+-    TAKER_ORDERS: false,
+-    CLEANUP_ORDERS: false,
+-    WALLET_UI: false,
+-    BASE_COMPONENT: false,
++    APP: true,
++    WEBSOCKET: true,
++    COMPONENTS: true,
++    WALLET: true,
++    VIEW_ORDERS: true,
++    CREATE_ORDER: true,
++    MY_ORDERS: true,
++    TAKER_ORDERS: true,
++    CLEANUP_ORDERS: true,
++    WALLET_UI: true,
++    BASE_COMPONENT: true,
+     // Add more specific flags as needed
+ };
+ 

@@ -1,0 +1,588 @@
+/* At the top of styles.css */
+:root {
+  /* Light theme (default) */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #f1f3f5;
+
+  /* Text colors */
+  --text-primary: #1a1a1a;
+  --text-secondary: #666666;
+  --text-tertiary: #888888;
+
+  /* Card specific variables */
+  --card-bg: var(--bg-secondary);
+  --card-padding: 24px;
+  --card-radius: 16px;
+  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --card-border: 1px solid var(--border-color);
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1a1b1e;
+  --bg-secondary: #2d2d2d;
+  --bg-tertiary: #363636;
+
+  /* Dark theme text colors */
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --text-tertiary: #a0a0a0;
+}
+
+/* Base styles */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Header styles */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 20px;
+}
+
+.header-left .logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-image {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+}
+
+.header-left h1 {
+  margin: 0;
+  font-size: 32px;
+  color: #1a1a1a;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  line-height: 32px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.network-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin-right: 8px;
+  background-color: transparent;
+  color: var(--text-primary);
+}
+
+.network-badge.connected {
+  background-color: transparent;
+  color: #10b981;
+}
+
+.network-badge.wrong-network {
+  background-color: transparent;
+  color: #ef4444;
+}
+
+.network-badge.disconnected {
+  background-color: transparent;
+  color: #ffffff;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Preserve layout while hiding visually */
+.is-hidden {
+  visibility: hidden !important;
+}
+
+.main-content {
+  display: none; /* Hide initially */
+  padding: 0;
+  width: 100%;
+}
+
+.main-content.initialized {
+  display: block; /* Show when initialized */
+}
+
+.content-wrapper {
+  width: 100%;
+  overflow: hidden;
+}
+
+.tab-content-wrapper {
+  padding: 20px;
+  text-align: center;
+}
+
+.tab-content-wrapper h2 {
+  margin-bottom: 16px;
+  color: #333;
+}
+
+.tab-content-wrapper p {
+  color: #666;
+}
+
+.network-config-button {
+  margin-left: 10px;
+  padding: 5px 10px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.network-config-button:hover {
+  background-color: #0056b3;
+}
+
+.network-config-popup {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.popup-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 600px;
+}
+
+h2 {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.config-item {
+  margin-bottom: 15px;
+}
+
+label {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.config-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: #f9f9f9;
+}
+
+.config-input:focus {
+  border-color: #007bff;
+  outline: none;
+}
+
+.close-popup {
+  align-self: center;
+  margin-top: auto;
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.close-popup:hover {
+  background-color: #0056b3;
+}
+
+/* Example of browser-specific fixes */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Firefox-specific styles */
+@-moz-document url-prefix() {
+  /* Add Firefox-specific rules here */
+}
+
+/* Add Inter font */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
+
+/* Status message styles */
+.status {
+  margin: 1rem auto;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  max-width: 600px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.status.info {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #bbdefb;
+}
+
+.status.pending {
+  background-color: #fff3e0;
+  color: #f57c00;
+  border: 1px solid #ffe0b2;
+  animation: pulse 2s infinite;
+}
+
+/* Pulse animation for pending status */
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Standardized loading styles */
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-secondary);
+  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  border-radius: 16px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--border-color);
+  border-top: 4px solid #4b6bfb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+.loading-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Remove any other loading/spinner styles that might exist */
+.loader-overlay,
+.loader {
+  display: none;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.theme-toggle {
+  padding: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--hover-bg);
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .moon-icon,
+[data-theme="dark"] .sun-icon {
+  display: none;
+}
+
+/* Update content-wrapper background */
+.content-wrapper {
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  width: 100%;
+}
+
+/* Update tab content background */
+.tab-content {
+  background: var(--bg-secondary);
+}
+
+/* Update input backgrounds */
+input {
+  background: var(--input-bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+/* Update select token button */
+.token-selector-button {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* Update dropdown backgrounds */
+.network-dropdown,
+.token-modal-content {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+/* Update status message backgrounds */
+.status {
+  background: var(--bg-secondary);
+}
+
+/* Update loading overlay */
+.loading-overlay {
+  background: var(--bg-secondary);
+}
+
+.loading-text {
+  color: var(--text-primary);
+}
+
+/* Update tab button colors */
+.tab-button {
+  color: var(--text-secondary);
+}
+
+.tab-button.active {
+  color: #4b6bfb; /* Keep the active color blue for better visibility */
+}
+
+/* Update header text color */
+.header h1 {
+  color: var(--text-primary);
+}
+
+/* Update version text */
+.version {
+  color: var(--text-secondary);
+}
+
+/* Wallet info styles */
+.wallet-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.wallet-address {
+  font-family: monospace;
+  color: var(--text-secondary);
+}
+
+.wallet-balance {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.connect-wallet-button {
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: #4b6bfb;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.connect-wallet-button:hover {
+  background: #3a54d6;
+}
+
+/* Header wallet info styles */
+.header-right .wallet-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  min-width: 196px;
+  min-height: 42px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 50ms ease;
+}
+
+.header-right .wallet-info:hover {
+  background: var(--bg-hover);
+}
+
+.header-right .wallet-info:active {
+  transform: translateY(1px);
+}
+
+.header-right .account-address {
+  font-family: monospace;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.header-right .wallet-disconnect {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.header-right .wallet-disconnect:hover {
+  background: var(--bg-hover);
+}
+
+.header-right .wallet-button {
+  padding: 8px 12px;
+  min-width: 196px;
+  min-height: 42px;
+  border-radius: 12px;
+  background: #4b6bfb;
+  color: #ffffff;
+  border: 1px solid #4b6bfb;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 50ms ease;
+}
+
+.header-right .wallet-button:hover:not(:disabled) {
+  background: #3a54d6;
+  border-color: #3a54d6;
+}
+
+.header-right .wallet-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.info-icon {
+  display: inline-block;
+  font-size: 14px;
+  color: #888;
+  margin-left: 4px;
+  cursor: help;
+}
+
+.info-icon:hover {
+  color: #fff;
+}
+
+/* Add new standardized card class */
+.card {
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: var(--card-border);
+  color: var(--text-primary);
+}
+
+/* Base text styles */
+body {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+/* Secondary text */
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+/* Intro page spacing and contrast improvements */
+.intro-lead {
+  color: var(--text-tertiary); /* stronger contrast in dark mode */
+  opacity: 0.9; /* keep it slightly softer than pure white */
+  margin-bottom: 16px; /* add space before subtitle */
+}
+
+.intro-subtitle {
+  margin-top: 0;
+}
+
+/* Tertiary text */
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+/* Import component styles */
+@import url("./components/toast.css");
