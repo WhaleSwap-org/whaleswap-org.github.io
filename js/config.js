@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { createLogger } from './services/LogService.js';
 
 export const APP_BRAND = 'WhaleSwap';
-export const APP_LOGO = 'assets/1.png';
+export const APP_LOGO = 'img/whaleSwap.png';
 
 const networkConfig = {
     "80002": {

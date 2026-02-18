@@ -105,13 +105,16 @@ body {
 .header-left .logo-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .logo-image {
   height: 32px;
   width: auto;
   object-fit: contain;
+  transform: scale(2.5);
+  transform-origin: left center;
+  margin-right:16%;
 }
 
 .header-left h1 {
