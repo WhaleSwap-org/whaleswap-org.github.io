@@ -77,6 +77,14 @@
   color: var(--accent-color, #4b6bfb);
 }
 
+.faq-toggle .intro-icon,
+.faq-item h4 .intro-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--accent-color, #4b6bfb);
+}
+
 .intro-section ul {
   margin: 0;
   padding-left: 18px;
@@ -113,6 +121,11 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.faq-toggle .faq-text {
+  display: inline-flex;
+  align-items: center;
 }
 
 .faq-toggle .chevron {
