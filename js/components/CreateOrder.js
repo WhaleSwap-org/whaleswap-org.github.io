@@ -15,7 +15,8 @@ import { getExplorerUrl } from '../utils/orderUtils.js';
 export class CreateOrder extends BaseComponent {
     // Liberdus token addresses by network chainId (decimal, not hex)
     static LIBERDUS_ADDRESSES = {
-        '137': '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76' // Polygon Mainnet
+        '137': '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76', // Polygon Mainnet
+        '80002': '0xb96AC22BaC90Cd59A30376309e54385413517119' // Amoy Testnet
     };
     
     constructor() {

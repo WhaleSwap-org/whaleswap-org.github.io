@@ -4,6 +4,9 @@
   --bg-primary: #ffffff;
   --bg-secondary: #f8f9fa;
   --bg-tertiary: #f1f3f5;
+  /* Alias tokens used by component CSS */
+  --background-secondary: var(--bg-secondary);
+  --background-hover: var(--bg-tertiary);
 
   /* Text colors */
   --text-primary: #1a1a1a;
@@ -16,17 +19,62 @@
   --card-radius: 16px;
   --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   --card-border: 1px solid var(--border-color);
+
+  /* Opaque network dropdown status surfaces (light theme) */
+  --network-connected-bg: #e7f6f1;
+  --network-connected-border: #6cc7a9;
+  --network-wrong-bg: #fdeced;
+  --network-wrong-border: #f3a0a8;
+  --network-disconnected-bg: #e6e6e6;
+  --network-disconnected-border: #b5b5b5;
+  /* Opaque network button status surfaces (light theme) */
+  --network-button-connected-bg: #dff3ec;
+  --network-button-connected-border: #64c1a2;
+  --network-button-connected-hover: #d2efe5;
+  --network-button-connected-text: #155c48;
+  --network-button-wrong-bg: #fbe8ea;
+  --network-button-wrong-border: #ef96a0;
+  --network-button-wrong-hover: #f8dde0;
+  --network-button-wrong-text: #7a1f2b;
+  --network-button-disconnected-bg: #e2e5ea;
+  --network-button-disconnected-border: #b8c0cb;
+  --network-button-disconnected-hover: #d7dde5;
+  --network-button-disconnected-text: #1a1a1a;
 }
 
 [data-theme="dark"] {
   --bg-primary: #1a1b1e;
   --bg-secondary: #2d2d2d;
   --bg-tertiary: #363636;
+  /* Alias tokens used by component CSS */
+  --background-secondary: var(--bg-secondary);
+  --background-hover: var(--bg-tertiary);
 
   /* Dark theme text colors */
   --text-primary: #ffffff;
   --text-secondary: #e0e0e0;
   --text-tertiary: #a0a0a0;
+
+  /* Opaque network dropdown status surfaces (dark theme) */
+  --network-connected-bg: #13362f;
+  --network-connected-border: #1d7d63;
+  --network-wrong-bg: #3b2227;
+  --network-wrong-border: #b84a55;
+  --network-disconnected-bg: #3f3f3f;
+  --network-disconnected-border: #6d6d6d;
+  /* Opaque network button status surfaces (dark theme) */
+  --network-button-connected-bg: #143a32;
+  --network-button-connected-border: #1f8469;
+  --network-button-connected-hover: #194339;
+  --network-button-connected-text: #9fe5cf;
+  --network-button-wrong-bg: #40252b;
+  --network-button-wrong-border: #be4f5b;
+  --network-button-wrong-hover: #4a2a31;
+  --network-button-wrong-text: #ffb8c0;
+  --network-button-disconnected-bg: #4a4a4a;
+  --network-button-disconnected-border: #747474;
+  --network-button-disconnected-hover: #545454;
+  --network-button-disconnected-text: #ffffff;
 }
 
 /* Base styles */
@@ -104,7 +152,7 @@ body {
 
 .network-badge.disconnected {
   background-color: transparent;
-  color: #ffffff;
+  color: var(--network-button-disconnected-text);
 }
 
 .hidden {

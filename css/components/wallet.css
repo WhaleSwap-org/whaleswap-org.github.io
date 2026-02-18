@@ -30,30 +30,33 @@
 }
 
 .network-button[data-network-status="connected"] {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: var(--network-button-connected-bg);
+  border-color: var(--network-button-connected-border);
+  color: var(--network-button-connected-text);
 }
 
 .network-button[data-network-status="connected"]:hover {
-  background: rgba(16, 185, 129, 0.2);
+  background: var(--network-button-connected-hover);
 }
 
 .network-button[data-network-status="wrong-network"] {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: var(--network-button-wrong-bg);
+  border-color: var(--network-button-wrong-border);
+  color: var(--network-button-wrong-text);
 }
 
 .network-button[data-network-status="wrong-network"]:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--network-button-wrong-hover);
 }
 
 .network-button[data-network-status="disconnected"] {
-  background: #666;
-  border-color: #666;
+  background: var(--network-button-disconnected-bg);
+  border-color: var(--network-button-disconnected-border);
+  color: var(--network-button-disconnected-text);
 }
 
 .network-button[data-network-status="disconnected"]:hover {
-  background: #777;
+  background: var(--network-button-disconnected-hover);
 }
 
 .network-dropdown {
@@ -70,18 +73,18 @@
 }
 
 .network-dropdown[data-network-status="connected"] {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.45);
+  background: var(--network-connected-bg);
+  border-color: var(--network-connected-border);
 }
 
 .network-dropdown[data-network-status="wrong-network"] {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.45);
+  background: var(--network-wrong-bg);
+  border-color: var(--network-wrong-border);
 }
 
 .network-dropdown[data-network-status="disconnected"] {
-  background: rgba(102, 102, 102, 0.12);
-  border-color: rgba(102, 102, 102, 0.45);
+  background: var(--network-disconnected-bg);
+  border-color: var(--network-disconnected-border);
 }
 
 .network-dropdown.hidden {
@@ -266,7 +269,7 @@
 
 .network-badge.disconnected {
   background-color: transparent;
-  color: #ffffff;
+  color: var(--network-button-disconnected-text);
 }
 
 .network-button:hover .network-badge {

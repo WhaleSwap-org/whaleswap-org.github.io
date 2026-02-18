@@ -4,12 +4,19 @@
   Features: wallet connection, token swapping, order management, and dark/light themes.
 -->
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <!-- Head section contains meta info, styles, and script imports -->
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WhaleSwap</title>
+    <script>
+      (function () {
+        var savedTheme = localStorage.getItem("theme");
+        var theme = savedTheme || "light";
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
     <!-- Favicon using the same logo -->
     <link rel="icon" type="image/png" href="assets/1.png" />
     <link rel="shortcut icon" type="image/png" href="assets/1.png" />
@@ -51,7 +58,7 @@
           <div class="logo-container">
             <img src="assets/1.png" alt="WhaleSwap Logo" class="logo-image" />
             <h1>WhaleSwap</h1>
-            <span class="version">v1.0.25</span>
+            <span class="version">v1.0.26</span>
           </div>
         </div>
         <!-- Theme toggle and wallet connection controls -->
