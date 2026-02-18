@@ -58,7 +58,7 @@ export class Intro extends BaseComponent {
 							<ul>
 								<li>Click "Connect Wallet" in top right</li>
 								<li>Pick allowed wallets</li>
-								<li>Have POLYGON for gas fees</li>
+								<li>Have native gas token (BNB/POL) for fees</li>
 								<li>Have USDC for order creation fee</li>
 							</ul>
 						</div>

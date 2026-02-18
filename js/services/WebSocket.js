@@ -828,7 +828,7 @@ export class WebSocketService {
                 // Get icon URL for the token
                 let iconUrl = null;
                 try {
-                    const chainId = 137; // Polygon - TODO: might want to get this dynamically
+                    const chainId = Number.parseInt(getNetworkConfig().chainId, 16) || 137;
                     iconUrl = await tokenIconService.getIconUrl(tokenAddress, chainId);
                 } catch (err) {
                     this.debug(`Failed to get icon for token ${tokenAddress}:`, err);

@@ -6,31 +6,31 @@ export const APP_BRAND = 'WhaleSwap';
 export const APP_LOGO = 'img/whaleSwap.png';
 
 const networkConfig = {
-    "80002": {
-        slug: "amoy",
-        name: "Amoy",
-        displayName: "Polygon Amoy Testnet",
+    "56": {
+        slug: "bnb",
+        name: "BNB Chain",
+        displayName: "BNB Chain",
         isDefault: false,
-        contractAddress: "0x7A64764074971839bd5A3022beA2450CBc51dEC8",
+        contractAddress: "0x324d9b90A07D587B4FA0D68c22645B9c8D321079",
         contractABI: CONTRACT_ABI,
-        explorer: "https://www.oklink.com/amoy",
-        rpcUrl: "https://rpc-amoy.polygon.technology",
+        explorer: "https://bscscan.com",
+        rpcUrl: "https://bsc-dataseed.binance.org",
         fallbackRpcUrls: [
-            "https://rpc.ankr.com/polygon_amoy",
-            "https://polygon-amoy.blockpi.network/v1/rpc/public",
-            "https://polygon-amoy.public.blastapi.io"
+            "https://bsc-dataseed1.binance.org",
+            "https://bsc-dataseed1.defibit.io",
+            "https://rpc.ankr.com/bsc"
         ],
-        chainId: "0x13882",
+        chainId: "0x38",
         nativeCurrency: {
-            name: "POL",
-            symbol: "POL",
+            name: "BNB",
+            symbol: "BNB",
             decimals: 18
         },
-        // multicall address amoy testnet
+        // Multicall3
         multicallAddress: "0xca11bde05977b3631167028862be2a173976ca11",
-        wsUrl: "wss://polygon-amoy-bor-rpc.publicnode.com",
+        wsUrl: "wss://bsc-rpc.publicnode.com",
         fallbackWsUrls: [
-            "wss://polygon-amoy.public.blastapi.io"
+            "wss://bsc.publicnode.com"
         ]
     },
     "137": {
@@ -38,9 +38,7 @@ const networkConfig = {
         name: "Polygon",
         displayName: "Polygon Mainnet",
         isDefault: true,
-        contractAddress: "0x2F786290BAe87D1e8c01A97e6529030bbCF9f147", // New contract with allowed tokens 08/15/25
-        /* "0x34396a792510d6fb8ec0f70b68b8739456af06c6",  */// old 08/14/25
-        /* "0x8F37e9b4980340b9DE777Baa4B9c5B2fc1BDc837", */ // old 08/13/25
+        contractAddress: "0x324d9b90A07D587B4FA0D68c22645B9c8D321079",
         contractABI: CONTRACT_ABI,
         explorer: "https://polygonscan.com",
         rpcUrl: "https://polygon-rpc.com",
@@ -101,7 +99,7 @@ export const DEBUG_CONFIG = {
     TOKEN_ICON_SERVICE: false, // Add token icon service debugging
     TOAST: false, // Enable toast debugging for testing
     PRICING_DEFAULT_TO_ONE: false, // Default missing prices to 1 for testing, false for production
-    LIBERDUS_VALIDATION: true, // Enable frontend WhaleSwap token validation
+    LIBERDUS_VALIDATION: true, // Enable frontend Liberdus token validation
     // Add more specific flags as needed
 };
 
@@ -122,7 +120,6 @@ export const TOKEN_ICON_CONFIG = {
     CHAIN_ID_MAP: {
         '1': 'ethereum',
         '137': 'polygon-pos',
-        '80002': 'polygon-amoy',
         '56': 'binance-smart-chain',
         '42161': 'arbitrum-one',
         '10': 'optimistic-ethereum',
@@ -131,18 +128,19 @@ export const TOKEN_ICON_CONFIG = {
         '25': 'cronos'
     },
     
-    // Known token mappings for Polygon (expandable)
+    // Known token mappings for supported chains
     KNOWN_TOKENS: {
-        "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": "usd-coin", // USDC
-        "0xc2132d05d31c914a87c6611c10748aeb04b58e8f": "tether", // USDT
+        "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": "usd-coin", // Polygon USDC
+        "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": "wrapped-bitcoin", // Polygon WBTC
+        "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": "usd-coin", // BNB USDC
+        "0x0555e30da8f98308edb960aa94c0db47230d2b9c": "wrapped-bitcoin", // BNB WBTC
         "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619": "weth", // WETH
         "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270": "matic-network", // WMATIC
-        "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": "wrapped-bitcoin", // WBTC
     },
     
     // Special cases
     SPECIAL_TOKENS: {
-        "0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76": "assets/32.png" // WhaleSwap
+        "0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76": "assets/32.png" // Liberdus
     },
     
     // Rate limiting configuration

@@ -255,13 +255,15 @@ export class TokenIconService {
             return null;
         }
 
-        // Known token mappings for Polygon (we'll expand this)
+        // Known token mappings for supported chains
         const knownTokens = {
-            "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": "usd-coin", // USDC
+            "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": "usd-coin", // Polygon USDC
+            "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": "wrapped-bitcoin", // Polygon WBTC
+            "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": "usd-coin", // BNB USDC
+            "0x0555e30da8f98308edb960aa94c0db47230d2b9c": "wrapped-bitcoin", // BNB WBTC
             "0xc2132d05d31c914a87c6611c10748aeb04b58e8f": "tether", // USDT
             "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619": "weth", // WETH
             "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270": "matic-network", // WMATIC
-            "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": "wrapped-bitcoin", // WBTC
         };
 
         const coinId = knownTokens[tokenAddress.toLowerCase()];

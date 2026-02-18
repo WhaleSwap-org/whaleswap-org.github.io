@@ -249,7 +249,7 @@ export function getSupportedChainNames() {
  * @returns {Object} Token address to CoinGecko ID mapping
  */
 export function getKnownTokens(chainId) {
-    // For now, return Polygon tokens. In the future, this could be chain-specific
+    // Shared known token map for currently supported chains
     return TOKEN_ICON_CONFIG.KNOWN_TOKENS;
 }
 

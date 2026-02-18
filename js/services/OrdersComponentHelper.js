@@ -1,4 +1,5 @@
 import { ContractError, CONTRACT_ERRORS } from '../errors/ContractErrors.js';
+import { getNetworkConfig } from '../config.js';
 import { tokenIconService } from './TokenIconService.js';
 import { generateTokenIconHTML } from '../utils/tokenIcons.js';
 import { createLogger } from './LogService.js';
@@ -250,7 +251,8 @@ export class OrdersComponentHelper {
             
             // Otherwise, get icon URL from token icon service
             const wallet = this.component.ctx.getWallet();
-            const chainId = wallet?.chainId ? parseInt(wallet.chainId, 16) : 137; // Default to Polygon
+            const fallbackChainId = Number.parseInt(getNetworkConfig().chainId, 16) || 137;
+            const chainId = wallet?.chainId ? parseInt(wallet.chainId, 16) : fallbackChainId;
             const iconUrl = await tokenIconService.getIconUrl(token.address, chainId);
             
             // Generate HTML using the utility function

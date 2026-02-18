@@ -160,7 +160,7 @@ export class ContractParams extends BaseComponent {
                         <p>${safe(params.accumulatedFees, (v) => this.formatTokenAmount(v, params.tokenDecimals))} ${safe(params.tokenSymbol)}</p>
                     </div>
                     <div class="param-item">
-                        <h4>Contract Status</h4>
+                        <h4>New Orders</h4>
                         <p class="${params.isDisabled ? 'status-disabled' : 'status-enabled'}">
                             ${params.isDisabled ? 'Disabled' : 'Enabled'}
                         </p>

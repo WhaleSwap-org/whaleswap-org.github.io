@@ -21,6 +21,12 @@ const TOKEN_METADATA_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const BALANCE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 const tokenMetadataCache = new Map(); // key: tokenAddress (lowercase) -> { value, ts }
 const balanceCache = new Map(); // key: `${token}-${user}` -> { value, ts }
+const LIBERDUS_ADDRESS = '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76';
+const LIBERDUS_METADATA = {
+    symbol: 'LIB',
+    name: 'Liberdus',
+    decimals: 18
+};
 
 /**
  * Batch fetch balances and decimals for many tokens using multicall
@@ -190,6 +196,11 @@ async function getTokenMetadata(tokenAddress) {
         if (cached && (Date.now() - cached.ts) < TOKEN_METADATA_CACHE_TTL_MS) {
             return cached.value;
         }
+        // Always normalize Liberdus naming regardless of token contract metadata
+        if (normalizedAddress === LIBERDUS_ADDRESS) {
+            tokenMetadataCache.set(normalizedAddress, { value: LIBERDUS_METADATA, ts: Date.now() });
+            return LIBERDUS_METADATA;
+        }
         // Known token fallbacks for common tokens
         const knownTokens = {
             // Polygon Mainnet tokens
@@ -198,21 +209,28 @@ async function getTokenMetadata(tokenAddress) {
                 name: 'Wrapped Bitcoin',
                 decimals: 8
             },
-            '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': {
+            '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': {
                 symbol: 'USDC',
                 name: 'USD Coin',
                 decimals: 6
+            },
+            // BNB Chain tokens
+            '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': {
+                symbol: 'USDC',
+                name: 'USD Coin',
+                decimals: 18
+            },
+            '0x0555e30da8f98308edb960aa94c0db47230d2b9c': {
+                symbol: 'WBTC',
+                name: 'Wrapped Bitcoin',
+                decimals: 8
             },
             '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': {
                 symbol: 'USDT',
                 name: 'Tether USD',
                 decimals: 6
             },
-            '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76': {
-                symbol: 'LIB',
-                name: 'WhaleSwap',
-                decimals: 18
-            },
+            [LIBERDUS_ADDRESS]: LIBERDUS_METADATA,
             '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619': {
                 symbol: 'WETH',
                 name: 'Wrapped Ether',
@@ -224,23 +242,6 @@ async function getTokenMetadata(tokenAddress) {
                 decimals: 18
             },
         };
-
-                    /* // Amoy Testnet tokens
-                    '0x224708430f2FF85E32cd77e986eE558Eb8cC77D9': {
-                        symbol: 'FEE',
-                        name: 'Fee Token',
-                        decimals: 18
-                    },
-                    '0xB93D55595796D8c59beFC0C9045415B4d567f27c': {
-                        symbol: 'TT1',
-                        name: 'Trading Token 1',
-                        decimals: 18
-                    },
-                    '0x963322CC131A072F333A76ac321Bb80b6cb5375C': {
-                        symbol: 'TT2',
-                        name: 'Trading Token 2',
-                        decimals: 18
-                    } */
 
         // Check if we have known metadata for this token
         const knownToken = knownTokens[normalizedAddress];

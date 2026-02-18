@@ -15,9 +15,10 @@ import { getExplorerUrl } from '../utils/orderUtils.js';
 export class CreateOrder extends BaseComponent {
     // Liberdus token addresses by network chainId (decimal, not hex)
     static LIBERDUS_ADDRESSES = {
-        '137': '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76', // Polygon Mainnet
-        '80002': '0xb96AC22BaC90Cd59A30376309e54385413517119' // Amoy Testnet
+        '137': '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76' // Polygon Mainnet
     };
+    static LIBERDUS_DISPLAY_NAME = 'Liberdus';
+    static LIBERDUS_DISPLAY_SYMBOL = 'LIB';
     
     constructor() {
         super('create-order');
@@ -138,7 +139,7 @@ export class CreateOrder extends BaseComponent {
             }
             
             // Keep status area quiet in read-only mode, but continue initialization so
-            // users can still view inputs and token lists while disconnected.
+            // users can still view enhanced inputs and token lists while disconnected.
             if (readOnlyMode) {
                 const statusElement = document.getElementById('status');
                 if (statusElement) {
@@ -307,8 +308,9 @@ export class CreateOrder extends BaseComponent {
     setReadOnlyMode() {
         this.debug('Setting read-only mode');
         const createOrderBtn = document.getElementById('createOrderBtn');
+        const orderCreationFee = document.getElementById('orderCreationFee');
         
-        // Keep form visible while disconnected; only gate submission.
+        // Ensure UI is hidden per styles by removing wallet-connected
         const swapSection = document.querySelector('.swap-section');
         if (swapSection) {
             swapSection.classList.remove('wallet-connected');
@@ -318,6 +320,12 @@ export class CreateOrder extends BaseComponent {
             createOrderBtn.disabled = true;
             createOrderBtn.textContent = 'Connect Wallet to Create Order';
         }
+        
+        // Disable input fields
+        ['partner', 'sellToken', 'sellAmount', 'buyToken', 'buyAmount'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.disabled = true;
+        });
     }
 
     setConnectedMode() {
@@ -537,7 +545,7 @@ export class CreateOrder extends BaseComponent {
                 
                 if (!sellTokenIsLiberdus && !buyTokenIsLiberdus) {
                     this.debug('Liberdus validation failed');
-                    this.showError('One of the tokens must be WhaleSwap (LIB). Please select WhaleSwap as either the buy or sell token.');
+                    this.showError('One of the tokens must be Liberdus (LIB). Please select Liberdus as either the buy or sell token.');
                     return;
                 }
             }
@@ -795,19 +803,22 @@ export class CreateOrder extends BaseComponent {
             
             // Get all wallet tokens (both allowed and not allowed)
             const { allowed, notAllowed } = await getAllWalletTokens();
-            this.tokens = allowed; // Keep allowed tokens for backward compatibility
-            this.allowedTokens = allowed;
-            this.notAllowedTokens = notAllowed;
+            const normalizedAllowed = allowed.map(token => this.normalizeTokenDisplay(token));
+            const normalizedNotAllowed = notAllowed.map(token => this.normalizeTokenDisplay(token));
+
+            this.tokens = normalizedAllowed; // Keep allowed tokens for backward compatibility
+            this.allowedTokens = normalizedAllowed;
+            this.notAllowedTokens = normalizedNotAllowed;
             
-            this.debug('Loaded allowed tokens:', allowed);
-            this.debug('Loaded not allowed tokens:', notAllowed);
+            this.debug('Loaded allowed tokens:', normalizedAllowed);
+            this.debug('Loaded not allowed tokens:', normalizedNotAllowed);
             
             // Trigger price fetching for allowed tokens
             const pricing = this.ctx.getPricing();
-            if (pricing && allowed.length > 0) {
+            if (pricing && normalizedAllowed.length > 0) {
                 try {
                     this.debug('Triggering price fetching for allowed tokens...');
-                    const allowedAddresses = allowed.map(token => token.address);
+                    const allowedAddresses = normalizedAllowed.map(token => token.address);
                     await pricing.fetchPricesForTokens(allowedAddresses);
                     this.debug('Price fetching completed for allowed tokens');
                 } catch (error) {
@@ -817,7 +828,7 @@ export class CreateOrder extends BaseComponent {
             }
             
             // Debug: Check if tokens have iconUrl
-            for (const token of allowed) {
+            for (const token of normalizedAllowed) {
                 this.debug(`Token ${token.symbol} has iconUrl: ${!!token.iconUrl}`, token.iconUrl);
             }
 
@@ -831,13 +842,13 @@ export class CreateOrder extends BaseComponent {
                 // Display allowed tokens
                 const allowedTokensList = modal.querySelector(`#${type}AllowedTokenList`);
                 if (allowedTokensList) {
-                    this.displayTokens(allowed, allowedTokensList, type);
+                    this.displayTokens(normalizedAllowed, allowedTokensList, type);
                 }
 
                 // Display not allowed tokens if any exist
                 const notAllowedSection = modal.querySelector(`#${type}NotAllowedSection`);
-                if (notAllowedSection && notAllowed.length > 0) {
-                    this.displayNotAllowedTokens(notAllowed, notAllowedSection, type);
+                if (notAllowedSection && normalizedNotAllowed.length > 0) {
+                    this.displayNotAllowedTokens(normalizedNotAllowed, notAllowedSection, type);
                 }
             });
         } catch (error) {
@@ -1031,13 +1042,13 @@ export class CreateOrder extends BaseComponent {
                         // Check if token is allowed in the contract
                         const isAllowed = await contractService.isTokenAllowed(searchTerm);
                         
-                        const token = {
+                        const token = this.normalizeTokenDisplay({
                             address: searchTerm,
                             name,
                             symbol,
                             decimals,
                             balance: balance ? ethers.utils.formatUnits(balance, decimals) : '0'
-                        };
+                        });
 
                         // Get USD price and calculate USD value
                         const pricing = this.ctx.getPricing();
@@ -1231,7 +1242,9 @@ export class CreateOrder extends BaseComponent {
         container.innerHTML = '';
 
         // Sort tokens: tokens with balance first, then alphabetically by symbol
-        const sortedTokens = [...tokens].sort((a, b) => {
+        const sortedTokens = [...tokens]
+            .map(token => this.normalizeTokenDisplay(token))
+            .sort((a, b) => {
             const aBalance = Number(a.balance) || 0;
             const bBalance = Number(b.balance) || 0;
             
@@ -1380,7 +1393,9 @@ export class CreateOrder extends BaseComponent {
         container.innerHTML = '';
 
         // Sort tokens alphabetically by symbol
-        const sortedTokens = [...notAllowed].sort((a, b) => a.symbol.localeCompare(b.symbol));
+        const sortedTokens = [...notAllowed]
+            .map(token => this.normalizeTokenDisplay(token))
+            .sort((a, b) => a.symbol.localeCompare(b.symbol));
 
         // Add each token to the container
         sortedTokens.forEach(token => {
@@ -1511,6 +1526,25 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
+    isKnownLiberdusAddress(tokenAddress) {
+        if (!tokenAddress) return false;
+        const normalizedAddress = tokenAddress.toLowerCase();
+        return Object.values(CreateOrder.LIBERDUS_ADDRESSES)
+            .some(address => address?.toLowerCase() === normalizedAddress);
+    }
+
+    normalizeTokenDisplay(token) {
+        if (!token || !this.isKnownLiberdusAddress(token.address)) {
+            return token;
+        }
+
+        return {
+            ...token,
+            symbol: token.symbol || CreateOrder.LIBERDUS_DISPLAY_SYMBOL,
+            name: CreateOrder.LIBERDUS_DISPLAY_NAME
+        };
+    }
+
     // Add helper method for token icons
     async getTokenIcon(token) {
         try {
@@ -1524,7 +1558,8 @@ export class CreateOrder extends BaseComponent {
             }
             
             // Otherwise, get icon URL from token icon service
-            const chainId = walletManager.chainId ? parseInt(walletManager.chainId, 16) : 137; // Default to Polygon
+            const fallbackChainId = Number.parseInt(getNetworkConfig().chainId, 16) || 137;
+            const chainId = walletManager.chainId ? parseInt(walletManager.chainId, 16) : fallbackChainId;
             const iconUrl = await tokenIconService.getIconUrl(token.address, chainId);
             
             // Generate HTML using the utility function
@@ -1699,7 +1734,15 @@ export class CreateOrder extends BaseComponent {
 
     // Helper method to check if Liberdus validation is enabled
     isLiberdusValidationEnabled() {
-        return window.DEBUG_CONFIG?.LIBERDUS_VALIDATION === true;
+        if (window.DEBUG_CONFIG?.LIBERDUS_VALIDATION !== true) {
+            return false;
+        }
+
+        const activeChainId = walletManager?.chainId
+            ? Number.parseInt(walletManager.chainId, 16).toString()
+            : null;
+
+        return !!(activeChainId && CreateOrder.LIBERDUS_ADDRESSES[activeChainId]);
     }
 
     // Add new helper method for user-friendly error messages
@@ -2104,22 +2147,23 @@ export class CreateOrder extends BaseComponent {
 
         const pricing = this.ctx.getPricing();
         modalContent.innerHTML = tokens.map(token => {
-            const usdPrice = pricing?.getPrice(token.address);
-            const balance = parseFloat(token.balance) || 0;
+            const displayToken = this.normalizeTokenDisplay(token);
+            const usdPrice = pricing?.getPrice(displayToken.address);
+            const balance = parseFloat(displayToken.balance) || 0;
             const balanceUSD = (balance > 0 && usdPrice !== undefined) ? (balance * usdPrice).toFixed(2) : (usdPrice !== undefined ? '0.00' : 'N/A');
             
             return `
-                <div class="token-item" data-address="${token.address}">
+                <div class="token-item" data-address="${displayToken.address}">
                     <div class="token-item-left">
                         <div class="token-icon">
-                            ${token.iconUrl && token.iconUrl !== 'fallback' ? 
-                                `<img src="${token.iconUrl}" alt="${token.symbol}" class="token-icon-image">` :
-                                `<div class="token-icon-fallback">${token.symbol.charAt(0)}</div>`
+                            ${displayToken.iconUrl && displayToken.iconUrl !== 'fallback' ? 
+                                `<img src="${displayToken.iconUrl}" alt="${displayToken.symbol}" class="token-icon-image">` :
+                                `<div class="token-icon-fallback">${displayToken.symbol.charAt(0)}</div>`
                             }
                         </div>
                         <div class="token-info">
-                            <span class="token-symbol">${token.symbol}</span>
-                            <span class="token-name">${token.name || ''}</span>
+                            <span class="token-symbol">${displayToken.symbol}</span>
+                            <span class="token-name">${displayToken.name || ''}</span>
                         </div>
                     </div>
                     <div class="token-balance">
