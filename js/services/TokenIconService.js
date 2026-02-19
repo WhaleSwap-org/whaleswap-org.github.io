@@ -18,6 +18,8 @@ const warn = logger.warn.bind(logger);
 // CoinGecko API configuration
 const COINGECKO_API_BASE = 'https://api.coingecko.com/api/v3';
 const COINGECKO_ICON_BASE = 'https://assets.coingecko.com/coins/images';
+const COINGECKO_TOKENLIST_BASE = 'https://tokens.coingecko.com';
+const UNISWAP_TOKENLIST_URL = 'https://tokens.uniswap.org';
 
 // Rate limiting configuration
 const RATE_LIMIT_DELAY = 100; // ms between requests
@@ -25,7 +27,7 @@ const MAX_CACHE_SIZE = 1000; // Maximum number of cached icons
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in ms
 const UNKNOWN_TOKEN_CACHE_EXPIRY = 10 * 60 * 1000; // 10 minutes in ms
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
-const ICON_CACHE_SCHEMA_VERSION = 'v2';
+const ICON_CACHE_SCHEMA_VERSION = 'v4';
 const ICON_CACHE_KEY_PREFIX = 'tokenIconCache';
 
 /**
@@ -85,6 +87,8 @@ export class TokenIconService {
         this.loadingPromises = new Map();
         this.rateLimiter = new RateLimiter();
         this.cacheTimestamps = new Map();
+        this.coinGeckoTokenListPromises = new Map();
+        this.uniswapTokenListPromise = null;
         this.cacheStorageKey = this.getCacheStorageKey();
         
         // Load cache from localStorage on initialization
@@ -242,7 +246,13 @@ export class TokenIconService {
      * @returns {Promise<string|null>} CoinGecko icon URL or null
      */
     async getCoinGeckoIconUrl(tokenAddress, chainId) {
-        // CoinGecko chain mapping
+        const normalizedAddress = tokenAddress?.toLowerCase();
+        if (!ethers.utils.isAddress(normalizedAddress)) {
+            debug('Invalid token address for CoinGecko lookup:', tokenAddress);
+            return null;
+        }
+
+        // CoinGecko asset platform mapping
         const chainMap = {
             1: "ethereum",
             137: "polygon-pos",
@@ -254,13 +264,35 @@ export class TokenIconService {
             25: "cronos"
         };
 
-        const chainName = chainMap[chainId];
+        const normalizedChainId = Number(chainId);
+        const chainName = chainMap[normalizedChainId];
         if (!chainName) {
             debug('Unsupported chain for CoinGecko:', chainId);
             return null;
         }
 
-        // Known token mappings for supported chains
+        // Primary path: dynamic lookup by platform + contract address
+        const dynamicIconUrl = await this.fetchCoinGeckoContractIcon(chainName, normalizedAddress);
+        if (dynamicIconUrl) {
+            debug('Found CoinGecko icon URL via dynamic contract lookup:', dynamicIconUrl);
+            return dynamicIconUrl;
+        }
+
+        // Fallback path 1: CoinGecko chain token list
+        const coinGeckoListIconUrl = await this.fetchCoinGeckoTokenListIcon(chainName, normalizedAddress);
+        if (coinGeckoListIconUrl) {
+            debug('Found icon URL via CoinGecko token list:', coinGeckoListIconUrl);
+            return coinGeckoListIconUrl;
+        }
+
+        // Fallback path 2: Uniswap token list (multi-chain)
+        const uniswapListIconUrl = await this.fetchUniswapTokenListIcon(normalizedChainId, normalizedAddress);
+        if (uniswapListIconUrl) {
+            debug('Found icon URL via Uniswap token list:', uniswapListIconUrl);
+            return uniswapListIconUrl;
+        }
+
+        // Fallback path: known token to coin-id mapping
         const knownTokens = {
             "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": "usd-coin", // Polygon USDC
             "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": "wrapped-bitcoin", // Polygon WBTC
@@ -271,27 +303,146 @@ export class TokenIconService {
             "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270": "matic-network", // WMATIC
         };
 
-        const coinId = knownTokens[tokenAddress.toLowerCase()];
+        const coinId = knownTokens[normalizedAddress];
         if (!coinId) {
-            debug('Unknown token for CoinGecko:', tokenAddress);
+            debug('Unknown token for CoinGecko fallback mapping:', tokenAddress);
             return null;
         }
 
+        const mappedIconUrl = await this.fetchCoinGeckoCoinIdIcon(coinId);
+        if (mappedIconUrl) {
+            debug('Found CoinGecko icon URL via fallback coin-id mapping:', mappedIconUrl);
+        }
+        return mappedIconUrl;
+    }
+
+    async fetchCoinGeckoTokenListIcon(chainName, tokenAddress) {
         try {
-            const response = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`);
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.image && data.image.small) {
-                    debug('Found CoinGecko icon URL:', data.image.small);
-                    return data.image.small;
-                }
-            }
+            const tokenMap = await this.getCoinGeckoTokenListMap(chainName);
+            return tokenMap.get(tokenAddress) || null;
         } catch (error) {
-            debug('CoinGecko API call failed:', error.message);
+            debug('CoinGecko token list fallback error:', error.message);
+            return null;
+        }
+    }
+
+    async getCoinGeckoTokenListMap(chainName) {
+        if (!chainName) return new Map();
+
+        if (this.coinGeckoTokenListPromises.has(chainName)) {
+            return this.coinGeckoTokenListPromises.get(chainName);
         }
 
-        return null;
+        const tokenListPromise = (async () => {
+            try {
+                const url = `${COINGECKO_TOKENLIST_BASE}/${chainName}/all.json`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    debug(`CoinGecko token list lookup failed (${response.status}) for ${chainName}`);
+                    return new Map();
+                }
+
+                const data = await response.json();
+                const tokenMap = new Map();
+                const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
+                tokens.forEach(token => {
+                    const address = token?.address?.toLowerCase();
+                    const logoUri = token?.logoURI;
+                    if (address && logoUri) {
+                        tokenMap.set(address, logoUri);
+                    }
+                });
+
+                debug(`Loaded CoinGecko token list for ${chainName}: ${tokenMap.size} logos`);
+                return tokenMap;
+            } catch (error) {
+                debug(`CoinGecko token list fetch error for ${chainName}:`, error.message);
+                return new Map();
+            }
+        })();
+
+        this.coinGeckoTokenListPromises.set(chainName, tokenListPromise);
+        return tokenListPromise;
+    }
+
+    async fetchCoinGeckoContractIcon(chainName, tokenAddress) {
+        try {
+            const url = `${COINGECKO_API_BASE}/coins/${chainName}/contract/${tokenAddress}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                debug(`CoinGecko contract lookup failed (${response.status}) for ${chainName}:${tokenAddress}`);
+                return null;
+            }
+
+            const data = await response.json();
+            return data?.image?.small || null;
+        } catch (error) {
+            debug('CoinGecko contract lookup error:', error.message);
+            return null;
+        }
+    }
+
+    async fetchCoinGeckoCoinIdIcon(coinId) {
+        try {
+            const url = `${COINGECKO_API_BASE}/coins/${coinId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                debug(`CoinGecko coin-id lookup failed (${response.status}) for ${coinId}`);
+                return null;
+            }
+
+            const data = await response.json();
+            return data?.image?.small || null;
+        } catch (error) {
+            debug('CoinGecko coin-id lookup error:', error.message);
+            return null;
+        }
+    }
+
+    async fetchUniswapTokenListIcon(chainId, tokenAddress) {
+        try {
+            const tokenMap = await this.getUniswapTokenListMap();
+            return tokenMap.get(`${chainId}-${tokenAddress}`) || null;
+        } catch (error) {
+            debug('Uniswap token list fallback error:', error.message);
+            return null;
+        }
+    }
+
+    async getUniswapTokenListMap() {
+        if (this.uniswapTokenListPromise) {
+            return this.uniswapTokenListPromise;
+        }
+
+        this.uniswapTokenListPromise = (async () => {
+            try {
+                const response = await fetch(UNISWAP_TOKENLIST_URL);
+                if (!response.ok) {
+                    debug(`Uniswap token list lookup failed (${response.status})`);
+                    return new Map();
+                }
+
+                const data = await response.json();
+                const tokenMap = new Map();
+                const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
+                tokens.forEach(token => {
+                    const address = token?.address?.toLowerCase();
+                    const chainId = Number(token?.chainId);
+                    const logoUri = token?.logoURI;
+                    if (address && Number.isFinite(chainId) && logoUri) {
+                        tokenMap.set(`${chainId}-${address}`, logoUri);
+                    }
+                });
+
+                debug(`Loaded Uniswap token list: ${tokenMap.size} logos`);
+                return tokenMap;
+            } catch (error) {
+                debug('Uniswap token list fetch error:', error.message);
+                return new Map();
+            }
+        })();
+
+        return this.uniswapTokenListPromise;
     }
 
 
