@@ -38,11 +38,396 @@
         }
       }
     </script>
+    <!-- Bootstrap loader styles (inline so loader appears immediately, even on slow networks) -->
+    <style>
+      #app-bootstrap-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #f8f9fa;
+        color: #1a1a1a;
+        opacity: 1;
+        padding: 20px;
+        text-align: center;
+      }
+
+      #app-bootstrap-loader .loading-skeleton--app {
+        width: min(1320px, calc(100vw - 40px));
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        margin-bottom: 12px;
+      }
+
+      #app-bootstrap-loader .skeleton-block {
+        border-radius: 12px;
+        background: linear-gradient(90deg, #e2e7ef 25%, #f2f5fa 50%, #e2e7ef 75%);
+        background-size: 200% 100%;
+        animation: bootstrap-shimmer 1.25s linear infinite;
+      }
+
+      #app-bootstrap-loader .skeleton-app-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 108px;
+        padding: 20px 24px;
+        border-radius: 16px;
+        background: rgba(220, 226, 236, 0.72);
+      }
+
+      #app-bootstrap-loader .skeleton-app-brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-logo {
+        width: 74px;
+        height: 74px;
+        border-radius: 999px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-brand-lines {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        width: min(360px, 44vw);
+      }
+
+      #app-bootstrap-loader .skeleton-app-title {
+        height: 32px;
+        width: 86%;
+      }
+
+      #app-bootstrap-loader .skeleton-app-version {
+        height: 16px;
+        width: 28%;
+      }
+
+      #app-bootstrap-loader .skeleton-app-wallet {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-pill {
+        height: 48px;
+        border-radius: 14px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-pill--network {
+        width: 220px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-pill--account {
+        width: 188px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-shell {
+        min-height: min(760px, 74vh);
+        border-radius: 18px;
+        background: rgba(220, 226, 236, 0.72);
+        padding: 18px 22px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-tabs-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      #app-bootstrap-loader .skeleton-app-tab {
+        height: 28px;
+        border-radius: 8px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-tab--sm {
+        width: 72px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-tab--md {
+        width: 106px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-divider {
+        height: 2px;
+        width: 100%;
+        border-radius: 2px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-main {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: 8px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-form {
+        width: min(560px, 94%);
+        border-radius: 20px;
+        background: rgba(220, 226, 236, 0.72);
+        padding: 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-token {
+        height: 146px;
+        border-radius: 14px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-arrow {
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        align-self: center;
+      }
+
+      #app-bootstrap-loader .skeleton-app-line {
+        height: 58px;
+        border-radius: 12px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-line--short {
+        height: 72px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-button {
+        height: 56px;
+        border-radius: 14px;
+        margin-top: 8px;
+      }
+
+      #app-bootstrap-loader .skeleton-app-footer {
+        height: 2px;
+        width: 100%;
+        border-radius: 2px;
+      }
+
+      #app-bootstrap-loader .loading-text {
+        font-size: 14px;
+        font-weight: 500;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
+      }
+
+      #app-bootstrap-loader .loading-hint {
+        position: absolute;
+        top: calc(50% + 20px);
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        color: #5c6474;
+        width: min(540px, 92vw);
+      }
+
+      #app-bootstrap-loader .loading-retry {
+        position: absolute;
+        top: calc(50% + 50px);
+        left: 50%;
+        transform: translateX(-50%);
+        border: 1px solid #c7cfdd;
+        background: #ffffff;
+        color: #1a1a1a;
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      #app-bootstrap-loader .loading-retry:hover {
+        background: #f2f5fb;
+      }
+
+      #app-bootstrap-loader.is-slow .loading-text {
+        color: #3a4cbf;
+      }
+
+      @keyframes bootstrap-shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+
+      @media (max-width: 720px) {
+        #app-bootstrap-loader .loading-skeleton--app {
+          width: min(1320px, calc(100vw - 24px));
+        }
+        #app-bootstrap-loader .skeleton-app-header {
+          min-height: 88px;
+          padding: 14px;
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+        #app-bootstrap-loader .skeleton-app-logo {
+          width: 56px;
+          height: 56px;
+        }
+        #app-bootstrap-loader .skeleton-app-brand-lines {
+          width: min(280px, 68vw);
+        }
+        #app-bootstrap-loader .skeleton-app-title {
+          height: 24px;
+        }
+        #app-bootstrap-loader .skeleton-app-version {
+          width: 40%;
+        }
+        #app-bootstrap-loader .skeleton-app-wallet {
+          width: 100%;
+          justify-content: center;
+          gap: 10px;
+        }
+        #app-bootstrap-loader .skeleton-app-pill--network {
+          width: min(220px, 58vw);
+        }
+        #app-bootstrap-loader .skeleton-app-pill--account {
+          width: min(170px, 38vw);
+        }
+        #app-bootstrap-loader .skeleton-app-shell {
+          min-height: min(700px, 76vh);
+          padding: 14px;
+        }
+        #app-bootstrap-loader .skeleton-app-tab {
+          height: 24px;
+        }
+        #app-bootstrap-loader .skeleton-app-tab--sm {
+          width: 60px;
+        }
+        #app-bootstrap-loader .skeleton-app-tab--md {
+          width: 86px;
+        }
+        #app-bootstrap-loader .skeleton-app-form {
+          width: 100%;
+          padding: 14px;
+          gap: 10px;
+        }
+        #app-bootstrap-loader .skeleton-app-token {
+          height: 112px;
+        }
+        #app-bootstrap-loader .skeleton-app-line {
+          height: 50px;
+        }
+        #app-bootstrap-loader .skeleton-app-line--short {
+          height: 62px;
+        }
+        #app-bootstrap-loader .skeleton-app-button {
+          height: 50px;
+        }
+      }
+    </style>
+    <script>
+      (function () {
+        var SLOW_BOOT_THRESHOLD_MS = 12000;
+        window.__bootstrapLoaderTimeout = null;
+
+        function markSlowBoot() {
+          var loader = document.getElementById('app-bootstrap-loader');
+          if (!loader) return;
+          loader.classList.add('is-slow');
+
+          var text = loader.querySelector('.loading-text');
+          if (text) {
+            text.textContent = 'Still loading WhaleSwap...';
+          }
+
+          var hint = loader.querySelector('[data-loader-hint]');
+          if (hint) {
+            hint.hidden = false;
+          }
+
+          var retry = loader.querySelector('[data-loader-retry]');
+          if (retry) {
+            retry.hidden = false;
+          }
+        }
+
+        window.addEventListener('DOMContentLoaded', function () {
+          var retryButton = document.querySelector('[data-loader-retry]');
+          if (retryButton) {
+            retryButton.addEventListener('click', function () {
+              window.location.reload();
+            });
+          }
+          window.__bootstrapLoaderTimeout = window.setTimeout(markSlowBoot, SLOW_BOOT_THRESHOLD_MS);
+        });
+      })();
+    </script>
     <!-- Main application entry point -->
     <script type="module" src="js/app.js" defer></script>
   </head>
   <!-- Body contains the main application structure -->
   <body>
+    <div
+      id="app-bootstrap-loader"
+      class="loading-overlay--global"
+      role="status"
+      aria-live="polite"
+      aria-label="Application loading"
+    >
+      <div class="loading-skeleton loading-skeleton--app" aria-hidden="true">
+        <div class="skeleton-app-header">
+          <div class="skeleton-app-brand">
+            <div class="skeleton-block skeleton-app-logo"></div>
+            <div class="skeleton-app-brand-lines">
+              <div class="skeleton-block skeleton-app-title"></div>
+              <div class="skeleton-block skeleton-app-version"></div>
+            </div>
+          </div>
+          <div class="skeleton-app-wallet">
+            <div class="skeleton-block skeleton-app-pill skeleton-app-pill--network"></div>
+            <div class="skeleton-block skeleton-app-pill skeleton-app-pill--account"></div>
+          </div>
+        </div>
+        <div class="skeleton-app-shell">
+          <div class="skeleton-app-tabs-row">
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--sm"></div>
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--sm"></div>
+            <div class="skeleton-block skeleton-app-tab skeleton-app-tab--sm"></div>
+          </div>
+          <div class="skeleton-block skeleton-app-divider"></div>
+          <div class="skeleton-app-main">
+            <div class="skeleton-app-form">
+              <div class="skeleton-block skeleton-app-token"></div>
+              <div class="skeleton-block skeleton-app-arrow"></div>
+              <div class="skeleton-block skeleton-app-token"></div>
+              <div class="skeleton-block skeleton-app-line"></div>
+              <div class="skeleton-block skeleton-app-line skeleton-app-line--short"></div>
+              <div class="skeleton-block skeleton-app-button"></div>
+            </div>
+          </div>
+          <div class="skeleton-block skeleton-app-footer"></div>
+        </div>
+      </div>
+      <div class="loading-text">Loading WhaleSwap...</div>
+      <div class="loading-hint" data-loader-hint hidden>
+        This is taking longer than expected. Your network may be slow.
+      </div>
+      <button class="loading-retry" type="button" data-loader-retry hidden>
+        Reload Page
+      </button>
+    </div>
     <div class="container">
       <!-- Header contains branding, theme toggle, and wallet connection -->
       <header class="header card">
@@ -50,7 +435,7 @@
           <div class="logo-container">
             <img src="img/whale_swap_2.webp" alt="WhaleSwap Logo" class="logo-image" />
             <h1>WhaleSwap</h1>
-            <span class="version">v1.0.32</span>
+            <span class="version">v1.0.33</span>
           </div>
         </div>
         <!-- Theme toggle and wallet connection controls -->

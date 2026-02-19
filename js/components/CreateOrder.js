@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { getNetworkConfig, walletManager } from '../config.js';
 import { setVisibility } from '../utils/ui.js';
 import { erc20Abi } from '../abi/erc20.js';
-import { getContractAllowedTokens, getAllWalletTokens, clearTokenCaches } from '../utils/contractTokens.js';
+import { getAllWalletTokens, clearTokenCaches } from '../utils/contractTokens.js';
 import { contractService } from '../services/ContractService.js';
 import { createLogger } from '../services/LogService.js';
 import { validateSellBalance } from '../utils/balanceValidation.js';
@@ -57,16 +57,63 @@ export class CreateOrder extends BaseComponent {
         };
     }
 
-    // Method to reset component state for account switching
-    resetState() {
+    getDefaultTokenSelectorMarkup() {
+        return `
+            <span class="token-selector-content">
+                <span>Select token</span>
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+            </span>
+        `;
+    }
+
+    clearSelectedTokens() {
+        this.sellToken = null;
+        this.buyToken = null;
+
+        ['sell', 'buy'].forEach(type => {
+            this[`${type}Token`] = null;
+
+            const selector = document.getElementById(`${type}TokenSelector`);
+            if (selector) {
+                selector.innerHTML = this.getDefaultTokenSelectorMarkup();
+            }
+
+            const tokenInput = document.getElementById(`${type}Token`);
+            if (tokenInput) {
+                tokenInput.value = '';
+            }
+
+            const amountInput = document.getElementById(`${type}Amount`);
+            if (amountInput) {
+                amountInput.value = '';
+            }
+
+            const usdDisplay = document.getElementById(`${type}AmountUSD`);
+            if (usdDisplay) {
+                usdDisplay.textContent = '≈ $0.00';
+                setVisibility(usdDisplay, false);
+            }
+        });
+
+        this.resetBalanceDisplays();
+        this.updateCreateButtonState();
+        this.debug('Cleared selected tokens from create order form');
+    }
+
+    // Method to reset component state for account switching/disconnects
+    resetState(options = {}) {
+        const { clearSelections = false } = options;
         this.debug('Resetting CreateOrder component state...');
         this.initialized = false;
         this.initializing = false;
         this.hasLoadedData = false;
         this.tokens = [];
-        // this.sellToken = null;  // Commented out - not resetting form
-        // this.buyToken = null;   // Commented out - not resetting form
         this.feeToken = null;
+        if (clearSelections) {
+            this.clearSelectedTokens();
+        }
         // Token cache is centralized in WebSocket - no local cache to clear
         this.resetBalanceDisplays();
     }
@@ -799,19 +846,14 @@ export class CreateOrder extends BaseComponent {
 
     async loadContractTokens() {
         try {
-            this.debug('Loading all wallet tokens...');
-            
-            // Get all wallet tokens (both allowed and not allowed)
-            const { allowed, notAllowed } = await getAllWalletTokens();
-            const normalizedAllowed = allowed.map(token => this.normalizeTokenDisplay(token));
-            const normalizedNotAllowed = notAllowed.map(token => this.normalizeTokenDisplay(token));
+            this.debug('Loading allowed wallet tokens...');
+            const allowedTokens = await getAllWalletTokens();
+            const normalizedAllowed = allowedTokens.map(token => this.normalizeTokenDisplay(token));
 
             this.tokens = normalizedAllowed; // Keep allowed tokens for backward compatibility
             this.allowedTokens = normalizedAllowed;
-            this.notAllowedTokens = normalizedNotAllowed;
             
             this.debug('Loaded allowed tokens:', normalizedAllowed);
-            this.debug('Loaded not allowed tokens:', normalizedNotAllowed);
             
             // Trigger price fetching for allowed tokens
             const pricing = this.ctx.getPricing();
@@ -843,12 +885,6 @@ export class CreateOrder extends BaseComponent {
                 const allowedTokensList = modal.querySelector(`#${type}AllowedTokenList`);
                 if (allowedTokensList) {
                     this.displayTokens(normalizedAllowed, allowedTokensList, type);
-                }
-
-                // Display not allowed tokens if any exist
-                const notAllowedSection = modal.querySelector(`#${type}NotAllowedSection`);
-                if (notAllowedSection && normalizedNotAllowed.length > 0) {
-                    this.displayNotAllowedTokens(normalizedNotAllowed, notAllowedSection, type);
                 }
             });
         } catch (error) {
@@ -980,10 +1016,6 @@ export class CreateOrder extends BaseComponent {
                         <h4>Allowed tokens</h4>
                         <div class="token-list" id="${type}AllowedTokenList"></div>
                     </div>
-                    <div class="token-section">
-                        <h4>Not Allowed Tokens</h4>
-                        <div class="token-list" id="${type}NotAllowedSection"></div>
-                    </div>
                 </div>
             </div>
         `;
@@ -1041,6 +1073,17 @@ export class CreateOrder extends BaseComponent {
                     if (name && symbol && decimals !== null) {
                         // Check if token is allowed in the contract
                         const isAllowed = await contractService.isTokenAllowed(searchTerm);
+                        if (!isAllowed) {
+                            contractResult.innerHTML = `
+                                <div class="token-section">
+                                    <h4>Token Contract</h4>
+                                    <div class="contract-error">
+                                        Token is not allowed for trading on this platform
+                                    </div>
+                                </div>
+                            `;
+                            return;
+                        }
                         
                         const token = this.normalizeTokenDisplay({
                             address: searchTerm,
@@ -1072,7 +1115,7 @@ export class CreateOrder extends BaseComponent {
                             <div class="token-section">
                                 <h4>Token Contract</h4>
                                 <div class="token-list">
-                                    <div class="token-item ${isAllowed ? 'token-allowed' : 'token-not-allowed'}" data-address="${token.address}">
+                                    <div class="token-item token-allowed" data-address="${token.address}">
                                         <div class="token-item-left">
                                             <div class="token-icon">
                                                 <div class="loading-spinner"></div>
@@ -1102,22 +1145,12 @@ export class CreateOrder extends BaseComponent {
                                         </div>
                                     </div>
                                 </div>
-                                ${!isAllowed ? `
-                                    <div class="token-not-allowed-message">
-                                        This token is not allowed for trading. Only tokens from the allowed list can be used.
-                                    </div>
-                                ` : ''}
                             </div>
                         `;
 
-                        // Add click handler only if token is allowed
+                        // Add click handler
                         const tokenItem = contractResult.querySelector('.token-item');
-                        if (isAllowed) {
-                            tokenItem.addEventListener('click', () => this.handleTokenItemClick(type, tokenItem));
-                        } else {
-                            tokenItem.style.cursor = 'not-allowed';
-                            tokenItem.title = 'This token is not allowed for trading';
-                        }
+                        tokenItem.addEventListener('click', () => this.handleTokenItemClick(type, tokenItem));
 
                         // Render token icon asynchronously
                         const iconContainer = tokenItem.querySelector('.token-icon');
@@ -1269,10 +1302,6 @@ export class CreateOrder extends BaseComponent {
                 tokenElement.className = `token-item ${hasBalance ? 'token-has-balance' : 'token-no-balance'}`;
             }
             
-            // For sell tokens, add disabled class if no balance
-            if (type === 'sell' && !hasBalance) {
-                tokenElement.classList.add('token-disabled');
-            }
             tokenElement.dataset.address = token.address;
             
             // Format balance with up to 4 decimal places if they exist
@@ -1368,122 +1397,11 @@ export class CreateOrder extends BaseComponent {
                 <div class="summary-text">
                     Showing ${totalTokens} allowed tokens
                     ${tokensWithBalance > 0 ? `(${tokensWithBalance} with balance)` : ''}
-                    ${type === 'sell' && tokensWithBalance < totalTokens ? ` - ${totalTokens - tokensWithBalance} disabled (no balance)` : ''}
+                    ${type === 'sell' && tokensWithBalance < totalTokens ? ` - ${totalTokens - tokensWithBalance} with no balance` : ''}
                 </div>
             `;
             container.appendChild(summaryElement);
         }
-    }
-
-    displayNotAllowedTokens(notAllowed, container, type) {
-        if (!container) return;
-
-        if (!notAllowed || notAllowed.length === 0) {
-            container.innerHTML = `
-                <div class="token-list-empty">
-                    <div class="empty-state-icon">🔍</div>
-                    <div class="empty-state-text">No not allowed tokens found</div>
-                    <div class="empty-state-subtext">This token is not allowed for trading.</div>
-                </div>
-            `;
-            return;
-        }
-
-        // Clear existing content
-        container.innerHTML = '';
-
-        // Sort tokens alphabetically by symbol
-        const sortedTokens = [...notAllowed]
-            .map(token => this.normalizeTokenDisplay(token))
-            .sort((a, b) => a.symbol.localeCompare(b.symbol));
-
-        // Add each token to the container
-        sortedTokens.forEach(token => {
-            const tokenElement = document.createElement('div');
-            const balance = Number(token.balance) || 0;
-            const hasBalance = balance > 0;
-            
-            tokenElement.className = `token-item token-not-allowed`;
-            tokenElement.dataset.address = token.address;
-            
-            // Format balance with up to 4 decimal places if they exist
-            const formattedBalance = balance.toLocaleString(undefined, { 
-                minimumFractionDigits: 2, 
-                maximumFractionDigits: 4,
-                useGrouping: true // Keeps the thousand separators
-            });
-            
-            // Get USD price and calculate USD value
-            const pricing = this.ctx.getPricing();
-            const usdPrice = pricing?.getPrice(token.address);
-            const usdValue = usdPrice !== undefined ? balance * usdPrice : 0;
-            const formattedUsdValue = usdPrice !== undefined ? usdValue.toLocaleString(undefined, {
-                style: 'currency',
-                currency: 'USD',
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            }) : 'N/A';
-
-            // Generate background color for fallback icon
-            const colors = [
-                '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', 
-                '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB'
-            ];
-            const colorIndex = token.address ? 
-                parseInt(token.address.slice(-6), 16) % colors.length :
-                Math.floor(Math.random() * colors.length);
-            const backgroundColor = colors[colorIndex];
-            
-            tokenElement.innerHTML = `
-                <div class="token-item-content">
-                    <div class="token-item-left">
-                        <div class="token-icon">
-                            ${token.iconUrl && token.iconUrl !== 'fallback' ? `
-                                <img src="${token.iconUrl}" 
-                                    alt="${token.symbol}" 
-                                    class="token-icon-image"
-                                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                                <div class="token-icon-fallback" style="display:none;background:${backgroundColor}">
-                                    ${token.symbol.charAt(0).toUpperCase()}
-                                </div>` : `
-                                <div class="token-icon-fallback" style="background:${backgroundColor}">
-                                    ${token.symbol.charAt(0).toUpperCase()}
-                                </div>`
-                            }
-                        </div>
-                        <div class="token-item-info">
-                            <div class="token-item-symbol">
-                                ${token.symbol}
-                            </div>
-                            <div class="token-item-name">${token.name}</div>
-                        </div>
-                    </div>
-                    <div class="token-item-right">
-                        <div class="token-balance-with-usd">
-                            <div class="token-balance-amount">${formattedBalance}</div>
-                            <div class="token-balance-usd">${formattedUsdValue}</div>
-                        </div>
-                        <div class="token-item-actions">
-                            <a href="${getExplorerUrl(token.address)}" 
-                               target="_blank"
-                               class="token-explorer-link"
-                               onclick="event.stopPropagation();"
-                               title="View on Explorer">
-                                <svg class="token-explorer-icon" viewBox="0 0 24 24">
-                                    <path fill="currentColor" d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
-                                </svg>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            // Add click handler
-            tokenElement.addEventListener('click', () => this.handleTokenItemClick(type, tokenElement));
-            
-            // Add to container
-            container.appendChild(tokenElement);
-        });
     }
 
     /**
@@ -1957,68 +1875,71 @@ export class CreateOrder extends BaseComponent {
             }
         } catch (error) {
             this.debug('Error in handleTokenSelect:', error);
-            this.showError(`Failed to select ${type} token: ${error.message}`);
+            const reason = error?.reason || error?.message || 'Unknown reason';
+            this.showWarning(`Unable to select ${type} token: ${reason}`);
         }
     }
 
     async handleTokenItemClick(type, tokenItem) {
         try {
-            const address = tokenItem.dataset.address;
-            
-            // Check if this is a not allowed token
-            const isNotAllowedToken = tokenItem.classList.contains('token-not-allowed');
-            
-            if (isNotAllowedToken) {
-                // Find the token in not allowed tokens
-                const token = this.notAllowedTokens?.find(t => t.address.toLowerCase() === address.toLowerCase());
-                if (token) {
-                    this.showWarning(`${token.symbol} is not allowed for trading on this platform. You can view your balance but cannot use it for orders.`);
-                }
-                return; // Don't allow selection of not allowed tokens
+            const isWalletConnected = typeof walletManager.isConnected === 'function'
+                ? walletManager.isConnected()
+                : Boolean(walletManager.isConnected);
+            if (!isWalletConnected) {
+                this.showWarning('Connect wallet to select a token.');
+                return;
             }
-            
-            // Handle allowed tokens
+
+            const address = tokenItem.dataset.address;
+            if (!address) {
+                this.showWarning('Unable to select token: missing token address.');
+                return;
+            }
+
             const token = this.tokens.find(t => t.address.toLowerCase() === address.toLowerCase());
             
             this.debug('Token item clicked:', {
                 type,
                 address,
-                token,
-                isNotAllowed: isNotAllowedToken
+                token
             });
             
-            if (token) {
-                // For sell tokens, check if balance is zero
-                if (type === 'sell') {
-                    const balance = Number(token.balance) || 0;
-                    if (balance <= 0) {
-                        this.showWarning(`${token.symbol} has no balance available for selling. Please select a token with a balance.`);
-                        return; // Don't allow selection of tokens with zero balance for selling
-                    }
+            if (!token) {
+                this.showWarning('Unable to select token: token is not available in the current list.');
+                return;
+            }
+
+            // For sell tokens, check if balance is zero
+            if (type === 'sell') {
+                const balance = Number(token.balance) || 0;
+                if (balance <= 0) {
+                    this.showWarning(`${token.symbol} has no balance available for selling. Please select a token with a balance.`);
+                    return; // Don't allow selection of tokens with zero balance for selling
                 }
+            }
+            
+            // Add loading state to token item
+            tokenItem.style.opacity = '0.6';
+            tokenItem.style.pointerEvents = 'none';
+            
+            try {
+                // Token is already validated since it's in the allowed tokens list
+                await this.handleTokenSelect(type, token);
                 
-                // Add loading state to token item
-                tokenItem.style.opacity = '0.6';
-                tokenItem.style.pointerEvents = 'none';
-                
-                try {
-                    // Token is already validated since it's in the allowed tokens list
-                    await this.handleTokenSelect(type, token);
-                    
-                    // Close the modal after selection
-                    const modal = document.getElementById(`${type}TokenModal`);
-                    if (modal) {
-                        modal.style.display = 'none';
-                    }
-                } finally {
-                    // Remove loading state
-                    tokenItem.style.opacity = '1';
-                    tokenItem.style.pointerEvents = 'auto';
+                // Close the modal after selection
+                const modal = document.getElementById(`${type}TokenModal`);
+                if (modal) {
+                    modal.style.display = 'none';
                 }
+            } finally {
+                // Remove loading state
+                tokenItem.style.opacity = '1';
+                tokenItem.style.pointerEvents = 'auto';
             }
         } catch (error) {
             this.debug('Error in handleTokenItemClick:', error);
-            this.showError('Failed to select token');
+            const reason = error?.reason || error?.message || 'Unknown reason';
+            this.showWarning(`Unable to select token: ${reason}`);
         }
     }
 

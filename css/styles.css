@@ -12,6 +12,9 @@
   --text-primary: #1a1a1a;
   --text-secondary: #666666;
   --text-tertiary: #888888;
+  --skeleton-base: #e2e7ef;
+  --skeleton-highlight: #f2f5fa;
+  --skeleton-surface: rgba(220, 226, 236, 0.72);
 
   /* Card specific variables */
   --card-bg: var(--bg-secondary);
@@ -54,6 +57,9 @@
   --text-primary: #ffffff;
   --text-secondary: #e0e0e0;
   --text-tertiary: #a0a0a0;
+  --skeleton-base: #3b4048;
+  --skeleton-highlight: #4a505a;
+  --skeleton-surface: rgba(58, 63, 73, 0.72);
 
   /* Opaque network dropdown status surfaces (dark theme) */
   --network-connected-bg: #13362f;
@@ -340,13 +346,21 @@ label {
   right: 0;
   bottom: 0;
   background: var(--bg-secondary);
-  opacity: 0.9;
+  opacity: 0.94;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   border-radius: 16px;
+}
+
+.loading-overlay--global {
+  position: fixed;
+  border-radius: 0;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
 }
 
 .loading-spinner {
@@ -359,10 +373,267 @@ label {
   margin-bottom: 10px;
 }
 
+.loading-skeleton {
+  width: min(920px, 94%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loading-skeleton--compact {
+  width: min(760px, 100%);
+}
+
+.loading-skeleton .skeleton-block {
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 25%,
+    var(--skeleton-highlight) 50%,
+    var(--skeleton-base) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s linear infinite;
+}
+
+.loading-overlay--global .loading-skeleton--app {
+  width: min(1320px, calc(100vw - 40px));
+  gap: 18px;
+}
+
+.loading-skeleton--app .skeleton-app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 108px;
+  padding: 20px 24px;
+  border-radius: 18px;
+  background: var(--skeleton-surface, rgba(255, 255, 255, 0.35));
+}
+
+.loading-skeleton--app .skeleton-app-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.loading-skeleton--app .skeleton-app-logo {
+  width: 74px;
+  height: 74px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.loading-skeleton--app .skeleton-app-brand-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, 44vw);
+}
+
+.loading-skeleton--app .skeleton-app-title {
+  height: 32px;
+  width: 86%;
+}
+
+.loading-skeleton--app .skeleton-app-version {
+  height: 16px;
+  width: 28%;
+}
+
+.loading-skeleton--app .skeleton-app-wallet {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+}
+
+.loading-skeleton--app .skeleton-app-pill {
+  height: 48px;
+  border-radius: 14px;
+}
+
+.loading-skeleton--app .skeleton-app-pill--network {
+  width: 220px;
+}
+
+.loading-skeleton--app .skeleton-app-pill--account {
+  width: 188px;
+}
+
+.loading-skeleton--app .skeleton-app-shell {
+  min-height: min(760px, 74vh);
+  border-radius: 18px;
+  background: var(--skeleton-surface, rgba(255, 255, 255, 0.35));
+  padding: 18px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.loading-skeleton--app .skeleton-app-tabs-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.loading-skeleton--app .skeleton-app-tab {
+  height: 28px;
+  border-radius: 8px;
+}
+
+.loading-skeleton--app .skeleton-app-tab--sm {
+  width: 72px;
+}
+
+.loading-skeleton--app .skeleton-app-tab--md {
+  width: 106px;
+}
+
+.loading-skeleton--app .skeleton-app-divider {
+  height: 2px;
+  width: 100%;
+  border-radius: 2px;
+}
+
+.loading-skeleton--app .skeleton-app-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8px;
+}
+
+.loading-skeleton--app .skeleton-app-form {
+  width: min(560px, 94%);
+  border-radius: 20px;
+  background: var(--skeleton-surface, rgba(255, 255, 255, 0.3));
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loading-skeleton--app .skeleton-app-token {
+  height: 146px;
+  border-radius: 14px;
+}
+
+.loading-skeleton--app .skeleton-app-arrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  align-self: center;
+}
+
+.loading-skeleton--app .skeleton-app-line {
+  height: 58px;
+  border-radius: 12px;
+}
+
+.loading-skeleton--app .skeleton-app-line--short {
+  height: 72px;
+}
+
+.loading-skeleton--app .skeleton-app-button {
+  height: 56px;
+  border-radius: 14px;
+  margin-top: 8px;
+}
+
+.loading-skeleton--app .skeleton-app-footer {
+  height: 2px;
+  width: 100%;
+  border-radius: 2px;
+}
+
+.loading-skeleton--form {
+  width: min(540px, 100%);
+  margin: 0 auto;
+  gap: 10px;
+}
+
+.loading-skeleton--form .skeleton-block--form-title {
+  height: 22px;
+  width: 46%;
+}
+
+.loading-skeleton--form .skeleton-block--form-group {
+  height: 84px;
+}
+
+.loading-skeleton--form .skeleton-block--form-button {
+  height: 48px;
+  width: 100%;
+}
+
+.loading-skeleton--orders {
+  width: min(1040px, 100%);
+  gap: 10px;
+}
+
+.loading-skeleton--orders .skeleton-block--orders-filter {
+  height: 50px;
+}
+
+.loading-skeleton--orders .skeleton-block--orders-head {
+  height: 40px;
+}
+
+.loading-skeleton--orders .skeleton-orders-row {
+  display: grid;
+  grid-template-columns: 6% 21% 21% 14% 14% 10% 14%;
+  gap: 10px;
+}
+
+.loading-skeleton--orders .skeleton-orders-cell {
+  display: block;
+  height: 22px;
+}
+
+.loading-skeleton--stats {
+  width: min(860px, 100%);
+  gap: 12px;
+}
+
+.loading-skeleton--stats .skeleton-block--stats-title {
+  height: 24px;
+  width: 34%;
+}
+
+.loading-skeleton--stats .skeleton-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.loading-skeleton--stats .skeleton-block--stats-card {
+  height: 128px;
+}
+
+.loading-skeleton--stats .skeleton-block--stats-row {
+  height: 48px;
+}
+
 .loading-text {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-weight: 500;
+  margin-top: 10px;
+}
+
+.loading-overlay--global .loading-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin-top: 0;
+  z-index: 2;
+  text-align: center;
+  white-space: nowrap;
 }
 
 /* Remove any other loading/spinner styles that might exist */
@@ -377,6 +648,111 @@ label {
   }
   100% {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .loading-overlay--global .loading-skeleton--app {
+    width: min(1320px, calc(100vw - 24px));
+  }
+
+  .loading-skeleton--app .skeleton-app-header {
+    min-height: 88px;
+    padding: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .loading-skeleton--app .skeleton-app-logo {
+    width: 56px;
+    height: 56px;
+  }
+
+  .loading-skeleton--app .skeleton-app-brand-lines {
+    width: min(280px, 68vw);
+  }
+
+  .loading-skeleton--app .skeleton-app-title {
+    height: 24px;
+  }
+
+  .loading-skeleton--app .skeleton-app-version {
+    width: 40%;
+  }
+
+  .loading-skeleton--app .skeleton-app-wallet {
+    width: 100%;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .loading-skeleton--app .skeleton-app-pill--network {
+    width: min(220px, 58vw);
+  }
+
+  .loading-skeleton--app .skeleton-app-pill--account {
+    width: min(170px, 38vw);
+  }
+
+  .loading-skeleton--app .skeleton-app-shell {
+    min-height: min(700px, 76vh);
+    padding: 14px;
+  }
+
+  .loading-skeleton--app .skeleton-app-tab {
+    height: 24px;
+  }
+
+  .loading-skeleton--app .skeleton-app-tab--sm {
+    width: 60px;
+  }
+
+  .loading-skeleton--app .skeleton-app-tab--md {
+    width: 86px;
+  }
+
+  .loading-skeleton--app .skeleton-app-form {
+    width: 100%;
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .loading-skeleton--app .skeleton-app-token {
+    height: 112px;
+  }
+
+  .loading-skeleton--app .skeleton-app-line {
+    height: 50px;
+  }
+
+  .loading-skeleton--app .skeleton-app-line--short {
+    height: 62px;
+  }
+
+  .loading-skeleton--app .skeleton-app-button {
+    height: 50px;
+  }
+
+  .loading-skeleton--orders .skeleton-orders-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .loading-skeleton--orders .skeleton-orders-cell {
+    height: 18px;
+  }
+
+  .loading-skeleton--stats .skeleton-stats-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -445,15 +821,6 @@ input {
 /* Update status message backgrounds */
 .status {
   background: var(--bg-secondary);
-}
-
-/* Update loading overlay */
-.loading-overlay {
-  background: var(--bg-secondary);
-}
-
-.loading-text {
-  color: var(--text-primary);
 }
 
 /* Update tab button colors */

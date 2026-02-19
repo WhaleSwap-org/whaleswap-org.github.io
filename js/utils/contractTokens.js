@@ -526,22 +526,15 @@ export async function getContractInfo() {
 }
 
 /**
- * Get all tokens in user's wallet (both allowed and not allowed)
- * @returns {Promise<Object>} Object with allowed and notAllowed token arrays
+ * Get wallet tokens available for swap (allowed tokens only)
+ * @returns {Promise<Array>} Array of allowed token objects
  */
 export async function getAllWalletTokens() {
     try {
-        debug('Getting all wallet tokens...');
+        debug('Getting allowed wallet tokens...');
         
-        // Get allowed tokens only (no wallet scanning)
+        // Fetch allowed tokens with metadata and balances
         const allowedTokens = await getContractAllowedTokens();
-        
-        // Get user's wallet address
-        const userAddress = await contractService.getUserAddress();
-        if (!userAddress) {
-            debug('No user address available');
-            return { allowed: allowedTokens, notAllowed: [] };
-        }
 
         // Mark allowed tokens
         const markedAllowedTokens = allowedTokens.map(token => ({
@@ -549,16 +542,11 @@ export async function getAllWalletTokens() {
             isAllowed: true
         }));
 
-        const result = {
-            allowed: markedAllowedTokens,
-            notAllowed: []
-        };
-
         debug(`Successfully processed ${markedAllowedTokens.length} allowed tokens`);
-        return result;
+        return markedAllowedTokens;
 
     } catch (err) {
         error('Failed to get all wallet tokens:', err);
-        return { allowed: [], notAllowed: [] };
+        return [];
     }
 }

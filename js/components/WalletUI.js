@@ -270,13 +270,24 @@ export class WalletUI extends BaseComponent {
                 this.showConnectButton();
                 return;
             }
-            
-            // Check if already connected, but only if not already connecting
+
+            // WalletManager.init() already handles session auto-connect.
+            // Here we only reflect current connected state in the UI.
+            const existingAccount = walletManager.getAccount?.();
+            if (existingAccount) {
+                this.debug('Found existing wallet manager session, syncing UI');
+                this.updateUI(existingAccount);
+                this.updateNetworkBadge(walletManager.chainId);
+                return;
+            }
+
+            // Fallback: reflect provider account in UI without triggering another connect flow.
             if (!walletManager.isConnecting) {
                 const accounts = await window.ethereum.request({ method: 'eth_accounts' });
                 if (accounts && accounts.length > 0) {
-                    this.debug('Found existing connection, connecting...');
-                    await this.connectWallet();
+                    this.debug('Found provider session, syncing UI without reconnect');
+                    this.updateUI(accounts[0]);
+                    this.updateNetworkBadge(walletManager.chainId);
                 }
             }
         } catch (error) {

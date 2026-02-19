@@ -31,7 +31,12 @@ export class PricingService {
         this.refreshPromise = null; // Track current refresh promise
     }
 
-    async initialize() {
+    async initialize(options = {}) {
+        const { deferInitialRefresh = false } = options;
+        if (deferInitialRefresh) {
+            this.debug('Deferring initial pricing refresh until allowed tokens are available');
+            return { success: true, message: 'Initial pricing refresh deferred' };
+        }
         await this.refreshPrices();
     }
 

@@ -45,7 +45,9 @@ export class VersionService {
 	 * Check for version updates and handle cache busting
 	 */
 	async checkVersion() {
-		const storedVersion = localStorage.getItem('app_version') || '0';
+		const storedVersionRaw = localStorage.getItem('app_version');
+		const hasStoredVersion = typeof storedVersionRaw === 'string' && storedVersionRaw.trim().length > 0;
+		const storedVersion = hasStoredVersion ? storedVersionRaw.trim() : null;
 		let newVersion;
 		
 		this.debug('Checking version. Stored version:', storedVersion);
@@ -77,6 +79,13 @@ export class VersionService {
 			
 			// For other errors, show a warning but continue
 			this.warn('Version check failed, continuing with cached version');
+			return false;
+		}
+
+		// First visit (or cleared storage): initialize local version without forcing update/reload.
+		if (!hasStoredVersion) {
+			localStorage.setItem('app_version', newVersion);
+			this.debug('No stored version found. Bootstrapping app_version without update.');
 			return false;
 		}
 

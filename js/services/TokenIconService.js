@@ -23,6 +23,10 @@ const COINGECKO_ICON_BASE = 'https://assets.coingecko.com/coins/images';
 const RATE_LIMIT_DELAY = 100; // ms between requests
 const MAX_CACHE_SIZE = 1000; // Maximum number of cached icons
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in ms
+const UNKNOWN_TOKEN_CACHE_EXPIRY = 10 * 60 * 1000; // 10 minutes in ms
+const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+const ICON_CACHE_SCHEMA_VERSION = 'v2';
+const ICON_CACHE_KEY_PREFIX = 'tokenIconCache';
 
 /**
  * Rate limiter utility class
@@ -81,6 +85,7 @@ export class TokenIconService {
         this.loadingPromises = new Map();
         this.rateLimiter = new RateLimiter();
         this.cacheTimestamps = new Map();
+        this.cacheStorageKey = this.getCacheStorageKey();
         
         // Load cache from localStorage on initialization
         this.loadCacheFromStorage();
@@ -107,7 +112,7 @@ export class TokenIconService {
             // Check memory cache first
             if (this.cache.has(cacheKey)) {
                 const cachedData = this.cache.get(cacheKey);
-                if (this.isCacheValid(cachedData.timestamp)) {
+                if (this.isCacheValid(cachedData)) {
                     debug('Icon found in memory cache:', normalizedAddress);
                     // If cached iconUrl is null (unknown token), return fallback
                     if (cachedData.iconUrl === null) {
@@ -327,11 +332,32 @@ export class TokenIconService {
 
     /**
      * Check if cache entry is still valid
-     * @param {number} timestamp - Cache timestamp
+     * @param {Object} cacheEntry - Cached token icon entry
      * @returns {boolean} True if cache is valid
      */
-    isCacheValid(timestamp) {
-        return Date.now() - timestamp < CACHE_EXPIRY;
+    isCacheValid(cacheEntry) {
+        if (!cacheEntry || !cacheEntry.timestamp) {
+            return false;
+        }
+
+        const entryExpiry = cacheEntry.isUnknown ? UNKNOWN_TOKEN_CACHE_EXPIRY : CACHE_EXPIRY;
+        return Date.now() - cacheEntry.timestamp < entryExpiry;
+    }
+
+    getCacheStorageKey() {
+        const appVersion = localStorage.getItem('app_version') || '0';
+        return `${ICON_CACHE_KEY_PREFIX}:${ICON_CACHE_SCHEMA_VERSION}:${appVersion}`;
+    }
+
+    cleanupOldStorageKeys() {
+        const activeKey = this.cacheStorageKey;
+
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(ICON_CACHE_KEY_PREFIX) && key !== activeKey) {
+                localStorage.removeItem(key);
+            }
+        }
     }
 
     /**
@@ -361,7 +387,8 @@ export class TokenIconService {
         this.cache.clear();
         this.cacheTimestamps.clear();
         this.loadingPromises.clear();
-        localStorage.removeItem('tokenIconCache');
+        this.cleanupOldStorageKeys();
+        localStorage.removeItem(this.cacheStorageKey);
         debug('All caches cleared');
     }
 
@@ -371,7 +398,7 @@ export class TokenIconService {
      */
     getCacheStats() {
         const validEntries = Array.from(this.cache.entries()).filter(([key, data]) => 
-            this.isCacheValid(data.timestamp)
+            this.isCacheValid(data)
         );
 
         return {
@@ -393,7 +420,7 @@ export class TokenIconService {
                 timestamp: Date.now()
             };
             
-            localStorage.setItem('tokenIconCache', JSON.stringify(cacheData));
+            localStorage.setItem(this.cacheStorageKey, JSON.stringify(cacheData));
         } catch (err) {
             warn('Failed to save cache to localStorage:', err);
         }
@@ -404,21 +431,23 @@ export class TokenIconService {
      */
     loadCacheFromStorage() {
         try {
-            const cacheData = localStorage.getItem('tokenIconCache');
+            this.cleanupOldStorageKeys();
+
+            const cacheData = localStorage.getItem(this.cacheStorageKey);
             if (!cacheData) return;
 
             const parsed = JSON.parse(cacheData);
             const now = Date.now();
 
             // Only load cache if it's not too old (7 days)
-            if (now - parsed.timestamp > 7 * 24 * 60 * 60 * 1000) {
-                localStorage.removeItem('tokenIconCache');
+            if (now - parsed.timestamp > CACHE_MAX_AGE) {
+                localStorage.removeItem(this.cacheStorageKey);
                 return;
             }
 
             // Restore cache entries
             parsed.cache.forEach(([key, data]) => {
-                if (this.isCacheValid(data.timestamp)) {
+                if (this.isCacheValid(data)) {
                     this.cache.set(key, data);
                     this.cacheTimestamps.set(key, data.timestamp);
                 }
@@ -427,7 +456,7 @@ export class TokenIconService {
             debug('Cache loaded from localStorage:', this.cache.size, 'entries');
         } catch (err) {
             warn('Failed to load cache from localStorage:', err);
-            localStorage.removeItem('tokenIconCache');
+            localStorage.removeItem(this.cacheStorageKey);
         }
     }
 }

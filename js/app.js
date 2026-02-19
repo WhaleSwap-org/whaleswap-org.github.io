@@ -22,6 +22,8 @@ import { createAppContext, setGlobalContext } from './services/AppContext.js';
 class App {
 	constructor() {
 		this.isInitializing = false;
+		this.globalLoader = null;
+		this.initialOrderSyncPromise = null;
 		
 		// Replace debug initialization with LogService
 		const logger = createLogger('APP');
@@ -30,6 +32,233 @@ class App {
 		this.warn = logger.warn.bind(logger);
 
 		this.debug('App constructor called');
+	}
+
+	isOrdersTab(tabId = this.currentTab) {
+		return tabId === 'view-orders'
+			|| tabId === 'my-orders'
+			|| tabId === 'taker-orders'
+			|| tabId === 'cleanup-orders';
+	}
+
+	async refreshActiveOrdersTab() {
+		if (!this.isOrdersTab()) return;
+		const activeComponent = this.components?.[this.currentTab];
+		if (!activeComponent) return;
+
+		try {
+			if (typeof activeComponent.refreshOrdersView === 'function') {
+				await activeComponent.refreshOrdersView();
+				return;
+			}
+
+			if (typeof activeComponent.checkCleanupOpportunities === 'function') {
+				await activeComponent.checkCleanupOpportunities();
+				return;
+			}
+
+			if (typeof activeComponent.initialize === 'function') {
+				const wallet = this.ctx?.getWallet?.();
+				const readOnlyMode = !wallet?.isWalletConnected?.();
+				await activeComponent.initialize(readOnlyMode);
+			}
+		} catch (error) {
+			this.debug('Failed to refresh active orders tab after sync:', error);
+		}
+	}
+
+	startInitialOrderSync(ws = this.ctx?.getWebSocket?.()) {
+		if (!ws || this.initialOrderSyncPromise) return;
+
+		this.initialOrderSyncPromise = (async () => {
+			this.debug('Starting background initial order sync...');
+			await ws.syncAllOrders();
+			this.debug('Background initial order sync complete');
+		})()
+			.catch((error) => {
+				this.debug('Background initial order sync failed:', error);
+			})
+			.finally(() => {
+				this.initialOrderSyncPromise = null;
+			});
+	}
+
+	getTabSkeletonVariant(tabId) {
+		if (tabId === 'view-orders' || tabId === 'my-orders' || tabId === 'taker-orders') {
+			return 'orders';
+		}
+		if (tabId === 'create-order') {
+			return 'form';
+		}
+		return 'stats';
+	}
+
+	getSkeletonMarkupByVariant(variant = 'form') {
+		if (variant === 'app') {
+			return `
+				<div class="loading-skeleton loading-skeleton--app" aria-hidden="true">
+					<div class="skeleton-app-header">
+						<div class="skeleton-app-brand">
+							<div class="skeleton-block skeleton-app-logo"></div>
+							<div class="skeleton-app-brand-lines">
+								<div class="skeleton-block skeleton-app-title"></div>
+								<div class="skeleton-block skeleton-app-version"></div>
+							</div>
+						</div>
+						<div class="skeleton-app-wallet">
+							<div class="skeleton-block skeleton-app-pill skeleton-app-pill--network"></div>
+							<div class="skeleton-block skeleton-app-pill skeleton-app-pill--account"></div>
+						</div>
+					</div>
+					<div class="skeleton-app-shell">
+						<div class="skeleton-app-tabs-row">
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--sm"></div>
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--md"></div>
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--sm"></div>
+							<div class="skeleton-block skeleton-app-tab skeleton-app-tab--sm"></div>
+						</div>
+						<div class="skeleton-block skeleton-app-divider"></div>
+						<div class="skeleton-app-main">
+							<div class="skeleton-app-form">
+								<div class="skeleton-block skeleton-app-token"></div>
+								<div class="skeleton-block skeleton-app-arrow"></div>
+								<div class="skeleton-block skeleton-app-token"></div>
+								<div class="skeleton-block skeleton-app-line"></div>
+								<div class="skeleton-block skeleton-app-line skeleton-app-line--short"></div>
+								<div class="skeleton-block skeleton-app-button"></div>
+							</div>
+						</div>
+						<div class="skeleton-block skeleton-app-footer"></div>
+					</div>
+				</div>
+			`;
+		}
+
+		if (variant === 'orders') {
+			return `
+				<div class="loading-skeleton loading-skeleton--orders loading-skeleton--compact" aria-hidden="true">
+					<div class="skeleton-block skeleton-block--orders-filter"></div>
+					<div class="skeleton-block skeleton-block--orders-head"></div>
+					<div class="skeleton-orders-row">
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+					</div>
+					<div class="skeleton-orders-row">
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+					</div>
+					<div class="skeleton-orders-row">
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+						<span class="skeleton-block skeleton-orders-cell"></span>
+					</div>
+				</div>
+			`;
+		}
+
+		if (variant === 'stats') {
+			return `
+				<div class="loading-skeleton loading-skeleton--stats loading-skeleton--compact" aria-hidden="true">
+					<div class="skeleton-block skeleton-block--stats-title"></div>
+					<div class="skeleton-stats-grid">
+						<div class="skeleton-block skeleton-block--stats-card"></div>
+						<div class="skeleton-block skeleton-block--stats-card"></div>
+						<div class="skeleton-block skeleton-block--stats-card"></div>
+					</div>
+					<div class="skeleton-block skeleton-block--stats-row"></div>
+				</div>
+			`;
+		}
+
+		return `
+			<div class="loading-skeleton loading-skeleton--form loading-skeleton--compact" aria-hidden="true">
+				<div class="skeleton-block skeleton-block--form-title"></div>
+				<div class="skeleton-block skeleton-block--form-group"></div>
+				<div class="skeleton-block skeleton-block--form-group"></div>
+				<div class="skeleton-block skeleton-block--form-group"></div>
+				<div class="skeleton-block skeleton-block--form-button"></div>
+			</div>
+		`;
+	}
+
+	getSkeletonLoaderMarkup(message = 'Loading...', variant = 'form') {
+		return `
+			${this.getSkeletonMarkupByVariant(variant)}
+			<div class="loading-text">${message}</div>
+		`;
+	}
+
+	showGlobalLoader(message = 'Loading WhaleSwap...') {
+		if (window.__bootstrapLoaderTimeout) {
+			clearTimeout(window.__bootstrapLoaderTimeout);
+			window.__bootstrapLoaderTimeout = null;
+		}
+
+		if (this.globalLoader?.parentElement) {
+			this.globalLoader.classList.remove('is-slow');
+			const hint = this.globalLoader.querySelector('[data-loader-hint]');
+			const retry = this.globalLoader.querySelector('[data-loader-retry]');
+			if (hint) hint.hidden = true;
+			if (retry) retry.hidden = true;
+			this.updateGlobalLoaderText(message);
+			return this.globalLoader;
+		}
+
+		const existingLoader = document.getElementById('app-bootstrap-loader')
+			|| document.querySelector('.loading-overlay--global');
+		if (existingLoader) {
+			this.globalLoader = existingLoader;
+			this.globalLoader.classList.remove('is-slow');
+			const hint = this.globalLoader.querySelector('[data-loader-hint]');
+			const retry = this.globalLoader.querySelector('[data-loader-retry]');
+			if (hint) hint.hidden = true;
+			if (retry) retry.hidden = true;
+			this.updateGlobalLoaderText(message);
+			return this.globalLoader;
+		}
+
+		const loader = document.createElement('div');
+		loader.className = 'loading-overlay loading-overlay--global';
+		loader.innerHTML = this.getSkeletonLoaderMarkup(message, 'app');
+		document.body.appendChild(loader);
+		this.globalLoader = loader;
+		return loader;
+	}
+
+	updateGlobalLoaderText(message) {
+		if (!this.globalLoader) return;
+		const textEl = this.globalLoader.querySelector('.loading-text');
+		if (textEl) {
+			textEl.textContent = message;
+		}
+	}
+
+	hideGlobalLoader() {
+		if (window.__bootstrapLoaderTimeout) {
+			clearTimeout(window.__bootstrapLoaderTimeout);
+			window.__bootstrapLoaderTimeout = null;
+		}
+		if (this.globalLoader?.parentElement) {
+			this.globalLoader.remove();
+		}
+		this.globalLoader = null;
 	}
 
 	getSelectedNetwork() {
@@ -78,71 +307,76 @@ class App {
 
 	async load () {
 		this.debug('Loading app components...');
+		this.showGlobalLoader('Initializing app...');
 
-		// Create application context for dependency injection
-		this.ctx = createAppContext();
-		setGlobalContext(this.ctx);
-		const initialSelectedNetwork = getInitialSelectedNetwork();
-		this.ctx.setSelectedChainSlug(initialSelectedNetwork.slug);
-		setActiveNetwork(initialSelectedNetwork);
-		this.debug('AppContext created');
-
-		// Initialize toast component
-		this.toast = getToast();
-		this.debug('Toast component initialized');
-		
-		// Populate context with toast functions
-		this.ctx.toast.showError = showError;
-		this.ctx.toast.showSuccess = showSuccess;
-		this.ctx.toast.showWarning = showWarning;
-		this.ctx.toast.showInfo = showInfo;
-
-		// Set brand in document title, header, and favicon from constants
 		try {
-			if (typeof APP_BRAND === 'string' && APP_BRAND.length > 0) {
-				document.title = APP_BRAND;
-				const headerTitle = document.querySelector('.header-left h1');
-				if (headerTitle) {
-					headerTitle.textContent = APP_BRAND;
-				}
-			}
-			
-			// Set favicon dynamically
-			if (typeof APP_LOGO === 'string' && APP_LOGO.length > 0) {
-				const favicon = document.querySelector('link[rel="icon"]');
-				const shortcutIcon = document.querySelector('link[rel="shortcut icon"]');
-				
-				if (favicon) {
-					favicon.href = APP_LOGO;
-				}
-				if (shortcutIcon) {
-					shortcutIcon.href = APP_LOGO;
-				}
-			}
-		} catch (e) {
-			this.warn('Failed to set brand name in DOM', e);
-		}
+			// Create application context for dependency injection
+			this.ctx = createAppContext();
+			setGlobalContext(this.ctx);
+			const initialSelectedNetwork = getInitialSelectedNetwork();
+			this.ctx.setSelectedChainSlug(initialSelectedNetwork.slug);
+			setActiveNetwork(initialSelectedNetwork);
+			this.debug('AppContext created');
 
-		await this.initializeWalletManager();
-		await this.initializePricingService();
-		await this.initializeWebSocket();
-		
-		// Initialize CreateOrder first
-		this.components = {
-			'create-order': new CreateOrder()
-		};
-		
-		// Then initialize other components that might depend on CreateOrder's DOM elements
-		this.components = {
-			...this.components,  // Keep CreateOrder
-			'view-orders': new ViewOrders(),
-			'my-orders': new MyOrders(),
-			'taker-orders': new TakerOrders(),
-			'cleanup-orders': new Cleanup(),
-			'contract-params': new ContractParams(),
-			'admin': new Admin(),
-			'intro': new Intro()
-		};
+			// Initialize toast component
+			this.toast = getToast();
+			this.debug('Toast component initialized');
+			
+			// Populate context with toast functions
+			this.ctx.toast.showError = showError;
+			this.ctx.toast.showSuccess = showSuccess;
+			this.ctx.toast.showWarning = showWarning;
+			this.ctx.toast.showInfo = showInfo;
+
+			// Set brand in document title, header, and favicon from constants
+			try {
+				if (typeof APP_BRAND === 'string' && APP_BRAND.length > 0) {
+					document.title = APP_BRAND;
+					const headerTitle = document.querySelector('.header-left h1');
+					if (headerTitle) {
+						headerTitle.textContent = APP_BRAND;
+					}
+				}
+				
+				// Set favicon dynamically
+				if (typeof APP_LOGO === 'string' && APP_LOGO.length > 0) {
+					const favicon = document.querySelector('link[rel="icon"]');
+					const shortcutIcon = document.querySelector('link[rel="shortcut icon"]');
+					
+					if (favicon) {
+						favicon.href = APP_LOGO;
+					}
+					if (shortcutIcon) {
+						shortcutIcon.href = APP_LOGO;
+					}
+				}
+			} catch (e) {
+				this.warn('Failed to set brand name in DOM', e);
+			}
+
+			this.updateGlobalLoaderText('Initializing wallet...');
+			await this.initializeWalletManager();
+			this.updateGlobalLoaderText('Initializing pricing...');
+			await this.initializePricingService();
+			this.updateGlobalLoaderText('Connecting to order feed...');
+			await this.initializeWebSocket();
+			
+			// Initialize CreateOrder first
+			this.components = {
+				'create-order': new CreateOrder()
+			};
+			
+			// Then initialize other components that might depend on CreateOrder's DOM elements
+			this.components = {
+				...this.components,  // Keep CreateOrder
+				'view-orders': new ViewOrders(),
+				'my-orders': new MyOrders(),
+				'taker-orders': new TakerOrders(),
+				'cleanup-orders': new Cleanup(),
+				'contract-params': new ContractParams(),
+				'admin': new Admin(),
+				'intro': new Intro()
+			};
 
 		// Pass context to all components
 		Object.values(this.components).forEach(component => {
@@ -261,7 +495,7 @@ class App {
 					try {
 						const createOrderComponent = this.components['create-order'];
 						if (createOrderComponent?.resetState) {
-							createOrderComponent.resetState();
+							createOrderComponent.resetState({ clearSelections: true });
 						}
 					} catch (error) {
 						console.warn('[App] Error resetting CreateOrder on disconnect:', error);
@@ -366,6 +600,8 @@ class App {
 			}
 
 			try {
+				// Keep hidden until owner check confirms visibility to avoid startup flicker.
+				adminButton.style.display = 'none';
 				const signer = await wallet.getSigner();
 				const ws = this.ctx.getWebSocket();
 				await ws?.waitForInitialization();
@@ -418,20 +654,19 @@ class App {
 
 		// Update initial tab visibility based on connection + selected-chain match
 		this.updateTabVisibility(hasInitialConnectedContext);
-		await this.refreshAdminTabVisibility();
+		// Do not block first paint on owner check/network calls.
+		Promise.resolve()
+			.then(() => this.refreshAdminTabVisibility())
+			.catch((error) => this.debug('Deferred admin visibility check failed:', error));
 
 		// Add new property to track WebSocket readiness
 		this.wsInitialized = false;
 
+		// Alias for legacy references in WebSocket init callbacks
+		this.loadingOverlay = this.globalLoader;
+
 		// Add loading overlay to main content
 		const mainContent = document.querySelector('.main-content');
-		this.loadingOverlay = document.createElement('div');
-		this.loadingOverlay.className = 'loading-overlay';
-		this.loadingOverlay.innerHTML = `
-			<div class="loading-spinner"></div>
-			<div class="loading-text">Loading orders...</div>
-		`;
-		document.body.appendChild(this.loadingOverlay);
 
 		// Show main content after initialization
 		if (mainContent) {
@@ -441,24 +676,27 @@ class App {
 		// Initialize theme handling
 		this.initializeTheme();
 
-		// Sync orders with WebSocket
-		if (ws) {
-			await ws.syncAllOrders();
-		}
-
 		// Prefer signer presence + selected-chain match for initial render
 		const initialReadOnlyMode = !hasInitialConnectedContext;
+		this.updateGlobalLoaderText('Preparing interface...');
 		await this.initializeComponents(initialReadOnlyMode);
 		
 		// Show the initial tab based on connection state (force read-only if needed for first paint)
-		await this.showTab(this.currentTab, initialReadOnlyMode);
+		await this.showTab(this.currentTab, initialReadOnlyMode, { skipInitialize: true });
 		
 		// Remove loading overlay after initialization
-		if (this.loadingOverlay && this.loadingOverlay.parentElement) {
-			this.loadingOverlay.remove();
+		this.hideGlobalLoader();
+
+		// Start initial order sync in the background so first render is not blocked.
+		if (ws) {
+			this.startInitialOrderSync(ws);
 		}
 
 		this.lastDisconnectNotification = 0;
+		} finally {
+			this.hideGlobalLoader();
+			this.loadingOverlay = null;
+		}
 	}
 
 	initializeEventListeners() {
@@ -525,10 +763,9 @@ class App {
 			// Initialize PricingService first (before WebSocket since WS needs it)
 			const pricingService = new PricingService();
 			
-			// Defer allowed token fetch until WebSocket/contract is ready
-			// The pricing service will refresh later when WebSocket finishes init
-			
-			await pricingService.initialize();
+			// Defer initial price refresh until WebSocket/contract provides allowed tokens.
+			// WebSocket initialization triggers allowed token + price fetch afterward.
+			await pricingService.initialize({ deferInitialRefresh: true });
 			
 			// Add to context
 			this.ctx.pricing = pricingService;
@@ -551,8 +788,8 @@ class App {
 			// Subscribe to orderSyncComplete event before initialization
 			webSocketService.subscribe('orderSyncComplete', () => {
 				this.wsInitialized = true;
-				this.loadingOverlay.remove();
 				this.debug('WebSocket order sync complete, showing content');
+				this.refreshActiveOrdersTab();
 			});
 
 			// Subscribe to order sync progress updates for UX
@@ -568,8 +805,6 @@ class App {
 			const wsInitialized = await webSocketService.initialize();
 			if (!wsInitialized) {
 				this.debug('WebSocket initialization failed, falling back to HTTP');
-				// Still remove overlay in case of failure
-				this.loadingOverlay.remove();
 			}
 			
 			// Add to context and update pricing service with webSocket reference
@@ -698,10 +933,7 @@ class App {
 	showLoader(container = document.body) {
 		const loader = document.createElement('div');
 		loader.className = 'loading-overlay';
-		loader.innerHTML = `
-			<div class="loading-spinner"></div>
-			<div class="loading-text">Loading...</div>
-		`;
+		loader.innerHTML = this.getSkeletonLoaderMarkup('Loading...', 'form');
 		
 		if (container !== document.body) {
 			container.style.position = 'relative';
@@ -741,9 +973,12 @@ class App {
 		return this.toast.showToast(message, type, duration);
 	}
 
-	async showTab(tabId, readOnlyOverride = null) {
+	async showTab(tabId, readOnlyOverride = null, options = {}) {
 		try {
 			this.debug('Switching to tab:', tabId);
+			const { skipInitialize = false } = options;
+			const previousTab = this.currentTab;
+			const isSameTab = previousTab === tabId;
 			
 			if (tabId === 'admin') {
 				const isOwner = await this.refreshAdminTabVisibility();
@@ -757,18 +992,16 @@ class App {
 			const tabContent = document.getElementById(tabId);
 			const loadingOverlay = document.createElement('div');
 			loadingOverlay.className = 'loading-overlay';
-			loadingOverlay.innerHTML = `
-				<div class="loading-spinner"></div>
-				<div class="loading-text">Loading...</div>
-			`;
+			const skeletonVariant = this.getTabSkeletonVariant(tabId);
+			loadingOverlay.innerHTML = this.getSkeletonLoaderMarkup('Loading...', skeletonVariant);
 			if (tabContent) {
 				tabContent.style.position = 'relative';
 				tabContent.appendChild(loadingOverlay);
 			}
 			
 			// Cleanup previous tab's component if it exists
-			const previousComponent = this.components[this.currentTab];
-			if (previousComponent?.cleanup) {
+			const previousComponent = this.components[previousTab];
+			if (!isSameTab && previousComponent?.cleanup) {
 				previousComponent.cleanup();
 			}
 			
@@ -791,7 +1024,7 @@ class App {
 				
 				// Initialize component for this tab
 				const component = this.components[tabId];
-				if (component?.initialize) {
+				if (!skipInitialize && component?.initialize) {
 					const wallet = this.ctx.getWallet();
 					const computedReadOnly = readOnlyOverride !== null
 						? !!readOnlyOverride
@@ -892,7 +1125,9 @@ class App {
 			// 	activeComponent.resetState();  // Commented out - not resetting form
 			// }
 			// TODO: maybe add to active depending on event
-			await activeComponent.initialize(false);
+			const wallet = this.ctx?.getWallet?.();
+			const readOnlyMode = !wallet?.isWalletConnected?.();
+			await activeComponent.initialize(readOnlyMode);
 		}
 	}
 
@@ -915,6 +1150,7 @@ window.DEBUG_CONFIG = DEBUG_CONFIG;
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
+	window.app.showGlobalLoader('Checking for updates...');
 	try {
 		// Check version first, before anything else happens
 		await versionService.initialize();
@@ -933,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 			}
 		});
 		
-		window.app.load();
+		await window.app.load();
 		
 		// Add network config button event listener here (element doesn't exist in HTML, so commented out)
 		// const networkConfigButton = document.querySelector('.network-config-button');
@@ -944,6 +1180,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 		window.app.debug('Initialization complete');
 	} catch (error) {
 		console.error('[App] App initialization error:', error);
+	} finally {
+		window.app.hideGlobalLoader();
 	}
 });
 
