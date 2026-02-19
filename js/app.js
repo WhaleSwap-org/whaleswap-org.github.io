@@ -15,6 +15,7 @@ import { DebugPanel } from './components/DebugPanel.js';
 import { getToast, showError, showSuccess, showWarning, showInfo } from './components/Toast.js';
 import { Footer } from './components/Footer.js';
 import { Intro } from './components/Intro.js';
+import { Admin } from './components/Admin.js';
 import { versionService } from './services/VersionService.js';
 import { createAppContext, setGlobalContext } from './services/AppContext.js';
 
@@ -139,6 +140,7 @@ class App {
 			'taker-orders': new TakerOrders(),
 			'cleanup-orders': new Cleanup(),
 			'contract-params': new ContractParams(),
+			'admin': new Admin(),
 			'intro': new Intro()
 		};
 
@@ -178,14 +180,15 @@ class App {
 
 		// Fallback for rendering components that are not CreateOrder, ViewOrders, TakerOrders, WalletUI, or Cleanup
 		Object.entries(this.components).forEach(([id, component]) => {
-			if (component instanceof BaseComponent && 
-				!(component instanceof CreateOrder) && 
-				!(component instanceof ViewOrders) &&
-				!(component instanceof TakerOrders) &&
-				!(component instanceof WalletUI) &&
-				!(component instanceof Cleanup) &&
-				!(component instanceof Intro)) {
-				component.render = function() {
+				if (component instanceof BaseComponent && 
+					!(component instanceof CreateOrder) && 
+					!(component instanceof ViewOrders) &&
+					!(component instanceof TakerOrders) &&
+					!(component instanceof WalletUI) &&
+					!(component instanceof Cleanup) &&
+					!(component instanceof Admin) &&
+					!(component instanceof Intro)) {
+					component.render = function() {
 					if (!this.initialized) {
 						this.container.innerHTML = `
 							<div class="tab-content-wrapper">
@@ -229,6 +232,7 @@ class App {
 					const walletNetwork = getNetworkById(walletChainId);
 					if (!walletNetwork || walletNetwork.slug !== selectedNetwork.slug) {
 						this.updateTabVisibility(false);
+					await this.refreshAdminTabVisibility();
 						try {
 							await walletManager.switchToNetwork(selectedNetwork);
 							window.location.reload();
@@ -242,6 +246,7 @@ class App {
 
 					this.debug('Wallet connected on selected chain, reinitializing components...');
 					this.updateTabVisibility(true);
+					await this.refreshAdminTabVisibility();
 					// Preserve WebSocket order cache to avoid clearing orders on connect
 					await this.reinitializeComponents(true);
 					break;
@@ -251,6 +256,7 @@ class App {
 					syncNetworkBadgeFromState();
 					this.debug('Wallet disconnected, updating tab visibility...');
 					this.updateTabVisibility(false);
+					await this.refreshAdminTabVisibility();
 					// Clear CreateOrder state only; no need to initialize since tab is hidden
 					try {
 						const createOrderComponent = this.components['create-order'];
@@ -271,6 +277,7 @@ class App {
 							const selectedNetwork = this.getSelectedNetwork();
 							const walletNetwork = getNetworkById(this.ctx.getWalletChainId());
 							this.updateTabVisibility(false);
+					await this.refreshAdminTabVisibility();
 							const walletName = walletNetwork?.displayName || walletNetwork?.name || 'unsupported network';
 							this.showWarning(`Wallet is on ${walletName}. Please switch to ${selectedNetwork.displayName || selectedNetwork.name}.`);
 							break;
@@ -278,6 +285,7 @@ class App {
 
 						this.debug('Account changed, reinitializing components...');
 						this.updateTabVisibility(true);
+					await this.refreshAdminTabVisibility();
 						await this.reinitializeComponents(true);
 						if (data?.account) {
 							const short = `${data.account.slice(0,6)}...${data.account.slice(-4)}`;
@@ -304,6 +312,7 @@ class App {
 							window.location.reload();
 						} else {
 							this.updateTabVisibility(false);
+					await this.refreshAdminTabVisibility();
 							const walletName = walletNetwork?.displayName || walletNetwork?.name || 'unsupported network';
 							this.showWarning(`Wallet is on ${walletName}. Please switch to ${selectedNetwork.displayName || selectedNetwork.name}.`);
 						}
@@ -340,6 +349,46 @@ class App {
 		// Initialize debug panel
 		const debugPanel = new DebugPanel();
 
+		this.refreshAdminTabVisibility = async () => {
+			const adminButton = document.querySelector('.tab-button[data-tab="admin"]');
+			if (!adminButton) return false;
+
+			const wallet = this.ctx.getWallet();
+			if (!wallet?.isWalletConnected?.()) {
+				adminButton.style.display = 'none';
+				if (this.currentTab === 'admin') this.showTab('view-orders');
+				return false;
+			}
+
+			if (DEBUG_CONFIG.ADMIN_BYPASS_OWNER_CHECK) {
+				adminButton.style.display = 'block';
+				return true;
+			}
+
+			try {
+				const signer = await wallet.getSigner();
+				const ws = this.ctx.getWebSocket();
+				await ws?.waitForInitialization();
+				const contract = ws?.contract;
+				if (!signer || !contract) throw new Error('Signer/contract unavailable');
+
+				const [owner, account] = await Promise.all([
+					contract.owner(),
+					signer.getAddress()
+				]);
+
+				const isOwner = owner.toLowerCase() === account.toLowerCase();
+				adminButton.style.display = isOwner ? 'block' : 'none';
+				if (!isOwner && this.currentTab === 'admin') this.showTab('view-orders');
+				return isOwner;
+			} catch (error) {
+				this.debug('Admin visibility check failed:', error);
+				adminButton.style.display = 'none';
+				if (this.currentTab === 'admin') this.showTab('view-orders');
+				return false;
+			}
+		};
+
 		// Add new method to update tab visibility
 		this.updateTabVisibility = (isConnected) => {
 			const tabButtons = document.querySelectorAll('.tab-button');
@@ -369,6 +418,7 @@ class App {
 
 		// Update initial tab visibility based on connection + selected-chain match
 		this.updateTabVisibility(hasInitialConnectedContext);
+		await this.refreshAdminTabVisibility();
 
 		// Add new property to track WebSocket readiness
 		this.wsInitialized = false;
@@ -695,6 +745,14 @@ class App {
 		try {
 			this.debug('Switching to tab:', tabId);
 			
+			if (tabId === 'admin') {
+				const isOwner = await this.refreshAdminTabVisibility();
+				if (!isOwner) {
+					this.showWarning('Admin tab is only available to the contract owner.');
+					return;
+				}
+			}
+
 			// Add loading overlay before initialization
 			const tabContent = document.getElementById(tabId);
 			const loadingOverlay = document.createElement('div');

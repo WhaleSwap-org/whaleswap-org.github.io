@@ -100,6 +100,7 @@ export const DEBUG_CONFIG = {
     TOAST: false, // Enable toast debugging for testing
     PRICING_DEFAULT_TO_ONE: false, // Default missing prices to 1 for testing, false for production
     LIBERDUS_VALIDATION: true, // Enable frontend Liberdus token validation
+    ADMIN_BYPASS_OWNER_CHECK: true, // Temporary: bypass owner gating for Admin tab access
     // Add more specific flags as needed
 };
 

@@ -233,6 +233,18 @@ export class Intro extends BaseComponent {
 								</h4>
 								<p>Orders can have different statuses: Active (can be filled), Cancelled (tokens returned, cannot be filled), and Expired (past 7 days, cannot be filled).</p>
 							</div>
+							
+							<div class="faq-item">
+								<h4>
+									<svg class="intro-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+										<circle cx="12" cy="12" r="10"></circle>
+										<line x1="12" y1="8" x2="12" y2="12"></line>
+										<circle cx="12" cy="16" r="1"></circle>
+									</svg>
+									<span>Report Issues</span>
+								</h4>
+								<p>Send an email to info@whaleswap.org</p>
+							</div>
 						</div>
 					</div>
 				</div>
