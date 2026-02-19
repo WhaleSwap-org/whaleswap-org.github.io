@@ -846,6 +846,24 @@ export const abi = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "tokens",
+        "type": "address[]"
+      },
+      {
+        "internalType": "bool[]",
+        "name": "allowed",
+        "type": "bool[]"
+      }
+    ],
+    "name": "updateAllowedTokens",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "getAllowedTokens",
     "outputs": [

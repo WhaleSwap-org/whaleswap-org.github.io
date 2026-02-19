@@ -24,6 +24,8 @@ class App {
 		this.isInitializing = false;
 		this.globalLoader = null;
 		this.initialOrderSyncPromise = null;
+		this.tabReady = new Set();
+		this.activeTabRequestId = 0;
 		
 		// Replace debug initialization with LogService
 		const logger = createLogger('APP');
@@ -843,6 +845,7 @@ class App {
 						this.debug(`Initializing read-only component: ${tabId}`);
 						try {
 							await component.initialize(readOnlyMode);
+							this.tabReady.add(tabId);
 						} catch (error) {
 							console.error(`[App] Error initializing ${tabId}:`, error);
 						}
@@ -855,6 +858,7 @@ class App {
 					this.debug(`Initializing current component: ${this.currentTab}`);
 					try {
 						await currentComponent.initialize(readOnlyMode);
+						this.tabReady.add(this.currentTab);
 					} catch (error) {
 						console.error(`[App] Error initializing ${this.currentTab}:`, error);
 					}
@@ -974,11 +978,11 @@ class App {
 	}
 
 	async showTab(tabId, readOnlyOverride = null, options = {}) {
+		let loadingOverlay = null;
+		const requestId = ++this.activeTabRequestId;
 		try {
 			this.debug('Switching to tab:', tabId);
 			const { skipInitialize = false } = options;
-			const previousTab = this.currentTab;
-			const isSameTab = previousTab === tabId;
 			
 			if (tabId === 'admin') {
 				const isOwner = await this.refreshAdminTabVisibility();
@@ -988,22 +992,7 @@ class App {
 				}
 			}
 
-			// Add loading overlay before initialization
 			const tabContent = document.getElementById(tabId);
-			const loadingOverlay = document.createElement('div');
-			loadingOverlay.className = 'loading-overlay';
-			const skeletonVariant = this.getTabSkeletonVariant(tabId);
-			loadingOverlay.innerHTML = this.getSkeletonLoaderMarkup('Loading...', skeletonVariant);
-			if (tabContent) {
-				tabContent.style.position = 'relative';
-				tabContent.appendChild(loadingOverlay);
-			}
-			
-			// Cleanup previous tab's component if it exists
-			const previousComponent = this.components[previousTab];
-			if (!isSameTab && previousComponent?.cleanup) {
-				previousComponent.cleanup();
-			}
 			
 			// Hide all tab content
 			document.querySelectorAll('.tab-content').forEach(tab => {
@@ -1017,6 +1006,7 @@ class App {
 					button.classList.add('active');
 				}
 			});
+			this.currentTab = tabId;
 			
 			// Show and initialize selected tab
 			if (tabContent) {
@@ -1029,20 +1019,42 @@ class App {
 					const computedReadOnly = readOnlyOverride !== null
 						? !!readOnlyOverride
 						: !wallet?.isWalletConnected();
-					await component.initialize(computedReadOnly);
+
+					// First visit: block with inline loader. Revisit: refresh in background.
+					if (!this.tabReady.has(tabId)) {
+						loadingOverlay = document.createElement('div');
+						loadingOverlay.className = 'loading-overlay';
+						const skeletonVariant = this.getTabSkeletonVariant(tabId);
+						loadingOverlay.innerHTML = this.getSkeletonLoaderMarkup('Loading...', skeletonVariant);
+						tabContent.style.position = 'relative';
+						tabContent.appendChild(loadingOverlay);
+
+						await component.initialize(computedReadOnly);
+						this.tabReady.add(tabId);
+					} else {
+						Promise.resolve()
+							.then(() => component.initialize(computedReadOnly))
+							.then(() => this.tabReady.add(tabId))
+							.catch(error => {
+								console.error(`[App] Background initialize failed for ${tabId}:`, error);
+							});
+					}
 				}
 				
 				// Remove loading overlay after initialization
-				loadingOverlay.remove();
+				if (loadingOverlay?.parentElement) {
+					loadingOverlay.remove();
+				}
 			}
 			
-			this.currentTab = tabId;
+			if (requestId !== this.activeTabRequestId) return;
 			this.debug('Tab switch complete:', tabId);
 		} catch (error) {
 			console.error('[App] Error showing tab:', error);
 			// Ensure loading overlay is removed even if there's an error
-			const loadingOverlay = document.querySelector('.loading-overlay');
-			if (loadingOverlay) loadingOverlay.remove();
+			if (loadingOverlay?.parentElement) {
+				loadingOverlay.remove();
+			}
 		}
 	}
 
@@ -1069,6 +1081,7 @@ class App {
 					}
 				}
 			});
+			this.tabReady.clear();
 			
 			// Optionally clean up WebSocket service (clears order cache). Preserve on account/chain change.
 			const ws = this.ctx.getWebSocket();
