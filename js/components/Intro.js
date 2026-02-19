@@ -206,7 +206,7 @@ export class Intro extends BaseComponent {
 									</svg>
 									<span>Order Cleanup</span>
 								</h4>
-								<p>Unfilled or cancelled orders can be cleaned up after 14 days from their creation date to free up contract storage. Anyone can initiate cleanup for eligible orders. The person who cleans up the order receives the $1 USDC creation fee but must pay the network transaction fee for the cleanup transaction. Only one order is cleaned up with each cleanup transaction. Any tokens escrowed in the orders are returned to the original creator.</p>
+								<p>Unfilled or cancelled orders can be cleaned up after 14 days from their creation date to free up contract storage. Anyone can initiate cleanup for eligible orders. The protocol does not charge any fees; instead, the person who cleans up the order receives the $1 USDC creation fee but must pay the network transaction fee for the cleanup transaction. Only one order is cleaned up with each cleanup transaction. Any tokens escrowed in the orders are returned to the original creator.</p>
 							</div>
 							
 							<div class="faq-item">
