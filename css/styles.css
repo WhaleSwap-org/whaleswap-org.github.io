@@ -393,7 +393,7 @@ label {
     var(--skeleton-base) 75%
   );
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.2s linear infinite;
+  animation: skeleton-shimmer 3s ease-in-out infinite;
 }
 
 .loading-overlay--global .loading-skeleton--app {
@@ -657,6 +657,13 @@ label {
   }
   100% {
     background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-skeleton .skeleton-block {
+    animation: none;
+    background-position: 50% 0;
   }
 }
 

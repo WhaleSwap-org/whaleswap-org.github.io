@@ -67,7 +67,7 @@
         border-radius: 12px;
         background: linear-gradient(90deg, #e2e7ef 25%, #f2f5fa 50%, #e2e7ef 75%);
         background-size: 200% 100%;
-        animation: bootstrap-shimmer 1.25s linear infinite;
+        animation: bootstrap-shimmer 3s ease-in-out infinite;
       }
 
       #app-bootstrap-loader .skeleton-app-header {
@@ -267,6 +267,13 @@
         }
       }
 
+      @media (prefers-reduced-motion: reduce) {
+        #app-bootstrap-loader .skeleton-block {
+          animation: none;
+          background-position: 50% 0;
+        }
+      }
+
       @media (max-width: 720px) {
         #app-bootstrap-loader .loading-skeleton--app {
           width: min(1320px, calc(100vw - 24px));
@@ -435,7 +442,7 @@
           <div class="logo-container">
             <img src="img/whale_swap_2.webp" alt="WhaleSwap Logo" class="logo-image" />
             <h1>WhaleSwap</h1>
-            <span class="version">v1.0.33</span>
+            <span class="version">v1.0.34</span>
           </div>
         </div>
         <!-- Theme toggle and wallet connection controls -->

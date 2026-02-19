@@ -414,6 +414,12 @@ export class CreateOrder extends BaseComponent {
      */
     updateBalanceDisplay(type, formattedBalance, balanceUSD) {
         try {
+            // Buy amount should not show clickable balance chip.
+            if (type === 'buy') {
+                this.hideBalanceDisplay(type);
+                return;
+            }
+
             const balanceDisplay = document.getElementById(`${type}TokenBalanceDisplay`);
             const balanceAmount = document.getElementById(`${type}TokenBalanceAmount`);
             const balanceUSDElement = document.getElementById(`${type}TokenBalanceUSD`);
@@ -968,7 +974,9 @@ export class CreateOrder extends BaseComponent {
             const selectorGroup = document.createElement('div');
             selectorGroup.className = 'token-selector-group';
             selectorGroup.appendChild(tokenSelectorContainer);
-            selectorGroup.appendChild(balanceDisplay);
+            if (type === 'sell') {
+                selectorGroup.appendChild(balanceDisplay);
+            }
 
             // Assemble the components
             container.appendChild(inputWrapper);
@@ -2134,7 +2142,7 @@ export class CreateOrder extends BaseComponent {
                 newBalanceBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    this.handleBalanceClick(type);
+                    this.handleBalanceClick(type, newBalanceBtn);
                 });
 
                 // Add keyboard support for accessibility
@@ -2142,7 +2150,7 @@ export class CreateOrder extends BaseComponent {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         e.stopPropagation();
-                        this.handleBalanceClick(type);
+                        this.handleBalanceClick(type, newBalanceBtn);
                     }
                 });
 
@@ -2155,7 +2163,7 @@ export class CreateOrder extends BaseComponent {
      * Handle balance click to auto-fill amount input
      * @param {string} type - 'sell' or 'buy'
      */
-    handleBalanceClick(type) {
+    handleBalanceClick(type, sourceButton = null) {
         try {
             const token = this[`${type}Token`];
             if (!token) {
@@ -2186,6 +2194,11 @@ export class CreateOrder extends BaseComponent {
                 
                 // Focus the input for better UX
                 amountInput.focus();
+
+                // Prevent persistent "selected" focus ring on the balance button after click.
+                if (sourceButton && typeof sourceButton.blur === 'function') {
+                    sourceButton.blur();
+                }
                 
                 this.debug(`Auto-filled ${type} amount with balance: ${formattedBalance}`);
                 
@@ -2241,12 +2254,6 @@ export class CreateOrder extends BaseComponent {
                             <div class="token-selector-content">
                                 <span>Select Token</span>
                             </div>
-                        </div>
-                        <div id="buyTokenBalanceDisplay" class="token-balance-display is-hidden" aria-hidden="true">
-                            <button id="buyTokenBalanceBtn" class="balance-clickable" aria-label="Click to fill buy amount with available balance">
-                                <span class="balance-amount" id="buyTokenBalanceAmount">0.00</span>
-                                <span class="balance-usd" id="buyTokenBalanceUSD">• $0.00</span>
-                            </button>
                         </div>
                     </div>
 
