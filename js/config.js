@@ -143,15 +143,38 @@ export const TOKEN_ICON_CONFIG = {
     SPECIAL_TOKENS: {
         "0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76": "assets/32.png" // Liberdus
     },
-    
-    // Rate limiting configuration
-    RATE_LIMIT_DELAY: 100, // ms between requests
-    MAX_CACHE_SIZE: 1000, // Maximum number of cached icons
-    CACHE_EXPIRY: 24 * 60 * 60 * 1000, // 24 hours in ms
+
+    // Local token logo management
+    // Update LOCAL_TOKEN_ICON_MAP when new allowed tokens are added.
+    // Bump LOCAL_ICON_VERSION when replacing existing logo files to invalidate browser cache.
+    LOCAL_ICON_VERSION: '2026-02-19',
+    LOCAL_TOKEN_ICON_MAP: {
+        '137': {
+            '0xd6df932a45c0f255f85145f286ea0b292b21c90b': 'img/token-logos/polygon/0xd6df932a45c0f255f85145f286ea0b292b21c90b.png', // AAVE
+            '0x00000000efe302beaa2b3e6e1b18d08d69a9012a': 'img/token-logos/polygon/0x00000000efe302beaa2b3e6e1b18d08d69a9012a.png', // AUSD
+            '0x2c89bbc92bd86f8075d1decc58c7f4e0107f286b': 'img/token-logos/polygon/0x2c89bbc92bd86f8075d1decc58c7f4e0107f286b.png', // AVAX
+            '0x3ba4c387f786bfee076a58914f5bd38d668b42c3': 'img/token-logos/polygon/0x3ba4c387f786bfee076a58914f5bd38d668b42c3.png', // BNB
+            '0xada58df0f643d959c2a47c9d4d4c1a4defe3f11c': 'img/token-logos/polygon/0xada58df0f643d959c2a47c9d4d4c1a4defe3f11c.jpg', // CRO
+            '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063': 'img/token-logos/polygon/0x8f3cf7ad23cd3cadbd9735aff958023239c6a063.png', // DAI
+            '0xb0897686c545045afc77cf20ec7a532e3120e0f1': 'img/token-logos/polygon/0xb0897686c545045afc77cf20ec7a532e3120e0f1.png', // LINK
+            '0x53e0bca35ec356bd5dddfebbd1fc0fd03fabad39': 'img/token-logos/polygon/0x53e0bca35ec356bd5dddfebbd1fc0fd03fabad39.png', // LINK
+            '0x553d3d295e0f695b9228246232edf400ed3560b5': 'img/token-logos/polygon/0x553d3d295e0f695b9228246232edf400ed3560b5.png', // PAXG
+            '0x61299774020da444af134c82fa83e3810b309991': 'img/token-logos/polygon/0x61299774020da444af134c82fa83e3810b309991.png', // RNDR
+            '0x6f8a06447ff6fcf75d803135a7de15ce88c1d4ec': 'img/token-logos/polygon/0x6f8a06447ff6fcf75d803135a7de15ce88c1d4ec.png', // SHIB
+            '0x50b728d8d964fd00c2d0aad81718b71311fef68a': 'img/token-logos/polygon/0x50b728d8d964fd00c2d0aad81718b71311fef68a.png', // SNX
+            '0xd93f7e271cb87c23aaa73edc008a79646d1f9912': 'img/token-logos/polygon/0xd93f7e271cb87c23aaa73edc008a79646d1f9912.png', // SOL
+            '0xb33eaad8d922b1083446dc23f610c2567fb5180f': 'img/token-logos/polygon/0xb33eaad8d922b1083446dc23f610c2567fb5180f.png', // UNI
+            '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': 'img/token-logos/polygon/0x2791bca1f2de4661ed88a30c99a7a9449aa84174.png', // USDC
+            '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': 'img/token-logos/polygon/0x3c499c542cef5e3811e1192ce70d8cc03d5c3359.png', // USDC
+            '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': 'img/token-logos/polygon/0xc2132d05d31c914a87c6611c10748aeb04b58e8f.jpg', // USDT
+            '0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6': 'img/token-logos/polygon/0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6.png', // WBTC
+            '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619': 'img/token-logos/polygon/0x7ceb23fd6bc0add59e62ac25578270cff1b9f619.webp', // WETH
+            '0x6985884c4392d348587b19cb9eaaf157f13271cd': 'img/token-logos/polygon/0x6985884c4392d348587b19cb9eaaf157f13271cd.jpg', // ZRO
+        }
+    },
     
     // Icon validation configuration
     VALIDATION_TIMEOUT: 5000, // 5 seconds timeout for icon validation
-    MAX_RETRIES: 3, // Maximum retries for failed icon requests
     
     // Fallback configuration
     ENABLE_FALLBACK_ICONS: true, // Enable color-based fallback icons

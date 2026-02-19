@@ -1,4 +1,5 @@
 import { createLogger } from './LogService.js';
+import { TOKEN_ICON_CONFIG } from '../config.js';
 
 // Simple ethers-like utilities for address validation
 const ethers = {
@@ -15,140 +16,179 @@ const debug = logger.debug.bind(logger);
 const error = logger.error.bind(logger);
 const warn = logger.warn.bind(logger);
 
-// CoinGecko API configuration
-const COINGECKO_API_BASE = 'https://api.coingecko.com/api/v3';
-const COINGECKO_ICON_BASE = 'https://assets.coingecko.com/coins/images';
-const COINGECKO_TOKENLIST_BASE = 'https://tokens.coingecko.com';
-const UNISWAP_TOKENLIST_URL = 'https://tokens.uniswap.org';
-
-// Rate limiting configuration
-const RATE_LIMIT_DELAY = 100; // ms between requests
+// Cache configuration
 const MAX_CACHE_SIZE = 1000; // Maximum number of cached icons
-const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in ms
-const UNKNOWN_TOKEN_CACHE_EXPIRY = 10 * 60 * 1000; // 10 minutes in ms
-const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
-const ICON_CACHE_SCHEMA_VERSION = 'v4';
+const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+const UNKNOWN_TOKEN_CACHE_EXPIRY = 10 * 60 * 1000; // 10 minutes
+const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+const ICON_CACHE_SCHEMA_VERSION = 'v6';
 const ICON_CACHE_KEY_PREFIX = 'tokenIconCache';
 
-/**
- * Rate limiter utility class
- */
-class RateLimiter {
-    constructor() {
-        this.lastRequestTime = 0;
-        this.requestQueue = [];
-        this.isProcessing = false;
-    }
-
-    async execute(fn) {
-        return new Promise((resolve, reject) => {
-            this.requestQueue.push({ fn, resolve, reject });
-            this.processQueue();
-        });
-    }
-
-    async processQueue() {
-        if (this.isProcessing || this.requestQueue.length === 0) {
-            return;
-        }
-
-        this.isProcessing = true;
-
-        while (this.requestQueue.length > 0) {
-            const now = Date.now();
-            const timeSinceLastRequest = now - this.lastRequestTime;
-
-            if (timeSinceLastRequest < RATE_LIMIT_DELAY) {
-                const delay = RATE_LIMIT_DELAY - timeSinceLastRequest;
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-
-            const { fn, resolve, reject } = this.requestQueue.shift();
-            this.lastRequestTime = Date.now();
-
-            try {
-                const result = await fn();
-                resolve(result);
-            } catch (err) {
-                reject(err);
-            }
-        }
-
-        this.isProcessing = false;
-    }
-}
+// Local icon configuration
+const LOCAL_TOKEN_ICON_MAP = TOKEN_ICON_CONFIG.LOCAL_TOKEN_ICON_MAP || {};
+const LOCAL_ICON_VERSION = TOKEN_ICON_CONFIG.LOCAL_ICON_VERSION || '';
+const SPECIAL_TOKENS = TOKEN_ICON_CONFIG.SPECIAL_TOKENS || {};
 
 /**
- * Token Icon Service for managing token icons with Trust Wallet Assets
+ * Token Icon Service for managing token icons.
+ * Local logo mappings are the source of truth.
  */
 export class TokenIconService {
     constructor() {
         this.cache = new Map();
-        this.loadingPromises = new Map();
-        this.rateLimiter = new RateLimiter();
         this.cacheTimestamps = new Map();
-        this.coinGeckoTokenListPromises = new Map();
-        this.uniswapTokenListPromise = null;
         this.cacheStorageKey = this.getCacheStorageKey();
-        
+
         // Load cache from localStorage on initialization
         this.loadCacheFromStorage();
-        
+
         debug('TokenIconService initialized');
     }
 
+    normalizeChainId(chainId) {
+        if (chainId === null || chainId === undefined) {
+            return null;
+        }
+
+        if (typeof chainId === 'string' && chainId.toLowerCase().startsWith('0x')) {
+            const parsed = parseInt(chainId, 16);
+            return Number.isNaN(parsed) ? null : String(parsed);
+        }
+
+        const parsed = Number(chainId);
+        return Number.isFinite(parsed) ? String(parsed) : null;
+    }
+
+    buildCacheKey(tokenAddress, chainId) {
+        return `${tokenAddress.toLowerCase()}-${this.normalizeChainId(chainId)}`;
+    }
+
+    buildVersionedIconUrl(iconPath) {
+        if (!iconPath || !LOCAL_ICON_VERSION) {
+            return iconPath;
+        }
+
+        const separator = iconPath.includes('?') ? '&' : '?';
+        return `${iconPath}${separator}v=${encodeURIComponent(LOCAL_ICON_VERSION)}`;
+    }
+
+    getSpecialIconUrl(tokenAddress) {
+        const normalizedAddress = tokenAddress?.toLowerCase();
+        if (!normalizedAddress) {
+            return null;
+        }
+
+        const iconPath = SPECIAL_TOKENS[normalizedAddress];
+        return this.buildVersionedIconUrl(iconPath || null);
+    }
+
+    getLocalIconUrl(tokenAddress, chainId) {
+        const normalizedAddress = tokenAddress?.toLowerCase();
+        const normalizedChainId = this.normalizeChainId(chainId);
+        if (!normalizedAddress || !normalizedChainId) {
+            return null;
+        }
+
+        const chainIcons = LOCAL_TOKEN_ICON_MAP[normalizedChainId];
+        if (!chainIcons) {
+            return null;
+        }
+
+        const iconPath = chainIcons[normalizedAddress];
+        return this.buildVersionedIconUrl(iconPath || null);
+    }
+
+    trimCacheIfNeeded() {
+        if (this.cache.size <= MAX_CACHE_SIZE) {
+            return;
+        }
+
+        // Remove oldest entries first.
+        const sortedEntries = Array.from(this.cache.entries())
+            .sort(([, a], [, b]) => (a.timestamp || 0) - (b.timestamp || 0));
+
+        const entriesToRemove = this.cache.size - MAX_CACHE_SIZE;
+        for (let i = 0; i < entriesToRemove; i++) {
+            const [key] = sortedEntries[i] || [];
+            if (key) {
+                this.cache.delete(key);
+                this.cacheTimestamps.delete(key);
+            }
+        }
+    }
+
+    persistCacheEntry(cacheKey, iconUrl, isUnknown = false) {
+        const cacheData = {
+            iconUrl,
+            timestamp: Date.now(),
+            ...(isUnknown ? { isUnknown: true } : {})
+        };
+
+        this.cache.set(cacheKey, cacheData);
+        this.cacheTimestamps.set(cacheKey, cacheData.timestamp);
+        this.trimCacheIfNeeded();
+        this.saveCacheToStorage();
+    }
+
     /**
-     * Get icon URL for a token with caching and fallbacks
+     * Get icon URL for a token with local mapping + cache.
      * @param {string} tokenAddress - Token contract address
      * @param {string|number} chainId - Network chain ID
      * @returns {Promise<string>} Icon URL or fallback data
      */
     async getIconUrl(tokenAddress, chainId) {
         try {
-            if (!tokenAddress || !chainId) {
+            if (!tokenAddress || chainId === null || chainId === undefined) {
                 debug('Invalid parameters provided:', { tokenAddress, chainId });
                 return this.getFallbackIconData(tokenAddress);
             }
 
             const normalizedAddress = tokenAddress.toLowerCase();
-            const cacheKey = `${normalizedAddress}-${chainId}`;
+            const normalizedChainId = this.normalizeChainId(chainId);
+            if (!ethers.utils.isAddress(normalizedAddress) || !normalizedChainId) {
+                debug('Invalid token address or chain ID provided:', { tokenAddress, chainId });
+                return this.getFallbackIconData(tokenAddress);
+            }
 
-            // Check memory cache first
+            const cacheKey = this.buildCacheKey(normalizedAddress, normalizedChainId);
+
+            // Special tokens always win.
+            const specialIconUrl = this.getSpecialIconUrl(normalizedAddress);
+            if (specialIconUrl) {
+                const existing = this.cache.get(cacheKey);
+                if (!existing || existing.iconUrl !== specialIconUrl) {
+                    this.persistCacheEntry(cacheKey, specialIconUrl);
+                }
+                return specialIconUrl;
+            }
+
+            // Local config map is the source of truth.
+            const mappedLocalIconUrl = this.getLocalIconUrl(normalizedAddress, normalizedChainId);
+            if (mappedLocalIconUrl) {
+                const existing = this.cache.get(cacheKey);
+                if (!existing || existing.iconUrl !== mappedLocalIconUrl) {
+                    this.persistCacheEntry(cacheKey, mappedLocalIconUrl);
+                }
+                return mappedLocalIconUrl;
+            }
+
+            // Fall back to cached result for unknown tokens.
             if (this.cache.has(cacheKey)) {
                 const cachedData = this.cache.get(cacheKey);
                 if (this.isCacheValid(cachedData)) {
-                    debug('Icon found in memory cache:', normalizedAddress);
-                    // If cached iconUrl is null (unknown token), return fallback
                     if (cachedData.iconUrl === null) {
-                        debug('Cached unknown token, using fallback icon');
                         return this.getFallbackIconData(tokenAddress);
                     }
                     return cachedData.iconUrl;
-                } else {
-                    // Remove expired cache entry
-                    this.cache.delete(cacheKey);
-                    this.cacheTimestamps.delete(cacheKey);
                 }
+
+                this.cache.delete(cacheKey);
+                this.cacheTimestamps.delete(cacheKey);
             }
 
-            // Check if already loading
-            if (this.loadingPromises.has(cacheKey)) {
-                debug('Icon already loading, waiting for result:', normalizedAddress);
-                return await this.loadingPromises.get(cacheKey);
-            }
-
-            // Start loading process
-            const loadingPromise = this.loadIconUrl(normalizedAddress, chainId, cacheKey);
-            this.loadingPromises.set(cacheKey, loadingPromise);
-
-            try {
-                const iconUrl = await loadingPromise;
-                return iconUrl;
-            } finally {
-                // Clean up loading promise
-                this.loadingPromises.delete(cacheKey);
-            }
-
+            // Unknown token for current local map.
+            this.persistCacheEntry(cacheKey, null, true);
+            return this.getFallbackIconData(tokenAddress);
         } catch (err) {
             error('Error getting icon URL:', err);
             return this.getFallbackIconData(tokenAddress);
@@ -156,328 +196,11 @@ export class TokenIconService {
     }
 
     /**
-     * Load icon URL with rate limiting and validation
-     * @param {string} tokenAddress - Normalized token address
-     * @param {string|number} chainId - Network chain ID
-     * @param {string} cacheKey - Cache key for this request
-     * @returns {Promise<string>} Icon URL
-     */
-            async loadIconUrl(tokenAddress, chainId, cacheKey) {
-            return this.rateLimiter.execute(async () => {
-                try {
-                    // Special case for Liberdus - use local icon
-                    if (tokenAddress.toLowerCase() === "0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76") {
-                        debug('Using local Liberdus icon');
-                        const cacheData = {
-                            iconUrl: "assets/32.png",
-                            timestamp: Date.now()
-                        };
-                        this.cache.set(cacheKey, cacheData);
-                        this.cacheTimestamps.set(cacheKey, cacheData.timestamp);
-                        this.saveCacheToStorage();
-                        return "assets/32.png";
-                    }
-
-                    // Try to get CoinGecko icon URL with retry logic
-                    let iconUrl = null;
-                    let retryCount = 0;
-                    const maxRetries = 2;
-
-                    while (retryCount <= maxRetries && !iconUrl) {
-                        try {
-                            debug(`Attempting to get CoinGecko icon for ${tokenAddress} (attempt ${retryCount + 1})`);
-                            iconUrl = await this.getCoinGeckoIconUrl(tokenAddress, chainId);
-                            
-                            if (iconUrl) {
-                                debug('Found CoinGecko icon for:', tokenAddress, iconUrl);
-                                const cacheData = {
-                                    iconUrl,
-                                    timestamp: Date.now()
-                                };
-                                this.cache.set(cacheKey, cacheData);
-                                this.cacheTimestamps.set(cacheKey, cacheData.timestamp);
-                                this.saveCacheToStorage();
-                                return iconUrl;
-                            } else {
-                                // If iconUrl is null, it means the token is unknown
-                                // Cache this result to prevent infinite retries
-                                debug(`Token ${tokenAddress} is unknown, caching result to prevent retries`);
-                                const cacheData = {
-                                    iconUrl: null,
-                                    timestamp: Date.now(),
-                                    isUnknown: true
-                                };
-                                this.cache.set(cacheKey, cacheData);
-                                this.cacheTimestamps.set(cacheKey, cacheData.timestamp);
-                                this.saveCacheToStorage();
-                                break; // Exit the retry loop for unknown tokens
-                            }
-                        } catch (error) {
-                            retryCount++;
-                            debug(`CoinGecko icon fetch failed for ${tokenAddress} (attempt ${retryCount}):`, error.message);
-                            
-                            if (retryCount <= maxRetries) {
-                                // Wait before retry with exponential backoff
-                                const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s
-                                debug(`Waiting ${delay}ms before retry...`);
-                                await new Promise(resolve => setTimeout(resolve, delay));
-                            }
-                        }
-                    }
-
-                    // If all attempts failed, log the failure
-                    if (!iconUrl) {
-                        debug(`All CoinGecko attempts failed for ${tokenAddress}, using fallback`);
-                    }
-                } catch (error) {
-                    debug('Unexpected error in loadIconUrl for:', tokenAddress, error.message);
-                }
-
-                // Fallback to generated icon
-                debug('Using fallback icon for:', tokenAddress);
-                return this.getFallbackIconData(tokenAddress);
-            });
-        }
-
-    /**
-     * Get CoinGecko icon URL for a token
-     * @param {string} tokenAddress - Token contract address
-     * @param {string|number} chainId - Network chain ID
-     * @returns {Promise<string|null>} CoinGecko icon URL or null
-     */
-    async getCoinGeckoIconUrl(tokenAddress, chainId) {
-        const normalizedAddress = tokenAddress?.toLowerCase();
-        if (!ethers.utils.isAddress(normalizedAddress)) {
-            debug('Invalid token address for CoinGecko lookup:', tokenAddress);
-            return null;
-        }
-
-        // CoinGecko asset platform mapping
-        const chainMap = {
-            1: "ethereum",
-            137: "polygon-pos",
-            56: "binance-smart-chain",
-            42161: "arbitrum-one",
-            10: "optimistic-ethereum",
-            43114: "avalanche",
-            250: "fantom",
-            25: "cronos"
-        };
-
-        const normalizedChainId = Number(chainId);
-        const chainName = chainMap[normalizedChainId];
-        if (!chainName) {
-            debug('Unsupported chain for CoinGecko:', chainId);
-            return null;
-        }
-
-        // Primary path: dynamic lookup by platform + contract address
-        const dynamicIconUrl = await this.fetchCoinGeckoContractIcon(chainName, normalizedAddress);
-        if (dynamicIconUrl) {
-            debug('Found CoinGecko icon URL via dynamic contract lookup:', dynamicIconUrl);
-            return dynamicIconUrl;
-        }
-
-        // Fallback path 1: CoinGecko chain token list
-        const coinGeckoListIconUrl = await this.fetchCoinGeckoTokenListIcon(chainName, normalizedAddress);
-        if (coinGeckoListIconUrl) {
-            debug('Found icon URL via CoinGecko token list:', coinGeckoListIconUrl);
-            return coinGeckoListIconUrl;
-        }
-
-        // Fallback path 2: Uniswap token list (multi-chain)
-        const uniswapListIconUrl = await this.fetchUniswapTokenListIcon(normalizedChainId, normalizedAddress);
-        if (uniswapListIconUrl) {
-            debug('Found icon URL via Uniswap token list:', uniswapListIconUrl);
-            return uniswapListIconUrl;
-        }
-
-        // Fallback path: known token to coin-id mapping
-        const knownTokens = {
-            "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": "usd-coin", // Polygon USDC
-            "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6": "wrapped-bitcoin", // Polygon WBTC
-            "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": "usd-coin", // BNB USDC
-            "0x0555e30da8f98308edb960aa94c0db47230d2b9c": "wrapped-bitcoin", // BNB WBTC
-            "0xc2132d05d31c914a87c6611c10748aeb04b58e8f": "tether", // USDT
-            "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619": "weth", // WETH
-            "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270": "matic-network", // WMATIC
-        };
-
-        const coinId = knownTokens[normalizedAddress];
-        if (!coinId) {
-            debug('Unknown token for CoinGecko fallback mapping:', tokenAddress);
-            return null;
-        }
-
-        const mappedIconUrl = await this.fetchCoinGeckoCoinIdIcon(coinId);
-        if (mappedIconUrl) {
-            debug('Found CoinGecko icon URL via fallback coin-id mapping:', mappedIconUrl);
-        }
-        return mappedIconUrl;
-    }
-
-    async fetchCoinGeckoTokenListIcon(chainName, tokenAddress) {
-        try {
-            const tokenMap = await this.getCoinGeckoTokenListMap(chainName);
-            return tokenMap.get(tokenAddress) || null;
-        } catch (error) {
-            debug('CoinGecko token list fallback error:', error.message);
-            return null;
-        }
-    }
-
-    async getCoinGeckoTokenListMap(chainName) {
-        if (!chainName) return new Map();
-
-        if (this.coinGeckoTokenListPromises.has(chainName)) {
-            return this.coinGeckoTokenListPromises.get(chainName);
-        }
-
-        const tokenListPromise = (async () => {
-            try {
-                const url = `${COINGECKO_TOKENLIST_BASE}/${chainName}/all.json`;
-                const response = await fetch(url);
-                if (!response.ok) {
-                    debug(`CoinGecko token list lookup failed (${response.status}) for ${chainName}`);
-                    return new Map();
-                }
-
-                const data = await response.json();
-                const tokenMap = new Map();
-                const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
-                tokens.forEach(token => {
-                    const address = token?.address?.toLowerCase();
-                    const logoUri = token?.logoURI;
-                    if (address && logoUri) {
-                        tokenMap.set(address, logoUri);
-                    }
-                });
-
-                debug(`Loaded CoinGecko token list for ${chainName}: ${tokenMap.size} logos`);
-                return tokenMap;
-            } catch (error) {
-                debug(`CoinGecko token list fetch error for ${chainName}:`, error.message);
-                return new Map();
-            }
-        })();
-
-        this.coinGeckoTokenListPromises.set(chainName, tokenListPromise);
-        return tokenListPromise;
-    }
-
-    async fetchCoinGeckoContractIcon(chainName, tokenAddress) {
-        try {
-            const url = `${COINGECKO_API_BASE}/coins/${chainName}/contract/${tokenAddress}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`;
-            const response = await fetch(url);
-            if (!response.ok) {
-                debug(`CoinGecko contract lookup failed (${response.status}) for ${chainName}:${tokenAddress}`);
-                return null;
-            }
-
-            const data = await response.json();
-            return data?.image?.small || null;
-        } catch (error) {
-            debug('CoinGecko contract lookup error:', error.message);
-            return null;
-        }
-    }
-
-    async fetchCoinGeckoCoinIdIcon(coinId) {
-        try {
-            const url = `${COINGECKO_API_BASE}/coins/${coinId}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false`;
-            const response = await fetch(url);
-            if (!response.ok) {
-                debug(`CoinGecko coin-id lookup failed (${response.status}) for ${coinId}`);
-                return null;
-            }
-
-            const data = await response.json();
-            return data?.image?.small || null;
-        } catch (error) {
-            debug('CoinGecko coin-id lookup error:', error.message);
-            return null;
-        }
-    }
-
-    async fetchUniswapTokenListIcon(chainId, tokenAddress) {
-        try {
-            const tokenMap = await this.getUniswapTokenListMap();
-            return tokenMap.get(`${chainId}-${tokenAddress}`) || null;
-        } catch (error) {
-            debug('Uniswap token list fallback error:', error.message);
-            return null;
-        }
-    }
-
-    async getUniswapTokenListMap() {
-        if (this.uniswapTokenListPromise) {
-            return this.uniswapTokenListPromise;
-        }
-
-        this.uniswapTokenListPromise = (async () => {
-            try {
-                const response = await fetch(UNISWAP_TOKENLIST_URL);
-                if (!response.ok) {
-                    debug(`Uniswap token list lookup failed (${response.status})`);
-                    return new Map();
-                }
-
-                const data = await response.json();
-                const tokenMap = new Map();
-                const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
-                tokens.forEach(token => {
-                    const address = token?.address?.toLowerCase();
-                    const chainId = Number(token?.chainId);
-                    const logoUri = token?.logoURI;
-                    if (address && Number.isFinite(chainId) && logoUri) {
-                        tokenMap.set(`${chainId}-${address}`, logoUri);
-                    }
-                });
-
-                debug(`Loaded Uniswap token list: ${tokenMap.size} logos`);
-                return tokenMap;
-            } catch (error) {
-                debug('Uniswap token list fetch error:', error.message);
-                return new Map();
-            }
-        })();
-
-        return this.uniswapTokenListPromise;
-    }
-
-
-
-    /**
-     * Validate if an icon URL exists and is accessible
-     * @param {string} iconUrl - Icon URL to validate
-     * @returns {Promise<boolean>} True if icon exists
-     */
-    async validateIconUrl(iconUrl) {
-        if (!iconUrl) return false;
-
-        try {
-            const response = await fetch(iconUrl, {
-                method: 'HEAD',
-                mode: 'no-cors' // Handle CORS issues
-            });
-            
-            // For no-cors requests, we can't check status, so assume it exists
-            // In a real implementation, you might want to use a proxy or different approach
-            return true;
-        } catch (err) {
-            debug('Icon validation failed:', err);
-            return false;
-        }
-    }
-
-    /**
      * Get fallback icon data for tokens without icons
      * @param {string} tokenAddress - Token contract address
-     * @returns {string} Fallback icon data (color-based)
+     * @returns {string} Fallback icon data identifier
      */
     getFallbackIconData(tokenAddress) {
-        // Return a special identifier for fallback icons
-        // Components will handle the actual fallback rendering
         return 'fallback';
     }
 
@@ -519,8 +242,8 @@ export class TokenIconService {
      */
     async preloadIcons(tokenAddresses, chainId) {
         debug('Preloading icons for', tokenAddresses.length, 'tokens');
-        
-        const preloadPromises = tokenAddresses.map(address => 
+
+        const preloadPromises = tokenAddresses.map(address =>
             this.getIconUrl(address, chainId).catch(err => {
                 debug('Failed to preload icon for', address, err);
                 return null;
@@ -537,7 +260,6 @@ export class TokenIconService {
     clearCache() {
         this.cache.clear();
         this.cacheTimestamps.clear();
-        this.loadingPromises.clear();
         this.cleanupOldStorageKeys();
         localStorage.removeItem(this.cacheStorageKey);
         debug('All caches cleared');
@@ -548,15 +270,14 @@ export class TokenIconService {
      * @returns {Object} Cache statistics
      */
     getCacheStats() {
-        const validEntries = Array.from(this.cache.entries()).filter(([key, data]) => 
+        const validEntries = Array.from(this.cache.entries()).filter(([, data]) =>
             this.isCacheValid(data)
         );
 
         return {
             totalEntries: this.cache.size,
             validEntries: validEntries.length,
-            expiredEntries: this.cache.size - validEntries.length,
-            loadingPromises: this.loadingPromises.size
+            expiredEntries: this.cache.size - validEntries.length
         };
     }
 
@@ -570,7 +291,7 @@ export class TokenIconService {
                 timestamps: Array.from(this.cacheTimestamps.entries()),
                 timestamp: Date.now()
             };
-            
+
             localStorage.setItem(this.cacheStorageKey, JSON.stringify(cacheData));
         } catch (err) {
             warn('Failed to save cache to localStorage:', err);
@@ -604,6 +325,7 @@ export class TokenIconService {
                 }
             });
 
+            this.trimCacheIfNeeded();
             debug('Cache loaded from localStorage:', this.cache.size, 'entries');
         } catch (err) {
             warn('Failed to load cache from localStorage:', err);

@@ -144,10 +144,9 @@ export async function getContractAllowedTokens() {
                 const balanceEntry = balanceMap.get(lc);
                 const balance = balanceEntry?.formatted || '0';
 
-                // Get icon URL (deferred priority)
+                // Get icon URL from local map/cache.
                 let iconUrl = null;
                 try {
-                    await new Promise(resolve => setTimeout(resolve, 150));
                     const networkConfig = getNetworkConfig();
                     const chainId = parseInt(networkConfig.chainId, 16);
                     iconUrl = await tokenIconService.getIconUrl(address, chainId);
