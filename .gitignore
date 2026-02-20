@@ -13,6 +13,7 @@ deprecated/
 
 # Browser automation (Cursor MCP)
 .playwright-mcp/
+.cursor/settings.json
 
 # docs folder
 docs/

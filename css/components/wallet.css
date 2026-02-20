@@ -94,10 +94,23 @@
 .network-option {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   cursor: pointer;
   border-radius: 8px;
   transition: all 0.2s ease;
+}
+
+.network-option-logo {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.network-option-label {
+  white-space: nowrap;
 }
 
 .network-option:hover,
@@ -233,6 +246,7 @@
 .network-badge {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   padding: 4px 10px;
   font-size: 14px;
   font-weight: 600;
@@ -255,6 +269,22 @@
   margin-right: 6px;
   background-color: currentColor;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+.network-badge.has-logo::before {
+  display: none;
+}
+
+.network-badge-logo {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.network-badge-label {
+  white-space: nowrap;
 }
 
 .network-badge.connected {

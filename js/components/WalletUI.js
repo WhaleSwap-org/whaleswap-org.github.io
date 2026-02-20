@@ -412,6 +412,7 @@ export class WalletUI extends BaseComponent {
             const walletNetwork = getNetworkById(chainId);
 
             networkBadge.textContent = selectedNetwork.displayName || selectedNetwork.name;
+            networkBadge.classList.remove('has-logo');
             networkBadge.classList.remove('wrong-network', 'connected', 'disconnected');
             if (!chainId) {
                 networkBadge.classList.add('disconnected');

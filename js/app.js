@@ -1203,6 +1203,59 @@ let networkButton, networkDropdown, networkBadge;
 let networkSelectorElement;
 let selectedNetworkSlug = null;
 
+function escapeHtml(value) {
+	return String(value)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
+function getNetworkLogoPath(network) {
+	return typeof network?.logo === 'string' ? network.logo : '';
+}
+
+function renderNetworkBadge(network) {
+	if (!networkBadge || !network) return;
+
+	const networkLabel = network.displayName || network.name;
+	const logoPath = getNetworkLogoPath(network);
+	networkBadge.replaceChildren();
+	networkBadge.classList.toggle('has-logo', Boolean(logoPath));
+
+	if (logoPath) {
+		const logo = document.createElement('img');
+		logo.className = 'network-badge-logo';
+		logo.src = logoPath;
+		logo.alt = `${networkLabel} logo`;
+		logo.loading = 'lazy';
+		logo.decoding = 'async';
+		networkBadge.appendChild(logo);
+	}
+
+	const label = document.createElement('span');
+	label.className = 'network-badge-label';
+	label.textContent = networkLabel;
+	networkBadge.appendChild(label);
+}
+
+function buildNetworkOptionMarkup(network) {
+	const networkLabel = network.displayName || network.name;
+	const logoPath = getNetworkLogoPath(network);
+	const escapedLabel = escapeHtml(networkLabel);
+	const logoMarkup = logoPath
+		? `<img class="network-option-logo" src="${escapeHtml(logoPath)}" alt="${escapedLabel} logo" loading="lazy" decoding="async">`
+		: '';
+
+	return `
+		<div class="network-option" role="option" tabindex="0" data-network="${escapeHtml(network.name.toLowerCase())}" data-chain-id="${escapeHtml(network.chainId)}" data-slug="${escapeHtml(network.slug)}">
+			${logoMarkup}
+			<span class="network-option-label">${escapedLabel}</span>
+		</div>
+	`;
+}
+
 function getChainSlugFromUrl() {
 	const params = new URLSearchParams(window.location.search);
 	const slug = params.get('chain');
@@ -1234,7 +1287,7 @@ function syncNetworkBadgeFromState() {
 
 	const selectedSlug = selectedNetworkSlug || window.app?.ctx?.getSelectedChainSlug?.() || getDefaultNetwork().slug;
 	const selectedNetwork = getNetworkBySlug(selectedSlug) || getDefaultNetwork();
-	networkBadge.textContent = selectedNetwork.displayName || selectedNetwork.name;
+	renderNetworkBadge(selectedNetwork);
 	networkBadge.classList.remove('connected', 'wrong-network', 'disconnected');
 	if (networkButton) {
 		networkButton.dataset.networkStatus = 'default';
@@ -1323,11 +1376,7 @@ const populateNetworkOptions = () => {
 		return;
 	}
 	
-	networkDropdown.innerHTML = networks.map(network => `
-		<div class="network-option" role="option" tabindex="0" data-network="${network.name.toLowerCase()}" data-chain-id="${network.chainId}" data-slug="${network.slug}">
-			${network.displayName}
-		</div>
-	`).join('');
+	networkDropdown.innerHTML = networks.map(network => buildNetworkOptionMarkup(network)).join('');
 	
 	// Re-attach click handlers only if multiple networks.
 	document.querySelectorAll('.network-option').forEach(option => {
