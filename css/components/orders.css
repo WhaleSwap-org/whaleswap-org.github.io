@@ -4,7 +4,6 @@
   overflow-x: auto;
   margin-bottom: 1.25rem;
   border-radius: 0.75rem;
-  box-shadow: var(--card-shadow);
   padding: 0.5rem;
   min-width: 42rem; /* Reduced from 48rem due to condensed layout */
   background: var(--bg-secondary);
@@ -451,7 +450,6 @@
   overflow-x: auto;
   margin-bottom: 1.25rem;
   border-radius: 0.75rem;
-  box-shadow: var(--card-shadow);
   padding: 0.5rem;
   min-width: 42rem; /* Reduced from 48rem due to condensed layout */
   background: var(--bg-secondary);

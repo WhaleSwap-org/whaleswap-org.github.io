@@ -1,7 +1,7 @@
 /* At the top of styles.css */
 :root {
-  --font-ui: "Plus Jakarta Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-accent: "Plus Jakarta Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-ui: "DM Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-accent: "Manrope", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 
   /* Light theme (default) */
@@ -115,6 +115,15 @@ body {
   font-family: var(--font-ui);
   margin: 0;
   min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-accent);
 }
 
 .container {
@@ -1011,6 +1020,32 @@ input {
   box-shadow: var(--card-shadow);
   border: var(--card-border);
   color: var(--text-primary);
+}
+
+/* Utility: flatten a card surface while preserving layout structure */
+.card.card--transparent {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.header.card.card--transparent {
+  padding: 8px 0 12px;
+  border-radius: 0;
+}
+
+.content-wrapper.card.card--transparent {
+  padding: 0;
+  border-radius: 0;
+  min-width: 320px;
+}
+
+@media (max-width: 360px) {
+  .content-wrapper.card.card--transparent {
+    min-width: 0;
+  }
 }
 
 /* Base text styles */

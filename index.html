@@ -22,7 +22,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@500;600&display=swap"
     />
     <!-- Core styles -->
     <link rel="stylesheet" href="css/styles.css" />
@@ -443,12 +443,12 @@
     </div>
     <div class="container">
       <!-- Header contains branding, theme toggle, and wallet connection -->
-      <header class="header card">
+      <header class="header card card--transparent">
         <div class="header-left">
           <div class="logo-container">
             <img src="img/whale_swap_2.webp" alt="WhaleSwap Logo" class="logo-image" />
             <h1>WhaleSwap</h1>
-            <span class="version">v1.0.41</span>
+            <span class="version">v1.0.42</span>
           </div>
         </div>
         <!-- Theme toggle and wallet connection controls -->
@@ -598,7 +598,7 @@
       </div>
       <!-- Main application content area -->
       <main class="main-content">
-        <div class="content-wrapper card">
+        <div class="content-wrapper card card--transparent">
           <!-- Navigation tabs for different sections -->
           <nav class="nav-tabs">
             <button class="tab-button" data-tab="intro" style="display: block">
@@ -656,18 +656,18 @@
           </nav>
 
           <!-- Create Order tab content -->
-          <div id="create-order" class="tab-content active card">
+          <div id="create-order" class="tab-content active card card--transparent">
             <!-- Content will be rendered by CreateOrder component -->
           </div>
           <!-- Other tab contents (populated dynamically) -->
-          <div id="intro" class="tab-content card"></div>
-          <div id="view-orders" class="tab-content card"></div>
-          <div id="my-orders" class="tab-content card"></div>
-          <div id="taker-orders" class="tab-content card"></div>
-          <div id="cleanup-orders" class="tab-content card">
+          <div id="intro" class="tab-content card card--transparent"></div>
+          <div id="view-orders" class="tab-content card card--transparent"></div>
+          <div id="my-orders" class="tab-content card card--transparent"></div>
+          <div id="taker-orders" class="tab-content card card--transparent"></div>
+          <div id="cleanup-orders" class="tab-content card card--transparent">
             <div id="cleanup-container" class="cleanup-container"></div>
           </div>
-          <div id="contract-params" class="tab-content card">
+          <div id="contract-params" class="tab-content card card--transparent">
             <div
               id="contract-params-container"
               class="contract-params-container"

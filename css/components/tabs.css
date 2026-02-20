@@ -70,9 +70,9 @@
   border: none;
 }
 
-#create-order.tab-content.card {
-  background: transparent;
+.tab-content.card.card--transparent {
   padding: 0;
+  border-radius: 0;
 }
 
 .tab-content {

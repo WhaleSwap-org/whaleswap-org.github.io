@@ -84,6 +84,7 @@
 
 .form-group input[type="number"] {
   /* Remove default number input styling */
+  appearance: textfield;
   -moz-appearance: textfield;
 }
 
@@ -2136,4 +2137,138 @@
   #admin-delete-token-modal .admin-token-address-inline {
     text-align: left;
   }
+}
+
+/* Compact Create Order layout: reduce vertical length without sacrificing readability */
+#create-order .form-container {
+  margin-bottom: 10px;
+}
+
+#create-order .swap-section {
+  gap: 8px;
+  padding: 14px;
+}
+
+#create-order .swap-input-container {
+  margin-bottom: 0;
+}
+
+#create-order .unified-token-input {
+  min-height: 92px;
+  padding: 12px;
+  gap: 10px;
+  border-radius: 12px;
+}
+
+#create-order .token-input-wrapper {
+  gap: 5px;
+}
+
+#create-order .token-input-label {
+  font-size: 12px;
+}
+
+#create-order .token-amount-input {
+  font-size: clamp(22px, 2vw, 28px);
+  line-height: 1.08;
+}
+
+#create-order .token-selector-group {
+  gap: 2px;
+}
+
+#create-order .token-selector-button {
+  min-width: 140px;
+  height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+#create-order .balance-clickable,
+#create-order .token-balance-display {
+  min-width: 140px;
+  padding: 4px 10px;
+}
+
+#create-order .balance-amount {
+  font-size: 13px;
+}
+
+#create-order .swap-arrow {
+  height: 18px;
+  margin-top: -6px;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+#create-order .swap-arrow svg {
+  width: 20px;
+  height: 20px;
+}
+
+#create-order .taker-input-container {
+  margin-top: 2px;
+}
+
+#create-order .taker-toggle {
+  padding: 11px 12px;
+  font-size: 13px;
+}
+
+#create-order .taker-input-content {
+  padding: 0 12px 12px;
+}
+
+#create-order .taker-address-input {
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+#create-order .form-group {
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+#create-order .fee-group label {
+  margin-bottom: 4px;
+}
+
+#create-order .action-button {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+#create-order #status {
+  margin-top: 10px;
+  padding: 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  #create-order .swap-section {
+    padding: 12px;
+    gap: 7px;
+  }
+
+  #create-order .unified-token-input {
+    min-height: 88px;
+    padding: 10px;
+  }
+
+  #create-order .token-selector-button,
+  #create-order .balance-clickable,
+  #create-order .token-balance-display {
+    min-width: 132px;
+  }
+}
+
+/* Connected create-order shell should not render as a card layer */
+#create-order .swap-section.swap-section--transparent-connected.wallet-connected {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
 }

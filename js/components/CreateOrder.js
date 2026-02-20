@@ -2278,7 +2278,7 @@ export class CreateOrder extends BaseComponent {
         return `
             <!-- Token swap form interface -->
             <div class="form-container card">
-                <div class="swap-section">
+                <div class="swap-section swap-section--transparent-connected">
                     <!-- Sell token input section -->
                     <div id="sellContainer" class="swap-input-container">
                         <div class="amount-input-wrapper">
