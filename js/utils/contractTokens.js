@@ -21,12 +21,84 @@ const TOKEN_METADATA_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const BALANCE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 const tokenMetadataCache = new Map(); // key: tokenAddress (lowercase) -> { value, ts }
 const balanceCache = new Map(); // key: `${token}-${user}` -> { value, ts }
-const LIBERDUS_ADDRESS = '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76';
-const LIBERDUS_METADATA = {
-    symbol: 'LIB',
-    name: 'Liberdus',
-    decimals: 18
-};
+const TOKEN_METADATA_STORAGE_KEY_PREFIX = 'tokenMetadataCache';
+const TOKEN_METADATA_STORAGE_SCHEMA = 'v1';
+let tokenMetadataStorageLoaded = false;
+
+function getTokenMetadataStorageKey() {
+    try {
+        const network = getNetworkConfig();
+        const chainId = parseInt(network.chainId, 16);
+        const chainSegment = Number.isFinite(chainId) ? String(chainId) : 'unknown';
+        return `${TOKEN_METADATA_STORAGE_KEY_PREFIX}:${TOKEN_METADATA_STORAGE_SCHEMA}:${chainSegment}`;
+    } catch (_) {
+        return `${TOKEN_METADATA_STORAGE_KEY_PREFIX}:${TOKEN_METADATA_STORAGE_SCHEMA}:unknown`;
+    }
+}
+
+function loadTokenMetadataCacheFromStorage() {
+    if (tokenMetadataStorageLoaded || typeof localStorage === 'undefined') {
+        return;
+    }
+
+    tokenMetadataStorageLoaded = true;
+
+    try {
+        const raw = localStorage.getItem(getTokenMetadataStorageKey());
+        if (!raw) {
+            return;
+        }
+
+        const parsed = JSON.parse(raw);
+        const now = Date.now();
+
+        Object.entries(parsed).forEach(([address, entry]) => {
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            if (typeof entry.ts !== 'number' || !entry.value) {
+                return;
+            }
+            if ((now - entry.ts) >= TOKEN_METADATA_CACHE_TTL_MS) {
+                return;
+            }
+            tokenMetadataCache.set(address, { value: entry.value, ts: entry.ts });
+        });
+    } catch (err) {
+        debug('Failed to load token metadata cache from localStorage:', err);
+    }
+}
+
+function persistTokenMetadataCacheToStorage() {
+    if (typeof localStorage === 'undefined') {
+        return;
+    }
+
+    try {
+        const now = Date.now();
+        const serializable = {};
+
+        tokenMetadataCache.forEach((entry, address) => {
+            if (!entry || typeof entry.ts !== 'number' || !entry.value) {
+                return;
+            }
+            if ((now - entry.ts) >= TOKEN_METADATA_CACHE_TTL_MS) {
+                return;
+            }
+            serializable[address] = entry;
+        });
+
+        localStorage.setItem(getTokenMetadataStorageKey(), JSON.stringify(serializable));
+    } catch (err) {
+        debug('Failed to persist token metadata cache to localStorage:', err);
+    }
+}
+
+function setTokenMetadataCache(address, metadata) {
+    const addressKey = address.toLowerCase();
+    tokenMetadataCache.set(addressKey, { value: metadata, ts: Date.now() });
+    persistTokenMetadataCacheToStorage();
+}
 
 /**
  * Batch fetch balances and decimals for many tokens using multicall
@@ -189,66 +261,13 @@ export async function getContractAllowedTokens() {
  */
 async function getTokenMetadata(tokenAddress) {
     try {
-        // Cache lookup first
         const normalizedAddress = tokenAddress.toLowerCase();
+
+        loadTokenMetadataCacheFromStorage();
+
         const cached = tokenMetadataCache.get(normalizedAddress);
         if (cached && (Date.now() - cached.ts) < TOKEN_METADATA_CACHE_TTL_MS) {
             return cached.value;
-        }
-        // Always normalize Liberdus naming regardless of token contract metadata
-        if (normalizedAddress === LIBERDUS_ADDRESS) {
-            tokenMetadataCache.set(normalizedAddress, { value: LIBERDUS_METADATA, ts: Date.now() });
-            return LIBERDUS_METADATA;
-        }
-        // Known token fallbacks for common tokens
-        const knownTokens = {
-            // Polygon Mainnet tokens
-            '0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6': {
-                symbol: 'WBTC',
-                name: 'Wrapped Bitcoin',
-                decimals: 8
-            },
-            '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': {
-                symbol: 'USDC',
-                name: 'USD Coin',
-                decimals: 6
-            },
-            // BNB Chain tokens
-            '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': {
-                symbol: 'USDC',
-                name: 'USD Coin',
-                decimals: 18
-            },
-            '0x0555e30da8f98308edb960aa94c0db47230d2b9c': {
-                symbol: 'WBTC',
-                name: 'Wrapped Bitcoin',
-                decimals: 8
-            },
-            '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': {
-                symbol: 'USDT',
-                name: 'Tether USD',
-                decimals: 6
-            },
-            [LIBERDUS_ADDRESS]: LIBERDUS_METADATA,
-            '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619': {
-                symbol: 'WETH',
-                name: 'Wrapped Ether',
-                decimals: 18
-            },
-            '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270': {
-                symbol: 'WPOL',
-                name: 'Wrapped Polygon Ecosystem Token',
-                decimals: 18
-            },
-        };
-
-        // Check if we have known metadata for this token
-        const knownToken = knownTokens[normalizedAddress];
-        
-        if (knownToken) {
-            debug(`Using known metadata for ${knownToken.symbol}`);
-            tokenMetadataCache.set(normalizedAddress, { value: knownToken, ts: Date.now() });
-            return knownToken;
         }
 
         const provider = contractService.getProvider();
@@ -304,7 +323,7 @@ async function getTokenMetadata(tokenAddress) {
             decimals: parseInt(decimals)
         };
 
-        tokenMetadataCache.set(normalizedAddress, { value: metadata, ts: Date.now() });
+        setTokenMetadataCache(normalizedAddress, metadata);
         return metadata;
 
     } catch (err) {
@@ -319,7 +338,7 @@ async function getTokenMetadata(tokenAddress) {
                 decimals: 18
             };
             
-            tokenMetadataCache.set(tokenAddress.toLowerCase(), { value: fallbackMetadata, ts: Date.now() });
+            setTokenMetadataCache(tokenAddress, fallbackMetadata);
             return fallbackMetadata;
         }
         
@@ -331,7 +350,7 @@ async function getTokenMetadata(tokenAddress) {
             name: 'Unknown Token',
             decimals: 18
         };
-        tokenMetadataCache.set(tokenAddress.toLowerCase(), { value: fallbackMetadata, ts: Date.now() });
+        setTokenMetadataCache(tokenAddress, fallbackMetadata);
         return fallbackMetadata;
     }
 }
@@ -466,6 +485,12 @@ export async function getTokenBalanceInfo(tokenAddress) {
 export function clearTokenCaches() {
     tokenMetadataCache.clear();
     balanceCache.clear();
+    tokenMetadataStorageLoaded = false;
+
+    if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(getTokenMetadataStorageKey());
+    }
+
     debug('Token caches cleared');
 }
 

@@ -3,8 +3,8 @@ import { ethers } from 'ethers';
 import { erc20Abi } from '../abi/erc20.js';
 import { createLogger } from '../services/LogService.js';
 import { DEBUG_CONFIG, walletManager, getNetworkConfig } from '../config.js';
-import { tokenIconService } from '../services/TokenIconService.js';
 import { generateTokenIconHTML } from '../utils/tokenIcons.js';
+import { getAllWalletTokens } from '../utils/contractTokens.js';
 
 export class Admin extends BaseComponent {
     constructor() {
@@ -25,6 +25,9 @@ export class Admin extends BaseComponent {
         this.deleteTokenModal = null;
         this.deleteTokenTargetRow = null;
         this.deleteAllowedTokens = [];
+        this.deleteTokenPickerRequestId = 0;
+        this.deleteAllowedTokensLoadedAt = 0;
+        this.deleteAllowedTokensCacheTtlMs = 30 * 1000;
     }
 
     async initialize(readOnlyMode = true) {
@@ -319,7 +322,7 @@ export class Admin extends BaseComponent {
             const row = addressInput.closest('.admin-token-row');
             if (row && this.getTokenRowAction(row) === 'delete') {
                 event.preventDefault();
-                if (this.deleteTokenTargetRow === row) return;
+                if (this.deleteTokenTargetRow === row && this.deleteTokenModal?.classList.contains('show')) return;
                 this.openDeleteTokenPicker(row);
                 return;
             }
@@ -506,38 +509,70 @@ export class Admin extends BaseComponent {
         }
 
         try {
-            const tokenAddresses = await this.contract.getAllowedTokens();
-            const uniqueAddresses = [...new Set((tokenAddresses || []).map((address) => address.toLowerCase()))];
-            const iconChainId = this.getIconChainId();
+            const now = Date.now();
+            if (
+                this.deleteAllowedTokens.length &&
+                (now - this.deleteAllowedTokensLoadedAt) < this.deleteAllowedTokensCacheTtlMs
+            ) {
+                return;
+            }
 
-            const metadataEntries = await Promise.all(uniqueAddresses.map(async (address) => {
-                try {
-                    const metadata = await this.getTokenMetadata(address);
-                    let iconUrl = 'fallback';
-                    try {
-                        iconUrl = await tokenIconService.getIconUrl(metadata.address, iconChainId);
-                    } catch (_) {}
+            const tokensByAddress = new Map();
 
-                    return {
-                        address: metadata.address,
-                        symbol: metadata.symbol || 'TOKEN',
-                        name: metadata.name || metadata.symbol || 'Token',
-                        iconUrl
-                    };
-                } catch (error) {
-                    const normalized = ethers.utils.getAddress(address);
-                    return {
-                        address: normalized,
-                        symbol: 'TOKEN',
-                        name: normalized,
-                        iconUrl: 'fallback'
-                    };
+            // Reuse CreateOrder token data first to avoid redundant RPC/metadata calls.
+            const createOrderTokens = window.app?.components?.['create-order']?.allowedTokens;
+            const candidateTokens = Array.isArray(createOrderTokens) ? createOrderTokens : [];
+
+            if (!candidateTokens.length) {
+                const walletTokens = await getAllWalletTokens();
+                if (Array.isArray(walletTokens) && walletTokens.length) {
+                    candidateTokens.push(...walletTokens);
                 }
-            }));
+            }
 
-            this.deleteAllowedTokens = metadataEntries.sort((a, b) => a.symbol.localeCompare(b.symbol));
+            for (const token of candidateTokens) {
+                const address = token?.address;
+                if (!address || !ethers.utils.isAddress(address)) continue;
+
+                const normalizedAddress = ethers.utils.getAddress(address);
+                const key = normalizedAddress.toLowerCase();
+                if (tokensByAddress.has(key)) continue;
+
+                tokensByAddress.set(key, {
+                    address: normalizedAddress,
+                    symbol: token?.symbol || 'TOKEN',
+                    name: token?.name || token?.symbol || normalizedAddress,
+                    iconUrl: token?.iconUrl || 'fallback'
+                });
+            }
+
+            // Final fallback to contract addresses only (no metadata) if shared token list is unavailable.
+            if (!tokensByAddress.size) {
+                const tokenAddresses = await this.contract.getAllowedTokens();
+                const normalizedAddresses = [...new Set((tokenAddresses || []).map((address) => {
+                    try {
+                        return ethers.utils.getAddress(address);
+                    } catch (_) {
+                        return null;
+                    }
+                }).filter(Boolean))];
+
+                normalizedAddresses.forEach((address) => {
+                    tokensByAddress.set(address.toLowerCase(), {
+                        address,
+                        symbol: 'TOKEN',
+                        name: address,
+                        iconUrl: 'fallback'
+                    });
+                });
+            }
+
+            this.deleteAllowedTokens = Array.from(tokensByAddress.values())
+                .sort((a, b) => a.symbol.localeCompare(b.symbol));
+            this.deleteAllowedTokensLoadedAt = Date.now();
         } catch (error) {
             this.deleteAllowedTokens = [];
+            this.deleteAllowedTokensLoadedAt = 0;
             this.showError(`Failed to load allowed tokens: ${error.message}`);
         }
     }
@@ -589,17 +624,22 @@ export class Admin extends BaseComponent {
         this.ensureDeleteTokenPickerModal();
         if (!this.deleteTokenModal) return;
 
+        const requestId = ++this.deleteTokenPickerRequestId;
         this.deleteTokenTargetRow = row;
-        await this.loadAllowedTokensForDeletePicker();
-        this.renderDeleteTokenList('');
-
         const searchInput = this.deleteTokenModal.querySelector('#admin-delete-token-search');
         if (searchInput) {
             searchInput.value = '';
         }
-
+        const listElement = this.deleteTokenModal.querySelector('#admin-delete-token-list');
+        if (listElement) {
+            listElement.innerHTML = '<div class="token-list-empty">Loading allowed tokens...</div>';
+        }
         this.deleteTokenModal.classList.add('show');
         searchInput?.focus();
+
+        await this.loadAllowedTokensForDeletePicker();
+        if (requestId !== this.deleteTokenPickerRequestId || this.deleteTokenTargetRow !== row) return;
+        this.renderDeleteTokenList(searchInput?.value || '');
     }
 
     getIconChainId() {
@@ -618,6 +658,7 @@ export class Admin extends BaseComponent {
 
     closeDeleteTokenPicker() {
         if (!this.deleteTokenModal) return;
+        this.deleteTokenPickerRequestId += 1;
         this.deleteTokenModal.classList.remove('show');
         this.deleteTokenTargetRow = null;
     }
@@ -841,6 +882,8 @@ export class Admin extends BaseComponent {
             }
 
             this.resetTokenRows();
+            this.deleteAllowedTokens = [];
+            this.deleteAllowedTokensLoadedAt = 0;
             this.showSuccess('Allowed tokens updated.');
         } catch (error) {
             this.error('Failed to update allowed tokens:', error);

@@ -17,8 +17,6 @@ export class CreateOrder extends BaseComponent {
     static LIBERDUS_ADDRESSES = {
         '137': '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76' // Polygon Mainnet
     };
-    static LIBERDUS_DISPLAY_NAME = 'Liberdus';
-    static LIBERDUS_DISPLAY_SYMBOL = 'LIB';
     
     constructor() {
         super('create-order');
@@ -31,6 +29,10 @@ export class CreateOrder extends BaseComponent {
         this.boundCreateOrderHandler = this.handleCreateOrder.bind(this);
         this.isSubmitting = false;
         this.tokens = [];
+        this.allowedTokens = [];
+        this.tokensLoading = false;
+        this.allowedTokensLoadPromise = null;
+        this.feeLoadPromise = null;
         this.sellToken = null;
         this.buyToken = null;
         this.tokenSelectorListeners = {};  // Store listeners to prevent duplicates
@@ -110,6 +112,10 @@ export class CreateOrder extends BaseComponent {
         this.initializing = false;
         this.hasLoadedData = false;
         this.tokens = [];
+        this.allowedTokens = [];
+        this.tokensLoading = false;
+        this.allowedTokensLoadPromise = null;
+        this.feeLoadPromise = null;
         this.feeToken = null;
         if (clearSelections) {
             this.clearSelectedTokens();
@@ -237,18 +243,16 @@ export class CreateOrder extends BaseComponent {
             if (!this.hasLoadedData) {
                 this.populateTokenDropdowns();
             }
+            if (!Array.isArray(this.allowedTokens) || this.allowedTokens.length === 0) {
+                this.setAllowedTokenListsLoadingState('Loading allowed tokens...');
+            }
             this.setupCreateOrderListener();
             
             // Wait for contract to be ready
             await this.waitForContract();
             
-            // Load data with retries
-            await Promise.all([
-                this.loadOrderCreationFee(),
-                this.loadContractTokens()
-            ]);
-
-            this.updateFeeDisplay();
+            // Load fee/token data in background so initial tab render is not blocked.
+            this.startBackgroundDataLoading();
             this.hasLoadedData = true;
             
             // Initialize token selectors
@@ -268,6 +272,33 @@ export class CreateOrder extends BaseComponent {
             }
         } finally {
             this.initializing = false;
+        }
+    }
+
+    startBackgroundDataLoading() {
+        if (!this.feeLoadPromise && !(this.feeToken?.address && this.feeToken?.amount && this.feeToken?.symbol)) {
+            this.feeLoadPromise = this.loadOrderCreationFee()
+                .then(() => this.updateFeeDisplay())
+                .catch((error) => {
+                    this.debug('Background fee load failed:', error);
+                })
+                .finally(() => {
+                    this.feeLoadPromise = null;
+                });
+        }
+
+        const hasAllowedTokens = Array.isArray(this.allowedTokens) && this.allowedTokens.length > 0;
+        if (!this.allowedTokensLoadPromise && !hasAllowedTokens) {
+            this.tokensLoading = true;
+            this.setAllowedTokenListsLoadingState('Loading allowed tokens...');
+            this.allowedTokensLoadPromise = this.loadContractTokens()
+                .catch((error) => {
+                    this.debug('Background token load failed:', error);
+                })
+                .finally(() => {
+                    this.tokensLoading = false;
+                    this.allowedTokensLoadPromise = null;
+                });
         }
     }
 
@@ -895,6 +926,7 @@ export class CreateOrder extends BaseComponent {
             });
         } catch (error) {
             this.debug('Error loading wallet tokens:', error);
+            this.setAllowedTokenListsErrorState('Failed to load allowed tokens. Please retry shortly.');
             this.showError('Failed to load tokens. Please try again.');
         }
     }
@@ -1022,7 +1054,12 @@ export class CreateOrder extends BaseComponent {
                     <div id="${type}ContractResult"></div>
                     <div class="token-section">
                         <h4>Allowed tokens</h4>
-                        <div class="token-list" id="${type}AllowedTokenList"></div>
+                        <div class="token-list" id="${type}AllowedTokenList">
+                            <div class="token-list-loading">
+                                <div class="spinner"></div>
+                                <div>Loading allowed tokens...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1035,6 +1072,31 @@ export class CreateOrder extends BaseComponent {
         }, 300));
 
         return modal;
+    }
+
+    setAllowedTokenListsLoadingState(message = 'Loading allowed tokens...') {
+        ['sell', 'buy'].forEach((type) => {
+            const list = document.getElementById(`${type}AllowedTokenList`);
+            if (!list) return;
+            list.innerHTML = `
+                <div class="token-list-loading">
+                    <div class="spinner"></div>
+                    <div>${message}</div>
+                </div>
+            `;
+        });
+    }
+
+    setAllowedTokenListsErrorState(message = 'Failed to load allowed tokens. Please try again.') {
+        ['sell', 'buy'].forEach((type) => {
+            const list = document.getElementById(`${type}AllowedTokenList`);
+            if (!list) return;
+            list.innerHTML = `
+                <div class="token-list-error">
+                    <div>${message}</div>
+                </div>
+            `;
+        });
     }
 
     async handleTokenSearch(searchTerm, type) {
@@ -1176,7 +1238,21 @@ export class CreateOrder extends BaseComponent {
                 }
             } else {
                 // Search in allowed tokens by name/symbol
-                const searchResults = this.tokens.filter(token => 
+                const searchSource = Array.isArray(this.tokens) ? this.tokens : [];
+                if (this.tokensLoading && searchSource.length === 0) {
+                    contractResult.innerHTML = `
+                        <div class="token-section">
+                            <h4>Search Results</h4>
+                            <div class="token-list-loading">
+                                <div class="spinner"></div>
+                                <div>Loading allowed tokens...</div>
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const searchResults = searchSource.filter(token => 
                     token.name.toLowerCase().includes(searchTerm) ||
                     token.symbol.toLowerCase().includes(searchTerm)
                 );
@@ -1452,23 +1528,8 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
-    isKnownLiberdusAddress(tokenAddress) {
-        if (!tokenAddress) return false;
-        const normalizedAddress = tokenAddress.toLowerCase();
-        return Object.values(CreateOrder.LIBERDUS_ADDRESSES)
-            .some(address => address?.toLowerCase() === normalizedAddress);
-    }
-
     normalizeTokenDisplay(token) {
-        if (!token || !this.isKnownLiberdusAddress(token.address)) {
-            return token;
-        }
-
-        return {
-            ...token,
-            symbol: token.symbol || CreateOrder.LIBERDUS_DISPLAY_SYMBOL,
-            name: CreateOrder.LIBERDUS_DISPLAY_NAME
-        };
+        return token;
     }
 
     // Add helper method for token icons

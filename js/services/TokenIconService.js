@@ -21,22 +21,23 @@ const MAX_CACHE_SIZE = 1000; // Maximum number of cached icons
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 const UNKNOWN_TOKEN_CACHE_EXPIRY = 10 * 60 * 1000; // 10 minutes
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
-const ICON_CACHE_SCHEMA_VERSION = 'v6';
+const ICON_CACHE_SCHEMA_VERSION = 'v7';
 const ICON_CACHE_KEY_PREFIX = 'tokenIconCache';
 
 // Local icon configuration
-const LOCAL_TOKEN_ICON_MAP = TOKEN_ICON_CONFIG.LOCAL_TOKEN_ICON_MAP || {};
 const LOCAL_ICON_VERSION = TOKEN_ICON_CONFIG.LOCAL_ICON_VERSION || '';
 const SPECIAL_TOKENS = TOKEN_ICON_CONFIG.SPECIAL_TOKENS || {};
+const LOCAL_ICON_EXTENSIONS = ['png', 'webp', 'jpg', 'jpeg', 'svg'];
 
 /**
  * Token Icon Service for managing token icons.
- * Local logo mappings are the source of truth.
+ * Local logos are resolved by probing flat address-based file paths.
  */
 export class TokenIconService {
     constructor() {
         this.cache = new Map();
         this.cacheTimestamps = new Map();
+        this.iconPathProbeCache = new Map();
         this.cacheStorageKey = this.getCacheStorageKey();
 
         // Load cache from localStorage on initialization
@@ -82,20 +83,52 @@ export class TokenIconService {
         return this.buildVersionedIconUrl(iconPath || null);
     }
 
-    getLocalIconUrl(tokenAddress, chainId) {
+
+    buildLocalIconCandidates(tokenAddress, _chainId) {
         const normalizedAddress = tokenAddress?.toLowerCase();
-        const normalizedChainId = this.normalizeChainId(chainId);
-        if (!normalizedAddress || !normalizedChainId) {
-            return null;
+        if (!normalizedAddress) {
+            return [];
         }
 
-        const chainIcons = LOCAL_TOKEN_ICON_MAP[normalizedChainId];
-        if (!chainIcons) {
-            return null;
+        const candidates = [];
+        for (const ext of LOCAL_ICON_EXTENSIONS) {
+            candidates.push(`img/token-logos/${normalizedAddress}.${ext}`);
         }
 
-        const iconPath = chainIcons[normalizedAddress];
-        return this.buildVersionedIconUrl(iconPath || null);
+        return candidates;
+    }
+
+    async doesLocalIconExist(iconUrl) {
+        const cachedProbe = this.iconPathProbeCache.get(iconUrl);
+        if (cachedProbe && (Date.now() - cachedProbe.ts) < CACHE_EXPIRY) {
+            return cachedProbe.exists;
+        }
+
+        if (typeof Image === 'undefined') {
+            return false;
+        }
+
+        const exists = await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(true);
+            img.onerror = () => resolve(false);
+            img.src = iconUrl;
+        });
+
+        this.iconPathProbeCache.set(iconUrl, { exists, ts: Date.now() });
+        return exists;
+    }
+
+    async getLocalIconUrl(tokenAddress, chainId) {
+        const localCandidates = this.buildLocalIconCandidates(tokenAddress, chainId);
+        for (const iconPath of localCandidates) {
+            const candidateUrl = this.buildVersionedIconUrl(iconPath);
+            if (await this.doesLocalIconExist(candidateUrl)) {
+                return candidateUrl;
+            }
+        }
+
+        return null;
     }
 
     trimCacheIfNeeded() {
@@ -162,8 +195,8 @@ export class TokenIconService {
                 return specialIconUrl;
             }
 
-            // Local config map is the source of truth.
-            const mappedLocalIconUrl = this.getLocalIconUrl(normalizedAddress, normalizedChainId);
+            // Resolve local icon by address filename from flat token-logos folder.
+            const mappedLocalIconUrl = await this.getLocalIconUrl(normalizedAddress, normalizedChainId);
             if (mappedLocalIconUrl) {
                 const existing = this.cache.get(cacheKey);
                 if (!existing || existing.iconUrl !== mappedLocalIconUrl) {
@@ -260,6 +293,7 @@ export class TokenIconService {
     clearCache() {
         this.cache.clear();
         this.cacheTimestamps.clear();
+        this.iconPathProbeCache.clear();
         this.cleanupOldStorageKeys();
         localStorage.removeItem(this.cacheStorageKey);
         debug('All caches cleared');

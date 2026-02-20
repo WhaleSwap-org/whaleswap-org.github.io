@@ -1,4 +1,4 @@
-import { getNetworkConfig, isDebugEnabled } from '../config.js';
+import { getNetworkConfig, isDebugEnabled, TOKEN_ICON_CONFIG } from '../config.js';
 import { createLogger } from './LogService.js';
 import { contractService } from './ContractService.js';
 
@@ -62,9 +62,101 @@ export class PricingService {
             this.warn('No valid token addresses provided for price fetching');
             return prices;
         }
-        
-        // Use smart batching for mixed token lists
-        const chunks = this.createSmartBatches(validAddresses, 30);
+
+        // First pass: GeckoTerminal simple token-price endpoint (1 call per 30 addresses).
+        await this.fetchTokenPricesFromGeckoTerminal(validAddresses, prices);
+
+        // Fallback 1: DefiLlama price endpoint for unresolved tokens.
+        let missingTokens = validAddresses.filter(addr => !prices.has(addr));
+        if (missingTokens.length > 0) {
+            this.debug(`Falling back to DefiLlama for ${missingTokens.length} unresolved tokens`);
+            await this.fetchTokenPricesFromDefiLlama(missingTokens, prices);
+        }
+
+        // Fallback 2: DexScreener for unresolved tokens.
+        missingTokens = validAddresses.filter(addr => !prices.has(addr));
+        if (missingTokens.length > 0) {
+            this.debug(`Falling back to DexScreener for ${missingTokens.length} unresolved tokens`);
+            await this.fetchTokenPricesFromDexScreener(missingTokens, prices);
+        }
+
+        // Fallback 3: CoinGecko by mapped token IDs for unresolved tokens.
+        missingTokens = validAddresses.filter(addr => !prices.has(addr));
+        if (missingTokens.length > 0) {
+            this.debug(`Falling back to CoinGecko ID map for ${missingTokens.length} unresolved tokens`);
+            await this.fetchTokenPricesFromCoinGeckoIds(missingTokens, prices);
+        }
+
+        return prices;
+    }
+
+    getGeckoTerminalNetworkId() {
+        const slug = this.networkConfig?.slug;
+        const chainId = this.networkConfig?.chainId
+            ? parseInt(this.networkConfig.chainId, 16).toString()
+            : null;
+
+        const slugMap = {
+            bnb: 'bsc',
+            polygon: 'polygon_pos'
+        };
+
+        const chainIdMap = {
+            '56': 'bsc',
+            '137': 'polygon_pos'
+        };
+
+        return slugMap[slug] || chainIdMap[chainId] || null;
+    }
+
+    async fetchTokenPricesFromGeckoTerminal(tokenAddresses, prices) {
+        const geckoNetworkId = this.getGeckoTerminalNetworkId();
+        if (!geckoNetworkId) {
+            this.warn('GeckoTerminal network mapping unavailable; skipping GeckoTerminal price fetch');
+            return;
+        }
+
+        const chunks = this.createSmartBatches(tokenAddresses, 30);
+
+        for (const chunk of chunks) {
+            try {
+                const addresses = chunk.join(',');
+                const url = `https://api.geckoterminal.com/api/v2/simple/networks/${geckoNetworkId}/token_price/${addresses}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    this.warn('GeckoTerminal chunk request failed', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        chunkSize: chunk.length
+                    });
+                    continue;
+                }
+
+                const data = await response.json();
+                const tokenPrices = data?.data?.attributes?.token_prices || {};
+
+                for (const [address, rawPrice] of Object.entries(tokenPrices)) {
+                    const normalizedAddress = address.toLowerCase();
+                    const price = parseFloat(rawPrice);
+
+                    if (!prices.has(normalizedAddress) && this.validatePrice(price, normalizedAddress)) {
+                        prices.set(normalizedAddress, {
+                            price,
+                            liquidity: 0
+                        });
+                    }
+                }
+            } catch (error) {
+                this.error('Error fetching GeckoTerminal chunk prices:', error);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+        }
+    }
+
+    async fetchTokenPricesFromDexScreener(tokenAddresses, prices) {
+        const chunks = this.createSmartBatches(tokenAddresses, 30);
 
         for (const chunk of chunks) {
             try {
@@ -72,40 +164,160 @@ export class PricingService {
                 const url = `https://api.dexscreener.com/latest/dex/tokens/${addresses}`;
                 const response = await fetch(url);
                 const data = await response.json();
-                
+
                 if (data.pairs) {
                     this.processTokenPairs(data.pairs, prices);
                 }
-                
-                await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
             } catch (error) {
-                this.error('Error fetching chunk prices:', error);
+                this.error('Error fetching DexScreener chunk prices:', error);
             }
+
+            await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
         }
 
-        // For any tokens that didn't get prices, try individual requests
-        const missingTokens = validAddresses.filter(addr => !prices.has(addr.toLowerCase()));
-        if (missingTokens.length > 0) {
-            this.debug('Fetching missing token prices individually:', missingTokens);
-            
-            for (const addr of missingTokens) {
-                try {
-                    const url = `https://api.dexscreener.com/latest/dex/tokens/${addr}`;
-                    const response = await fetch(url);
-                    const data = await response.json();
-                    
-                    if (data.pairs && data.pairs.length > 0) {
-                        this.processTokenPairs(data.pairs, prices);
-                    }
-                    
-                    await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
-                } catch (error) {
-                    this.error('Error fetching individual token price:', { token: addr, error });
+        // Final pass: individual fallback only for still-missing tokens.
+        const missingTokens = tokenAddresses.filter(addr => !prices.has(addr));
+        if (missingTokens.length === 0) {
+            return;
+        }
+
+        this.debug('Fetching missing token prices individually from DexScreener:', missingTokens);
+
+        for (const addr of missingTokens) {
+            try {
+                const url = `https://api.dexscreener.com/latest/dex/tokens/${addr}`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.pairs && data.pairs.length > 0) {
+                    this.processTokenPairs(data.pairs, prices);
                 }
+            } catch (error) {
+                this.error('Error fetching individual DexScreener token price:', { token: addr, error });
             }
+
+            await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+        }
+    }
+
+    getDefiLlamaChainKey() {
+        const slug = this.networkConfig?.slug;
+        const chainId = this.networkConfig?.chainId
+            ? parseInt(this.networkConfig.chainId, 16).toString()
+            : null;
+
+        const slugMap = {
+            bnb: 'bsc',
+            polygon: 'polygon'
+        };
+
+        const chainIdMap = {
+            '56': 'bsc',
+            '137': 'polygon'
+        };
+
+        return slugMap[slug] || chainIdMap[chainId] || null;
+    }
+
+    async fetchTokenPricesFromDefiLlama(tokenAddresses, prices) {
+        const defiLlamaChain = this.getDefiLlamaChainKey();
+        if (!defiLlamaChain) {
+            this.warn('DefiLlama chain mapping unavailable; skipping DefiLlama price fetch');
+            return;
         }
 
-        return prices;
+        const chunks = this.createSmartBatches(tokenAddresses, 50);
+        for (const chunk of chunks) {
+            try {
+                const coinKeys = chunk.map(address => `${defiLlamaChain}:${address}`).join(',');
+                const url = `https://coins.llama.fi/prices/current/${coinKeys}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    this.warn('DefiLlama chunk request failed', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        chunkSize: chunk.length
+                    });
+                    continue;
+                }
+
+                const data = await response.json();
+                const coins = data?.coins || {};
+
+                for (const [coinKey, coinData] of Object.entries(coins)) {
+                    const [, rawAddress = ''] = coinKey.split(':');
+                    const address = rawAddress.toLowerCase();
+                    const price = parseFloat(coinData?.price);
+
+                    if (!prices.has(address) && this.validatePrice(price, address)) {
+                        prices.set(address, {
+                            price,
+                            liquidity: 0
+                        });
+                    }
+                }
+            } catch (error) {
+                this.error('Error fetching DefiLlama chunk prices:', error);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+        }
+    }
+
+    async fetchTokenPricesFromCoinGeckoIds(tokenAddresses, prices) {
+        const knownTokens = TOKEN_ICON_CONFIG?.KNOWN_TOKENS || {};
+        const mappedAddresses = tokenAddresses.filter(address => knownTokens[address]);
+        if (mappedAddresses.length === 0) {
+            return;
+        }
+
+        const uniqueIds = [...new Set(mappedAddresses.map(address => knownTokens[address]))];
+        const idChunks = this.createSmartBatches(uniqueIds, 100);
+        const coinGeckoPrices = new Map();
+
+        for (const idChunk of idChunks) {
+            try {
+                const idParam = encodeURIComponent(idChunk.join(','));
+                const url = `https://api.coingecko.com/api/v3/simple/price?ids=${idParam}&vs_currencies=usd`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    this.warn('CoinGecko ID chunk request failed', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        chunkSize: idChunk.length
+                    });
+                    continue;
+                }
+
+                const data = await response.json();
+                for (const [tokenId, priceData] of Object.entries(data || {})) {
+                    const price = parseFloat(priceData?.usd);
+                    if (this.validatePrice(price, tokenId)) {
+                        coinGeckoPrices.set(tokenId, price);
+                    }
+                }
+            } catch (error) {
+                this.error('Error fetching CoinGecko ID chunk prices:', error);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+        }
+
+        for (const address of mappedAddresses) {
+            if (prices.has(address)) {
+                continue;
+            }
+
+            const tokenId = knownTokens[address];
+            const mappedPrice = coinGeckoPrices.get(tokenId);
+            if (this.validatePrice(mappedPrice, address)) {
+                prices.set(address, {
+                    price: mappedPrice,
+                    liquidity: 0
+                });
+            }
+        }
     }
 
     // New method to fetch prices for specific token addresses
@@ -501,8 +713,8 @@ export class PricingService {
             return false;
         }
         
-        if (price < 0) {
-            this.warn(`Negative price for token ${tokenAddress}: ${price}`);
+        if (price <= 0) {
+            this.warn(`Non-positive price for token ${tokenAddress}: ${price}`);
             return false;
         }
         

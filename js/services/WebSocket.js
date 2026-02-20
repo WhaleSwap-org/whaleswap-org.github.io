@@ -148,13 +148,16 @@ export class WebSocketService {
                         this.debug('Price update received, updating all deals...');
                         this.updateAllDeals();
                     });
-                    // Trigger initial allowed token price fetch after contract is ready
-                    try {
-                        await pricing.getAllowedTokens();
-                        await pricing.fetchAllowedTokensPrices();
-                    } catch (err) {
-                        this.debug('Initial allowed token fetch after WS init failed:', err);
-                    }
+                    // Trigger initial allowed token price fetch in background.
+                    // Do not block initial UI readiness on pricing API requests.
+                    Promise.resolve()
+                        .then(async () => {
+                            await pricing.getAllowedTokens();
+                            await pricing.fetchAllowedTokensPrices();
+                        })
+                        .catch((err) => {
+                            this.debug('Initial allowed token fetch after WS init failed:', err);
+                        });
                 } else {
                     this.debug('Warning: PricingService not available');
                 }
