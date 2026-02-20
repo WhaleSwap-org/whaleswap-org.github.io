@@ -1,4 +1,4 @@
-import { isDebugEnabled } from '../config.js';
+import { isDebugEnabled } from '../config/debug.js';
 
 export class LogService {
     constructor(component) {

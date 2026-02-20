@@ -1,5 +1,5 @@
 import { createLogger } from './LogService.js';
-import { TOKEN_ICON_CONFIG } from '../config.js';
+import { TOKEN_ICON_CONFIG } from '../config/index.js';
 
 // Simple ethers-like utilities for address validation
 const ethers = {
@@ -26,7 +26,6 @@ const ICON_CACHE_KEY_PREFIX = 'tokenIconCache';
 
 // Local icon configuration
 const LOCAL_ICON_VERSION = TOKEN_ICON_CONFIG.LOCAL_ICON_VERSION || '';
-const SPECIAL_TOKENS = TOKEN_ICON_CONFIG.SPECIAL_TOKENS || {};
 const LOCAL_ICON_EXTENSIONS = ['png', 'webp', 'jpg', 'jpeg', 'svg'];
 
 /**
@@ -72,17 +71,6 @@ export class TokenIconService {
         const separator = iconPath.includes('?') ? '&' : '?';
         return `${iconPath}${separator}v=${encodeURIComponent(LOCAL_ICON_VERSION)}`;
     }
-
-    getSpecialIconUrl(tokenAddress) {
-        const normalizedAddress = tokenAddress?.toLowerCase();
-        if (!normalizedAddress) {
-            return null;
-        }
-
-        const iconPath = SPECIAL_TOKENS[normalizedAddress];
-        return this.buildVersionedIconUrl(iconPath || null);
-    }
-
 
     buildLocalIconCandidates(tokenAddress, _chainId) {
         const normalizedAddress = tokenAddress?.toLowerCase();
@@ -184,16 +172,6 @@ export class TokenIconService {
             }
 
             const cacheKey = this.buildCacheKey(normalizedAddress, normalizedChainId);
-
-            // Special tokens always win.
-            const specialIconUrl = this.getSpecialIconUrl(normalizedAddress);
-            if (specialIconUrl) {
-                const existing = this.cache.get(cacheKey);
-                if (!existing || existing.iconUrl !== specialIconUrl) {
-                    this.persistCacheEntry(cacheKey, specialIconUrl);
-                }
-                return specialIconUrl;
-            }
 
             // Resolve local icon by address filename from flat token-logos folder.
             const mappedLocalIconUrl = await this.getLocalIconUrl(normalizedAddress, normalizedChainId);

@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { getNetworkConfig } from '../config.js';
+import { getNetworkConfig } from '../config/networks.js';
 
 /**
  * Utility functions for order-related formatting and display

@@ -1,6 +1,7 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ethers } from 'ethers';
-import { getNetworkConfig, walletManager } from '../config.js';
+import { getNetworkConfig } from '../config/networks.js';
+import { walletManager } from '../services/WalletManager.js';
 import { setVisibility } from '../utils/ui.js';
 import { erc20Abi } from '../abi/erc20.js';
 import { getAllWalletTokens, clearTokenCaches } from '../utils/contractTokens.js';

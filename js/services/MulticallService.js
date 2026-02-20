@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { getNetworkConfig } from '../config.js';
+import { getNetworkConfig } from '../config/networks.js';
 import { contractService } from './ContractService.js';
 import { createLogger } from './LogService.js';
 
@@ -73,5 +73,4 @@ export function isMulticallAvailable() {
 		return false;
 	}
 }
-
 

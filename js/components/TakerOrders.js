@@ -2,7 +2,7 @@ import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { ethers } from 'ethers';
 import { processOrderAddress, generateStatusCellHTML, setupClickToCopy } from '../utils/ui.js';
-import { formatTimeDiff, formatUsdPrice, calculateTotalValue } from '../utils/orderUtils.js';
+import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 

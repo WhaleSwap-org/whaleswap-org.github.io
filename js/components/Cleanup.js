@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
-import { handleTransactionError, isUserRejection } from '../utils/ui.js';
+import { handleTransactionError } from '../utils/ui.js';
 
 export class Cleanup extends BaseComponent {
     constructor(containerId) {

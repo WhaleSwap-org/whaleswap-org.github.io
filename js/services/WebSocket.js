@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
-import { getNetworkConfig, ORDER_CONSTANTS } from '../config.js';
+import { ORDER_CONSTANTS } from '../config/index.js';
+import { getNetworkConfig } from '../config/networks.js';
 import { tryAggregate as multicallTryAggregate, isMulticallAvailable } from './MulticallService.js';
 import { erc20Abi } from '../abi/erc20.js';
 import { createLogger } from './LogService.js';

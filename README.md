@@ -25,7 +25,7 @@ YOUR_ALCHEMY_KEY=your_alchemy_key
 ```
 
 ## Network Configuration
-Chain support is defined in `js/config.js`. The selector only exposes chains that have deployed contract config:
+Chain support is defined in `js/config/networks.js`. The selector only exposes chains that have deployed contract config:
 
 ```javascript
 {
@@ -95,3 +95,6 @@ http-server
 
 ## Support
 For issues and feature requests, please open an issue on the repository.
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

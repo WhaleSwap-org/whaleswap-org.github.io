@@ -1,5 +1,5 @@
 import { ContractError, CONTRACT_ERRORS } from '../errors/ContractErrors.js';
-import { getNetworkConfig } from '../config.js';
+import { getNetworkConfig } from '../config/networks.js';
 import { tokenIconService } from './TokenIconService.js';
 import { generateTokenIconHTML } from '../utils/tokenIcons.js';
 import { createLogger } from './LogService.js';

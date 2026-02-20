@@ -1,4 +1,4 @@
-import { walletManager } from '../config.js';
+import { walletManager } from '../services/WalletManager.js';
 import { ethers } from 'ethers';
 import { erc20Abi } from '../abi/erc20.js';
 import { createLogger } from '../services/LogService.js';

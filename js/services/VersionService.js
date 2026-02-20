@@ -146,7 +146,9 @@ export class VersionService {
 			window.location.href.split('?')[0],
 			'index.html',
 			'js/app.js',
-			'js/config.js',
+			'js/config/index.js',
+			'js/config/networks.js',
+			'js/config/debug.js',
 			'css/styles.css',
 			// Core services
 			'js/services/ContractService.js',

@@ -1,4 +1,4 @@
-import { TOKEN_ICON_CONFIG } from '../config.js';
+import { TOKEN_ICON_CONFIG } from '../config/index.js';
 import { createLogger } from '../services/LogService.js';
 
 // Initialize logger
@@ -6,16 +6,6 @@ const logger = createLogger('TOKEN_ICONS');
 const debug = logger.debug.bind(logger);
 const error = logger.error.bind(logger);
 const warn = logger.warn.bind(logger);
-
-/**
- * Get CoinGecko chain name from chain ID
- * @param {string|number} chainId - Network chain ID
- * @returns {string|null} Chain name for CoinGecko API
- */
-export function getChainName(chainId) {
-    const chainIdStr = chainId.toString();
-    return TOKEN_ICON_CONFIG.CHAIN_ID_MAP[chainIdStr] || null;
-}
 
 /**
  * Validate if an icon URL exists and is accessible
@@ -219,45 +209,9 @@ export function sanitizeTokenAddress(address) {
 }
 
 /**
- * Check if a chain ID is supported for icon fetching
- * @param {string|number} chainId - Chain ID to check
- * @returns {boolean} True if supported
- */
-export function isChainSupported(chainId) {
-    return getChainName(chainId) !== null;
-}
-
-/**
- * Get supported chain IDs
- * @returns {Array} Array of supported chain IDs
- */
-export function getSupportedChainIds() {
-    return Object.keys(TOKEN_ICON_CONFIG.CHAIN_ID_MAP);
-}
-
-/**
- * Get supported chain names
- * @returns {Array} Array of supported chain names
- */
-export function getSupportedChainNames() {
-    return Object.values(TOKEN_ICON_CONFIG.CHAIN_ID_MAP);
-}
-
-/**
- * Get known token mappings for a chain
- * @param {string|number} chainId - Chain ID
+ * Get token address -> CoinGecko ID map used for price fallback.
  * @returns {Object} Token address to CoinGecko ID mapping
  */
-export function getKnownTokens(chainId) {
-    // Shared known token map for currently supported chains
-    return TOKEN_ICON_CONFIG.KNOWN_TOKENS;
-}
-
-/**
- * Get special token icon URL
- * @param {string} tokenAddress - Token address
- * @returns {string|null} Special icon URL or null
- */
-export function getSpecialTokenIcon(tokenAddress) {
-    return TOKEN_ICON_CONFIG.SPECIAL_TOKENS[tokenAddress.toLowerCase()] || null;
+export function getCoinGeckoPriceIds() {
+    return TOKEN_ICON_CONFIG.COINGECKO_PRICE_IDS;
 }

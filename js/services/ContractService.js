@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
-import { getNetworkConfig, walletManager } from '../config.js';
+import { getNetworkConfig } from '../config/networks.js';
+import { walletManager } from './WalletManager.js';
 import { createLogger } from './LogService.js';
 
 class ContractService {

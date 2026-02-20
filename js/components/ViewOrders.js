@@ -1,12 +1,9 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ethers } from 'ethers';
 import { erc20Abi } from '../abi/erc20.js';
-import { ContractError, CONTRACT_ERRORS } from '../errors/ContractErrors.js';
-import { getNetworkConfig } from '../config.js';
-import { walletManager } from '../config.js';
 import { createLogger } from '../services/LogService.js';
 import { handleTransactionError } from '../utils/ui.js';
-import { formatAddress, formatTimestamp, formatTimeDiff, getExplorerUrl, getOrderStatusText, formatUsdPrice, calculateTotalValue } from '../utils/orderUtils.js';
+import { formatTimeDiff, getOrderStatusText, calculateTotalValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 

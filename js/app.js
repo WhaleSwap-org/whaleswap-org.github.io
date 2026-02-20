@@ -1,6 +1,9 @@
 import { BaseComponent } from './components/BaseComponent.js';
 import { CreateOrder } from './components/CreateOrder.js';
-import { walletManager, getNetworkConfig, getAllNetworks, getNetworkById, getNetworkBySlug, getDefaultNetwork, setActiveNetwork, APP_BRAND, APP_LOGO, DEBUG_CONFIG } from './config.js';
+import { APP_BRAND, APP_LOGO } from './config/index.js';
+import { DEBUG_CONFIG } from './config/debug.js';
+import { getNetworkConfig, getAllNetworks, getNetworkById, getNetworkBySlug, getDefaultNetwork, setActiveNetwork } from './config/networks.js';
+import { walletManager } from './services/WalletManager.js';
 import { WalletUI } from './components/WalletUI.js';
 import { WebSocketService } from './services/WebSocket.js';
 import { ViewOrders } from './components/ViewOrders.js';
