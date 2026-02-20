@@ -1,9 +1,17 @@
 /* At the top of styles.css */
 :root {
+  --font-ui: "Plus Jakarta Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-accent: "Plus Jakarta Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+
   /* Light theme (default) */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fa;
-  --bg-tertiary: #f1f3f5;
+  --bg-primary: #e9edf4;
+  --bg-secondary: rgba(255, 255, 255, 0.58);
+  --bg-tertiary: rgba(255, 255, 255, 0.74);
+  --app-background:
+    radial-gradient(1200px circle at 6% -10%, rgba(111, 141, 255, 0.24), transparent 44%),
+    radial-gradient(900px circle at 92% 4%, rgba(52, 211, 153, 0.18), transparent 38%),
+    linear-gradient(180deg, #eef2f8 0%, #e7edf5 100%);
   /* Alias tokens used by component CSS */
   --background-secondary: var(--bg-secondary);
   --background-hover: var(--bg-tertiary);
@@ -15,13 +23,18 @@
   --skeleton-base: #e2e7ef;
   --skeleton-highlight: #f2f5fa;
   --skeleton-surface: rgba(220, 226, 236, 0.72);
+  --border-color: rgba(15, 23, 42, 0.12);
+  --input-bg: rgba(255, 255, 255, 0.62);
+  --input-border: rgba(148, 163, 184, 0.38);
+  --hover-bg: rgba(255, 255, 255, 0.78);
+  --bg-hover: rgba(255, 255, 255, 0.78);
 
   /* Card specific variables */
-  --card-bg: var(--bg-secondary);
+  --card-bg: rgba(255, 255, 255, 0.55);
   --card-padding: 24px;
   --card-radius: 16px;
-  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --card-border: 1px solid var(--border-color);
+  --card-shadow: 0 14px 34px rgba(17, 24, 39, 0.12);
+  --card-border: 1px solid rgba(255, 255, 255, 0.5);
 
   /* Opaque network dropdown status surfaces (light theme) */
   --network-connected-bg: #e7f6f1;
@@ -46,9 +59,13 @@
 }
 
 [data-theme="dark"] {
-  --bg-primary: #1a1b1e;
-  --bg-secondary: #2d2d2d;
-  --bg-tertiary: #363636;
+  --bg-primary: #12151c;
+  --bg-secondary: rgba(24, 30, 40, 0.62);
+  --bg-tertiary: rgba(35, 42, 56, 0.74);
+  --app-background:
+    radial-gradient(1200px circle at 5% -12%, rgba(87, 101, 200, 0.26), transparent 42%),
+    radial-gradient(950px circle at 95% 0%, rgba(22, 163, 74, 0.16), transparent 35%),
+    linear-gradient(180deg, #111520 0%, #151b27 100%);
   /* Alias tokens used by component CSS */
   --background-secondary: var(--bg-secondary);
   --background-hover: var(--bg-tertiary);
@@ -60,6 +77,14 @@
   --skeleton-base: #3b4048;
   --skeleton-highlight: #4a505a;
   --skeleton-surface: rgba(58, 63, 73, 0.72);
+  --border-color: rgba(148, 163, 184, 0.24);
+  --input-bg: rgba(25, 32, 45, 0.56);
+  --input-border: rgba(148, 163, 184, 0.3);
+  --hover-bg: rgba(53, 63, 82, 0.65);
+  --bg-hover: rgba(53, 63, 82, 0.65);
+  --card-bg: rgba(20, 26, 37, 0.56);
+  --card-shadow: 0 16px 36px rgba(0, 0, 0, 0.38);
+  --card-border: 1px solid rgba(148, 163, 184, 0.18);
 
   /* Opaque network dropdown status surfaces (dark theme) */
   --network-connected-bg: #13362f;
@@ -85,11 +110,11 @@
 
 /* Base styles */
 body {
-  background-color: var(--bg-primary);
+  background: var(--app-background);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui);
   margin: 0;
+  min-height: 100vh;
 }
 
 .container {
@@ -106,6 +131,8 @@ body {
   width: 100%;
   box-sizing: border-box;
   margin-bottom: 20px;
+  position: relative;
+  z-index: 40;
 }
 
 .header-left .logo-container {
@@ -127,11 +154,10 @@ body {
   margin: 0;
   font-size: 32px;
   color: #1a1a1a;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  font-weight: 600;
-  letter-spacing: -0.5px;
-  line-height: 32px;
+  font-family: var(--font-accent);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
 }
 
 .header-right {
@@ -196,6 +222,9 @@ body {
 .tab-content-wrapper h2 {
   margin-bottom: 16px;
   color: #333;
+  font-family: var(--font-accent);
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .tab-content-wrapper p {
@@ -297,9 +326,6 @@ label {
 @-moz-document url-prefix() {
   /* Add Firefox-specific rules here */
 }
-
-/* Add Inter font */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
 
 /* Status message styles */
 .status {
@@ -792,16 +818,21 @@ label {
 
 /* Update content-wrapper background */
 .content-wrapper {
-  background: var(--bg-secondary);
+  background: var(--card-bg);
   border-radius: 16px;
   box-shadow: var(--card-shadow);
+  border: var(--card-border);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
   overflow: hidden;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 /* Update tab content background */
 .tab-content {
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 /* Update input backgrounds */
@@ -915,7 +946,7 @@ input {
 }
 
 .header-right .account-address {
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--text-primary);
   white-space: nowrap;
 }
@@ -985,7 +1016,7 @@ input {
 /* Base text styles */
 body {
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: var(--app-background);
 }
 
 /* Secondary text */

@@ -1,7 +1,7 @@
 .app-footer {
   padding: 16px 24px;
   border-top: 1px solid var(--border-color, #e0e0e0);
-  background: var(--bg-secondary);
+  background: transparent;
   display: flex;
   justify-content: center;
 }
@@ -12,6 +12,14 @@
   align-items: center;
   color: var(--text-secondary);
   font-size: 14px;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+[data-theme="dark"] .footer-wrapper {
+  background: rgba(148, 163, 184, 0.14);
 }
 
 .footer-link {
