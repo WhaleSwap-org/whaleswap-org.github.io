@@ -196,12 +196,13 @@ export class Toast {
         
         this.isProcessing = true;
         
-        // Remove excess toasts if we have too many
+        // Remove excess toasts synchronously.
+        // `removeToast()` is animated/asynchronous, so using it in this loop can
+        // keep `children.length` unchanged and lock the main thread.
         while (this.container.children.length >= this.maxToasts) {
             const oldestToast = this.container.firstChild;
-            if (oldestToast) {
-                this.removeToast(oldestToast);
-            }
+            if (!oldestToast) break;
+            this.forceRemoveToast(oldestToast);
         }
         
         const { toast, duration } = this.toastQueue.shift();
@@ -257,6 +258,21 @@ export class Toast {
                 toast.parentNode.removeChild(toast);
             }
         }, 300);
+    }
+
+    /**
+     * Immediately remove toast without animation.
+     * Used for queue overflow handling to avoid blocking loops.
+     * @param {HTMLElement} toast
+     */
+    forceRemoveToast(toast) {
+        if (!toast) return;
+        if (toast.dataset?.timeoutId) {
+            clearTimeout(parseInt(toast.dataset.timeoutId));
+        }
+        if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+        }
     }
 
     /**

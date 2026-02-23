@@ -4,20 +4,11 @@ export class LogService {
     constructor(component) {
         this.component = component;
         this.prefix = `[${component}]`;
-    }
-
-    debug(message, ...args) {
-        if (isDebugEnabled(this.component)) {
-            console.log(this.prefix, message, ...args);
-        }
-    }
-
-    error(message, ...args) {
-        console.error(this.prefix, message, ...args);
-    }
-
-    warn(message, ...args) {
-        console.warn(this.prefix, message, ...args);
+        this.debug = isDebugEnabled(component)
+            ? console.log.bind(console, this.prefix)
+            : () => {};
+        this.error = console.error.bind(console, this.prefix);
+        this.warn = console.warn.bind(console, this.prefix);
     }
 }
 

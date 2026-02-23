@@ -5,7 +5,7 @@ A decentralized application for over-the-counter token swaps on BNB Chain and Po
 ## Networks Supported
 - BNB Chain
 - Polygon Mainnet
-- Only these deployed chains are selectable in the app right now.
+- Localhost 8545 (for local Hardhat development)
 
 ## Prerequisites
 - Node.js
@@ -59,6 +59,34 @@ http-server
 ```
 
 4. Connect your wallet. On mismatch, the chain selector can request wallet switch between BNB Chain and Polygon Mainnet.
+
+## Local Hardhat + Local UI Workflow
+
+Use this when testing against a local `whaleswap-contract` deployment.
+
+1. In `/Users/erebus/Documents/code/liberdus/whaleswap-contract`, start node:
+```bash
+npx hardhat node
+```
+
+2. In another terminal, deploy local contracts/tokens:
+```bash
+cd /Users/erebus/Documents/code/liberdus/whaleswap-contract
+npm run deploy:local
+```
+
+3. Start this UI:
+```bash
+cd /Users/erebus/Documents/code/liberdus/whaleswap-ui
+npm install
+npm start
+```
+
+4. Open the app and select `Localhost 8545` (or `?chain=local` in URL).
+
+Notes:
+- Local deployment metadata is read from `js/local-dev.deployment.js` (auto-updated by the contract local deploy script).
+- The contract deploy script also syncs `js/abi/OTCSwap.js` from the contract artifact.
 
 ## Features
 - Create swap orders

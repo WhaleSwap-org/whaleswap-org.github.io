@@ -37,6 +37,13 @@ export class WebSocketService {
         // Throttle state for block logs
         this.lastBlockLogTime = 0;
         
+        // Chain-time cache (authoritative source for expiry/grace checks)
+        this.lastKnownChainTimestamp = null;
+        this.lastKnownChainBlock = null;
+        this.chainTimeSyncedAtMonotonicMs = null;
+        this.chainTimeSyncPromise = null;
+        this.chainTimeMaxAgeMs = 30000;
+        
 
         const logger = createLogger('WEBSOCKET');
         this.debug = logger.debug.bind(logger);
@@ -44,6 +51,198 @@ export class WebSocketService {
         this.warn = logger.warn.bind(logger);
         
         this.tokenCache = new Map();  // Add token cache
+    }
+
+    hasContractEvent(contract, eventName) {
+        if (!contract?.interface?.getEvent) {
+            return false;
+        }
+        try {
+            contract.interface.getEvent(eventName);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Monotonic clock helper for elapsed-time calculations.
+     * Uses `performance.now()` when available and falls back to `Date.now()`.
+     * @returns {number} Milliseconds since an arbitrary monotonic origin.
+     */
+    getMonotonicNowMs() {
+        if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+            return performance.now();
+        }
+        return Date.now();
+    }
+
+    /**
+     * Check whether chain time has been initialized.
+     * @returns {boolean} True when chain timestamp and sync time are both present.
+     */
+    hasChainTime() {
+        return Number.isFinite(this.lastKnownChainTimestamp) &&
+            Number.isFinite(this.chainTimeSyncedAtMonotonicMs);
+    }
+
+    /**
+     * Age of the cached chain timestamp.
+     * @returns {number} Milliseconds since last chain-time sync, or `Infinity` if unavailable.
+     */
+    getChainTimeAgeMs() {
+        if (!this.hasChainTime()) {
+            return Infinity;
+        }
+        return Math.max(0, this.getMonotonicNowMs() - this.chainTimeSyncedAtMonotonicMs);
+    }
+
+    /**
+     * Synchronize local chain-time cache from the provider.
+     * @param {string|number} [blockRef='latest'] - Block tag or number to query.
+     * @returns {Promise<number|null>} Synced chain timestamp in seconds, or `null` on failure.
+     */
+    async syncChainTime(blockRef = 'latest') {
+        if (!this.provider) {
+            return null;
+        }
+
+        if (this.chainTimeSyncPromise) {
+            return this.chainTimeSyncPromise;
+        }
+
+        this.chainTimeSyncPromise = (async () => {
+            try {
+                const block = await this.provider.getBlock(blockRef);
+                const blockTimestamp = Number(block?.timestamp);
+                const blockNumber = Number(block?.number);
+
+                if (!Number.isFinite(blockTimestamp)) {
+                    return null;
+                }
+
+                if (Number.isFinite(this.lastKnownChainBlock) &&
+                    Number.isFinite(blockNumber) &&
+                    blockNumber < this.lastKnownChainBlock) {
+                    return this.lastKnownChainTimestamp;
+                }
+
+                this.lastKnownChainTimestamp = blockTimestamp;
+                this.lastKnownChainBlock = Number.isFinite(blockNumber)
+                    ? blockNumber
+                    : this.lastKnownChainBlock;
+                this.chainTimeSyncedAtMonotonicMs = this.getMonotonicNowMs();
+
+                return this.lastKnownChainTimestamp;
+            } catch (error) {
+                this.debug('Failed to sync chain time:', error);
+                return null;
+            } finally {
+                this.chainTimeSyncPromise = null;
+            }
+        })();
+
+        return this.chainTimeSyncPromise;
+    }
+
+    /**
+     * Get best-known current chain timestamp by extrapolating from last synced block time.
+     * @returns {number|null} Current chain time in seconds, or `null` if unknown.
+     */
+    getCurrentTimestamp() {
+        if (this.hasChainTime()) {
+            const elapsedSecs = Math.floor(
+                (this.getMonotonicNowMs() - this.chainTimeSyncedAtMonotonicMs) / 1000
+            );
+            return this.lastKnownChainTimestamp + Math.max(0, elapsedSecs);
+        }
+
+        return null;
+    }
+
+    /**
+     * Ensure cached chain time exists and is recent enough for UI/eligibility checks.
+     * @param {number} [maxAgeMs=this.chainTimeMaxAgeMs] - Maximum tolerated cache age in ms.
+     * @returns {Promise<number|null>} Current chain timestamp in seconds, or `null` if sync failed.
+     */
+    async ensureFreshChainTime(maxAgeMs = this.chainTimeMaxAgeMs) {
+        const requestedMaxAgeMs = Number(maxAgeMs);
+        const effectiveMaxAgeMs = Number.isFinite(requestedMaxAgeMs) && requestedMaxAgeMs >= 0
+            ? requestedMaxAgeMs
+            : this.chainTimeMaxAgeMs;
+
+        if (!this.hasChainTime() || this.getChainTimeAgeMs() > effectiveMaxAgeMs) {
+            await this.syncChainTime();
+        }
+
+        return this.getCurrentTimestamp();
+    }
+
+    /**
+     * Compare a timestamp against best-known current chain time.
+     * @param {number|string|null|undefined} targetTimestamp - Target unix timestamp (seconds).
+     * @returns {boolean} True when current time is greater than target.
+     * Falls back to local wall-clock time if chain time is temporarily unavailable.
+     */
+    isPastTimestamp(targetTimestamp) {
+        const timestamp = Number(targetTimestamp);
+        if (!Number.isFinite(timestamp)) {
+            return false;
+        }
+
+        const chainTime = this.getCurrentTimestamp();
+        if (Number.isFinite(chainTime)) {
+            return chainTime > timestamp;
+        }
+
+        return Math.floor(Date.now() / 1000) > timestamp;
+    }
+
+    /**
+     * Build derived timing fields for an order using configured expiry and grace constants.
+     * @param {number|string|null|undefined} createdAtInput - Order creation unix timestamp (seconds).
+     * @returns {{createdAt:number|null, expiresAt:number|null, graceEndsAt:number|null}} Derived timings.
+     */
+    buildOrderTimings(createdAtInput) {
+        const createdAt = Number(createdAtInput);
+        if (!Number.isFinite(createdAt)) {
+            return {
+                createdAt: null,
+                expiresAt: null,
+                graceEndsAt: null
+            };
+        }
+
+        const orderExpirySecs = this.orderExpiry
+            ? this.orderExpiry.toNumber()
+            : ORDER_CONSTANTS.DEFAULT_ORDER_EXPIRY_SECS;
+        const gracePeriodSecs = this.gracePeriod
+            ? this.gracePeriod.toNumber()
+            : ORDER_CONSTANTS.DEFAULT_GRACE_PERIOD_SECS;
+
+        return {
+            createdAt,
+            expiresAt: createdAt + orderExpirySecs,
+            graceEndsAt: createdAt + orderExpirySecs + gracePeriodSecs
+        };
+    }
+
+    /**
+     * Resolve order grace-end timestamp from cached timings or base order timestamp.
+     * @param {Object} order - Order-like object from cache.
+     * @returns {number|null} Grace-end unix timestamp (seconds), or `null` when unavailable.
+     */
+    getOrderGraceEndTime(order) {
+        const graceEndsAt = Number(order?.timings?.graceEndsAt);
+        if (Number.isFinite(graceEndsAt)) {
+            return graceEndsAt;
+        }
+
+        if (Number.isFinite(Number(order?.timestamp))) {
+            return this.buildOrderTimings(order.timestamp).graceEndsAt;
+        }
+
+        return null;
     }
 
     async queueRequest(callback) {
@@ -112,6 +311,8 @@ export class WebSocketService {
                 if (!connected) {
                     throw new Error('Failed to connect to any WebSocket URL');
                 }
+
+                await this.syncChainTime();
 
                 // Initialize contract before fetching constants
                 this.debug('Initializing contract...');
@@ -195,20 +396,8 @@ export class WebSocketService {
             
             // Clean up any existing event listeners first
             if (this.provider) {
-                this.provider.removeAllListeners("connect");
-                this.provider.removeAllListeners("disconnect");
                 this.provider.removeAllListeners("block");
             }
-            
-            // Add connection state tracking
-            this.provider.on("connect", () => {
-                this.debug('Provider connected');
-            });
-            
-            this.provider.on("disconnect", (error) => {
-                this.debug('Provider disconnected:', error);
-                this.reconnect();
-            });
 
             // Test event subscription
             const filter = contract.filters.OrderCreated();
@@ -217,12 +406,11 @@ export class WebSocketService {
             // Listen for new blocks to ensure connection is alive (throttled logging)
             this.provider.on("block", async (blockNumber) => {
                 try {
+                    await this.syncChainTime(blockNumber);
                     const now = Date.now();
                     if (now - this.lastBlockLogTime >= 5000) { // log at most every 5s
                         this.lastBlockLogTime = now;
-                        await this.queueRequest(async () => {
-                            this.debug('New block received:', blockNumber);
-                        });
+                        this.debug('New block received:', blockNumber);
                     }
                 } catch (error) {
                     this.debug('Error processing block event:', error);
@@ -231,6 +419,10 @@ export class WebSocketService {
             });
 
             // Add error handling for WebSocket connection
+            this.provider._websocket.onopen = () => {
+                this.debug('WebSocket connected');
+            };
+
             this.provider._websocket.onerror = (error) => {
                 this.debug('WebSocket error:', error);
             };
@@ -253,6 +445,7 @@ export class WebSocketService {
                         return;
                     }
                     const [orderId, maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, fee, event] = args;
+                    const createdAt = timestamp.toNumber();
                     
                     let orderData = {
                         id: orderId.toNumber(),
@@ -262,11 +455,8 @@ export class WebSocketService {
                         sellAmount,
                         buyToken,
                         buyAmount,
-                        timings: {
-                            createdAt: timestamp.toNumber(),
-                            expiresAt: timestamp.toNumber() + this.orderExpiry.toNumber(),
-                            graceEndsAt: timestamp.toNumber() + this.orderExpiry.toNumber() + this.gracePeriod.toNumber()
-                        },
+                        timestamp: createdAt,
+                        timings: this.buildOrderTimings(createdAt),
                         status: 'Active',
                         orderCreationFee: fee,
                         tries: 0
@@ -329,22 +519,28 @@ export class WebSocketService {
                 }
             });
             
-            contract.on("RetryOrder", (oldOrderId, newOrderId, maker, tries, timestamp) => {
-                const oldOrderIdNum = oldOrderId.toNumber();
-                const newOrderIdNum = newOrderId.toNumber();
-                
-                const order = this.orderCache.get(oldOrderIdNum);
-                if (order) {
-                    order.id = newOrderIdNum;
-                    order.tries = tries.toNumber();
-                    order.timestamp = timestamp.toNumber();
+            if (this.hasContractEvent(contract, "RetryOrder")) {
+                contract.on("RetryOrder", (oldOrderId, newOrderId, maker, tries, timestamp) => {
+                    const oldOrderIdNum = oldOrderId.toNumber();
+                    const newOrderIdNum = newOrderId.toNumber();
                     
-                    this.orderCache.delete(oldOrderIdNum);
-                    this.orderCache.set(newOrderIdNum, order);
-                    this.debug('Updated retried order:', {oldId: oldOrderIdNum, newId: newOrderIdNum, tries: tries.toString()});
-                    this.notifySubscribers("RetryOrder", order);
-                }
-            });
+                    const order = this.orderCache.get(oldOrderIdNum);
+                    if (order) {
+                        const createdAt = timestamp.toNumber();
+                        order.id = newOrderIdNum;
+                        order.tries = tries.toNumber();
+                        order.timestamp = createdAt;
+                        order.timings = this.buildOrderTimings(createdAt);
+                        
+                        this.orderCache.delete(oldOrderIdNum);
+                        this.orderCache.set(newOrderIdNum, order);
+                        this.debug('Updated retried order:', {oldId: oldOrderIdNum, newId: newOrderIdNum, tries: tries.toString()});
+                        this.notifySubscribers("RetryOrder", order);
+                    }
+                });
+            } else {
+                this.debug('RetryOrder event not found in ABI, skipping listener registration');
+            }
             
             this.debug('Event listeners setup complete');
         } catch (error) {
@@ -539,8 +735,6 @@ export class WebSocketService {
             
             // Remove provider event listeners
             if (this.provider) {
-                this.provider.removeAllListeners("connect");
-                this.provider.removeAllListeners("disconnect");
                 this.provider.removeAllListeners("block");
             }
             
@@ -550,11 +744,17 @@ export class WebSocketService {
                 this.contract.removeAllListeners("OrderFilled");
                 this.contract.removeAllListeners("OrderCanceled");
                 this.contract.removeAllListeners("OrderCleanedUp");
-                this.contract.removeAllListeners("RetryOrder");
+                if (this.hasContractEvent(this.contract, "RetryOrder")) {
+                    this.contract.removeAllListeners("RetryOrder");
+                }
             }
             
             // Clear cache
             this.orderCache.clear();
+            this.lastKnownChainTimestamp = null;
+            this.lastKnownChainBlock = null;
+            this.chainTimeSyncedAtMonotonicMs = null;
+            this.chainTimeSyncPromise = null;
             
             this.debug('WebSocket service cleanup complete');
         } catch (error) {
@@ -570,6 +770,7 @@ export class WebSocketService {
         }
         try {
             this.debug('Starting order sync with contract:', this.contract.address);
+            await this.syncChainTime();
             
             let nextOrderId = 0;
             try {
@@ -589,13 +790,7 @@ export class WebSocketService {
             for (const o of fetchedOrders) {
                 const orderData = {
                     ...o,
-                    timings: {
-                        createdAt: o.timestamp,
-                        expiresAt: o.timestamp + (this.orderExpiry ? this.orderExpiry.toNumber() : ORDER_CONSTANTS.DEFAULT_ORDER_EXPIRY_SECS),
-                        graceEndsAt: o.timestamp +
-                            (this.orderExpiry ? this.orderExpiry.toNumber() : ORDER_CONSTANTS.DEFAULT_ORDER_EXPIRY_SECS) +
-                            (this.gracePeriod ? this.gracePeriod.toNumber() : ORDER_CONSTANTS.DEFAULT_GRACE_PERIOD_SECS)
-                    }
+                    timings: this.buildOrderTimings(o.timestamp)
                 };
                 // Calculate deal metrics for the order
                 try {
@@ -674,20 +869,6 @@ export class WebSocketService {
         }
     }
 
-    async reconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            this.debug('Max reconnection attempts reached');
-            return false;
-        }
-
-        this.reconnectAttempts++;
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-        this.debug(`Reconnecting in ${delay}ms... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return this.initialize();
-    }
-
     subscribe(eventName, callback) {
         if (!this.subscribers.has(eventName)) {
             this.subscribers.set(eventName, new Set());
@@ -760,15 +941,8 @@ export class WebSocketService {
 
     isOrderExpired(order) {
         try {
-            if (!this.orderExpiry) {
-                this.debug('Order expiry not initialized');
-                return false;
-            }
-
-            const currentTime = Math.floor(Date.now() / 1000);
-            const expiryTime = order.timestamp + this.orderExpiry.toNumber();
-            
-            return currentTime > expiryTime;
+            const expiryTime = this.getOrderExpiryTime(order);
+            return this.isPastTimestamp(expiryTime);
         } catch (error) {
             this.debug('Error checking order expiry:', error);
             return false;
@@ -776,10 +950,17 @@ export class WebSocketService {
     }
 
     getOrderExpiryTime(order) {
-        if (!this.orderExpiry) {
-            return null;
+        const expiresAt = Number(order?.timings?.expiresAt);
+        if (Number.isFinite(expiresAt)) {
+            return expiresAt;
         }
-        return order.timestamp + this.orderExpiry.toNumber();
+
+        const createdAt = Number(order?.timestamp);
+        if (Number.isFinite(createdAt)) {
+            return this.buildOrderTimings(createdAt).expiresAt;
+        }
+
+        return null;
     }
 
     //TODO: calculate deal metric based on buy value / sell value where buy value is the amount of buy tokens * token price and sell value is the amount of sell tokens * token price
@@ -894,7 +1075,7 @@ export class WebSocketService {
     // Use this to determine to provide a fill button in the UI
     canFillOrder(order, currentAccount) {
         if (order.status !== 'Active') return false;
-        if (order.timings?.expiresAt && Date.now()/1000 > order.timings.expiresAt) return false;
+        if (this.isPastTimestamp(this.getOrderExpiryTime(order))) return false;
         if (order.maker?.toLowerCase() === currentAccount?.toLowerCase()) return false;
         return order.taker === ethers.constants.AddressZero || 
                order.taker?.toLowerCase() === currentAccount?.toLowerCase();
@@ -904,7 +1085,7 @@ export class WebSocketService {
     // Use this to determine to provide a cancel button in the UI
     canCancelOrder(order, currentAccount) {
         if (order.status !== 'Active') return false;
-        if (order.timings?.graceEndsAt && Date.now()/1000 > order.timings.graceEndsAt) return false;
+        if (this.isPastTimestamp(this.getOrderGraceEndTime(order))) return false;
         return order.maker?.toLowerCase() === currentAccount?.toLowerCase();
     }
 
@@ -916,15 +1097,17 @@ export class WebSocketService {
         if (order.status === 'Filled') return 'Filled';
 
         // Then check timing using cached timings
-        const currentTime = Math.floor(Date.now() / 1000);
+        const currentTime = this.getCurrentTimestamp();
+        const expiresAt = this.getOrderExpiryTime(order);
+        const graceEndsAt = this.getOrderGraceEndTime(order);
 
-        this.debug(`Checking order ${order.id} status: currentTime=${currentTime}, expiresAt=${order.timings?.expiresAt}, graceEndsAt=${order.timings?.graceEndsAt}`);
+        this.debug(`Checking order ${order.id} status: currentTime=${currentTime}, expiresAt=${expiresAt}, graceEndsAt=${graceEndsAt}`);
 
-        if (order.timings?.graceEndsAt && currentTime > order.timings.graceEndsAt) {
+        if (this.isPastTimestamp(graceEndsAt)) {
             this.debug(`Order ${order.id} status: Expired (past grace period)`);
             return 'Expired';
         }
-        if (order.timings?.expiresAt && currentTime > order.timings.expiresAt) {
+        if (this.isPastTimestamp(expiresAt)) {
             this.debug(`Order ${order.id} status: Expired (past expiry time)`);
             return 'Expired';
         }
@@ -935,39 +1118,38 @@ export class WebSocketService {
 
     // Reconnect method for handling WebSocket disconnections
     async reconnect() {
-        try {
-            this.debug('Attempting to reconnect WebSocket...');
-            
-            // Clean up existing connection
-            if (this.provider) {
-                try {
-                    this.provider.removeAllListeners();
-                    if (this.provider._websocket) {
-                        this.provider._websocket.close();
-                    }
-                } catch (error) {
-                    this.debug('Error cleaning up old connection:', error);
-                }
-            }
-
-            // Reset state
-            this.isInitialized = false;
-            this.provider = null;
-            this.contract = null;
-
-            // Wait a bit before reconnecting
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Reinitialize
-            await this.initialize();
-            
-            this.debug('WebSocket reconnection successful');
-        } catch (error) {
-            this.error('WebSocket reconnection failed:', error);
-            // Try again after a longer delay
-            setTimeout(() => {
-                this.reconnect();
-            }, 10000);
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            this.debug('Max reconnection attempts reached');
+            return false;
         }
+
+        this.reconnectAttempts++;
+        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+        this.debug(`Reconnecting in ${delay}ms... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+        // Clean up existing connection
+        if (this.provider) {
+            try {
+                this.provider.removeAllListeners();
+                if (this.provider._websocket) {
+                    this.provider._websocket.close();
+                }
+            } catch (error) {
+                this.debug('Error cleaning up old connection:', error);
+            }
+        }
+
+        // Reset state
+        this.isInitialized = false;
+        this.provider = null;
+        this.contract = null;
+        this.initializationPromise = null;
+        this.lastKnownChainTimestamp = null;
+        this.lastKnownChainBlock = null;
+        this.chainTimeSyncedAtMonotonicMs = null;
+        this.chainTimeSyncPromise = null;
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.initialize();
     }
 }

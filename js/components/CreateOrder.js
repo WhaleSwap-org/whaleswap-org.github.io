@@ -14,11 +14,6 @@ import { handleTransactionError } from '../utils/ui.js';
 import { getExplorerUrl } from '../utils/orderUtils.js';
 
 export class CreateOrder extends BaseComponent {
-    // Liberdus token addresses by network chainId (decimal, not hex)
-    static LIBERDUS_ADDRESSES = {
-        '137': '0x693ed886545970f0a3adf8c59af5ccdb6ddf0a76' // Polygon Mainnet
-    };
-    
     constructor() {
         super('create-order');
         this.contract = null;
@@ -621,18 +616,6 @@ export class CreateOrder extends BaseComponent {
             if (this.sellToken.address.toLowerCase() === this.buyToken.address.toLowerCase()) {
                 this.showError(`Cannot create an order with the same token (${this.sellToken.symbol}) for both buy and sell. Please select different tokens.`);
                 return;
-            }
-
-            // Validate that one of the tokens must be Liberdus (LIB) - controlled by debug flag
-            if (window.DEBUG_CONFIG?.LIBERDUS_VALIDATION) {
-                const sellTokenIsLiberdus = this.isLiberdusToken(this.sellToken.address);
-                const buyTokenIsLiberdus = this.isLiberdusToken(this.buyToken.address);
-                
-                if (!sellTokenIsLiberdus && !buyTokenIsLiberdus) {
-                    this.debug('Liberdus validation failed');
-                    this.showError('One of the tokens must be Liberdus (LIB). Please select Liberdus as either the buy or sell token.');
-                    return;
-                }
             }
 
             // Validate that both tokens are allowed in the contract
@@ -1489,46 +1472,6 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
-    /**
-     * Helper method to check if a token is Liberdus
-     * Uses network-aware address lookup based on current chainId
-     * @param {string} tokenAddress - Token address to check
-     * @returns {boolean} True if the token is Liberdus on the current network
-     */
-    isLiberdusToken(tokenAddress) {
-        try {
-            // Get current chainId from walletManager
-            const chainId = walletManager?.chainId;
-            if (!chainId) {
-                this.debug('No chainId available, cannot verify Liberdus token');
-                return false;
-            }
-            
-            // Convert hex chainId to decimal string for lookup
-            const chainIdDecimal = typeof chainId === 'string' && chainId.startsWith('0x')
-                ? parseInt(chainId, 16).toString()
-                : chainId.toString();
-            
-            // Look up Liberdus address for current network
-            const liberdusAddress = CreateOrder.LIBERDUS_ADDRESSES[chainIdDecimal];
-            
-            if (!liberdusAddress) {
-                this.debug(`No Liberdus address configured for chainId: ${chainIdDecimal}`);
-                return false;
-            }
-            
-            const isLiberdus = tokenAddress.toLowerCase() === liberdusAddress.toLowerCase();
-            if (isLiberdus) {
-                this.debug(`Token ${tokenAddress} is Liberdus on chain ${chainIdDecimal}`);
-            }
-            
-            return isLiberdus;
-        } catch (error) {
-            this.debug('Error checking if token is Liberdus:', error);
-            return false;
-        }
-    }
-
     normalizeTokenDisplay(token) {
         return token;
     }
@@ -1720,19 +1663,6 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
-    // Helper method to check if Liberdus validation is enabled
-    isLiberdusValidationEnabled() {
-        if (window.DEBUG_CONFIG?.LIBERDUS_VALIDATION !== true) {
-            return false;
-        }
-
-        const activeChainId = walletManager?.chainId
-            ? Number.parseInt(walletManager.chainId, 16).toString()
-            : null;
-
-        return !!(activeChainId && CreateOrder.LIBERDUS_ADDRESSES[activeChainId]);
-    }
-
     // Add new helper method for user-friendly error messages
     getUserFriendlyError(error) {
         // Check for common error codes and messages
@@ -1811,11 +1741,16 @@ export class CreateOrder extends BaseComponent {
             return;
         }
 
-        const feeDisplay = document.querySelector('.fee-amount');
+        const feeDisplay = this.container?.querySelector('.fee-amount') || document.querySelector('.fee-amount');
         if (feeDisplay) {
             const formattedAmount = ethers.utils.formatUnits(this.feeToken.amount, this.feeToken.decimals);
             feeDisplay.textContent = `${formattedAmount} ${this.feeToken.symbol}`;
         }
+
+        const feeTokenSymbols = this.container?.querySelectorAll('.fee-token-symbol') || [];
+        feeTokenSymbols.forEach((element) => {
+            element.textContent = this.feeToken.symbol;
+        });
     }
 
     async handleTokenSelect(type, token) {
@@ -2357,7 +2292,7 @@ export class CreateOrder extends BaseComponent {
                                     <circle cx="12" cy="8" r="1" fill="currentColor" />
                                 </svg>
                                 <span class="tooltip-text">
-                                    <strong>Order Creation Fee:</strong> A small fee in USDC is required to create an order. 
+                                    <strong>Order Creation Fee:</strong> A small fee in <span class="fee-token-symbol">the configured fee token</span> is required to create an order.
                                     This helps prevent spam and incentivizes users who assist in cleaning up expired orders.
                                 </span>
                             </span>

@@ -1,4 +1,5 @@
 import { BaseComponent } from './BaseComponent.js';
+import { ethers } from 'ethers';
 
 export class Intro extends BaseComponent {
 	constructor() {
@@ -13,11 +14,51 @@ export class Intro extends BaseComponent {
 				this.initialized = true;
 				this.setupEventListeners();
 			}
+			this.refreshOrderFeeCopy();
 			return true;
 		} catch (error) {
 			this.error('[Intro] Initialization error:', error);
 			return false;
 		}
+	}
+
+	async refreshOrderFeeCopy() {
+		try {
+			const ws = this.ctx.getWebSocket();
+			if (!ws) return;
+
+			await ws.waitForInitialization();
+			if (!ws.contract) return;
+
+			const [feeTokenAddress, feeAmountRaw] = await Promise.all([
+				ws.queueRequest(async () => ws.contract.feeToken()),
+				ws.queueRequest(async () => ws.contract.orderCreationFeeAmount())
+			]);
+
+			const tokenInfo = await ws.getTokenInfo(feeTokenAddress);
+			const tokenSymbol = tokenInfo?.symbol || `${feeTokenAddress.slice(0, 6)}...${feeTokenAddress.slice(-4)}`;
+			const tokenDecimals = Number.isInteger(tokenInfo?.decimals) ? tokenInfo.decimals : 18;
+			const formattedFee = ethers.utils.formatUnits(feeAmountRaw, tokenDecimals);
+
+			this.applyOrderFeeCopy({
+				tokenSymbol,
+				formattedFee: `${formattedFee} ${tokenSymbol}`
+			});
+		} catch (error) {
+			this.debug('[Intro] Failed to load fee config from contract:', error);
+		}
+	}
+
+	applyOrderFeeCopy({ tokenSymbol, formattedFee }) {
+		if (!this.container) return;
+
+		this.container.querySelectorAll('.intro-fee-token-symbol').forEach((el) => {
+			el.textContent = tokenSymbol;
+		});
+
+		this.container.querySelectorAll('.intro-fee-full').forEach((el) => {
+			el.textContent = formattedFee;
+		});
 	}
 
 	setupEventListeners() {
@@ -55,13 +96,13 @@ export class Intro extends BaseComponent {
 								</svg>
 								<span>1. Connect Wallet</span>
 							</h4>
-							<ul>
-								<li>Click "Connect Wallet" in top right</li>
-								<li>Pick allowed wallets</li>
-								<li>Have native gas token (BNB/POL) for fees</li>
-								<li>Have USDC for order creation fee</li>
-							</ul>
-						</div>
+								<ul>
+									<li>Click "Connect Wallet" in top right</li>
+									<li>Pick allowed wallets</li>
+									<li>Have native gas token (BNB/POL) for fees</li>
+										<li>Have <span class="intro-fee-token-symbol">the configured fee token</span> for order creation fee</li>
+								</ul>
+							</div>
 
 						<div class="intro-section">
 							<h4>
@@ -138,12 +179,12 @@ export class Intro extends BaseComponent {
 									<path d="m19 12-3 3"></path>
 								</svg>
 								<span>Fees & Cancellation</span>
-							</h4>
-							<ul>
-								<li>$1 USDC non-refundable fee</li>
-								<li>Orders expire after 7 days</li>
-								<li>Cancel before expiration</li>
-								<li>Cleanup after 14 days</li>
+								</h4>
+								<ul>
+										<li>Non-refundable fee: <span class="intro-fee-full">the configured order creation fee</span></li>
+									<li>Orders expire after 7 days</li>
+									<li>Cancel before expiration</li>
+									<li>Cleanup after 14 days</li>
 							</ul>
 						</div>
 					</div>
@@ -163,16 +204,16 @@ export class Intro extends BaseComponent {
 						</button>
 						<div class="faq-content">
 							<div class="faq-item">
-								<h4>
+									<h4>
 									<svg class="intro-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 										<rect x="3" y="6" width="18" height="12" rx="2"></rect>
 										<path d="M12 9v6"></path>
 										<path d="M10.5 10.5h2a1 1 0 1 1 0 2h-1a1 1 0 1 0 0 2h2"></path>
 									</svg>
-									<span>Order Creation Fee</span>
-								</h4>
-								<p>There is a non-refundable order creation fee of $1 USDC that must be paid when creating any order. This fee is to insure quality of orders placed.</p>
-							</div>
+										<span>Order Creation Fee</span>
+									</h4>
+										<p>There is a non-refundable order creation fee of <span class="intro-fee-full">the configured order creation fee</span> that must be paid when creating any order. This fee is to insure quality of orders placed.</p>
+								</div>
 							
 							<div class="faq-item">
 								<h4>
@@ -192,10 +233,10 @@ export class Intro extends BaseComponent {
 										<path d="m9 9 6 6"></path>
 										<path d="m15 9-6 6"></path>
 									</svg>
-									<span>Cancelling Orders</span>
-								</h4>
-								<p>You can cancel your orders at any time before or after it expires. When you cancel an order, your deposited tokens are returned to your wallet, but the $1 USDC creation fee is not refunded. Cancelled orders cannot be filled.</p>
-							</div>
+										<span>Cancelling Orders</span>
+									</h4>
+										<p>You can cancel your orders at any time before or after it expires. When you cancel an order, your deposited tokens are returned to your wallet, but the order creation fee (<span class="intro-fee-full">the configured order creation fee</span>) is not refunded. Cancelled orders cannot be filled.</p>
+								</div>
 							
 							<div class="faq-item">
 								<h4>
@@ -204,10 +245,10 @@ export class Intro extends BaseComponent {
 										<path d="m6 7 1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
 										<path d="M9 7V4h6v3"></path>
 									</svg>
-									<span>Order Cleanup</span>
-								</h4>
-								<p>Unfilled or cancelled orders can be cleaned up after 14 days from their creation date to free up contract storage. Anyone can initiate cleanup for eligible orders. The protocol does not charge any fees; instead, the person who cleans up the order receives the $1 USDC creation fee but must pay the network transaction fee for the cleanup transaction. Only one order is cleaned up with each cleanup transaction. Any tokens escrowed in the orders are returned to the original creator.</p>
-							</div>
+										<span>Order Cleanup</span>
+									</h4>
+										<p>Unfilled or cancelled orders can be cleaned up after 14 days from their creation date to free up contract storage. Anyone can initiate cleanup for eligible orders. The protocol does not charge any fees; instead, the person who cleans up the order receives the order creation fee (<span class="intro-fee-full">the configured order creation fee</span>) but must pay the network transaction fee for the cleanup transaction. Only one order is cleaned up with each cleanup transaction. Any tokens escrowed in the orders are returned to the original creator.</p>
+								</div>
 							
 							<div class="faq-item">
 								<h4>

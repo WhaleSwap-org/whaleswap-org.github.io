@@ -1,6 +1,43 @@
 import { abi as CONTRACT_ABI } from '../abi/OTCSwap.js';
+import { localDeployment } from '../local-dev.deployment.js';
 
-const networkConfig = {
+const isLocalHostname = () => {
+    if (typeof window === 'undefined' || !window.location) {
+        return false;
+    }
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1';
+};
+
+const localNetworkConfig = {
+    "1337": {
+        slug: "local",
+        name: "Localhost",
+        displayName: "Localhost 8545",
+        logo: null,
+        isDefault: false,
+        contractAddress: localDeployment?.contracts?.otcSwap || "0x0000000000000000000000000000000000000000",
+        contractABI: CONTRACT_ABI,
+        explorer: "http://127.0.0.1:8545",
+        rpcUrl: "http://127.0.0.1:8545",
+        fallbackRpcUrls: [
+            "http://localhost:8545"
+        ],
+        chainId: "0x539",
+        nativeCurrency: {
+            name: "ETH",
+            symbol: "ETH",
+            decimals: 18
+        },
+        multicallAddress: null,
+        wsUrl: "ws://127.0.0.1:8545",
+        fallbackWsUrls: [
+            "ws://localhost:8545"
+        ]
+    },
+};
+
+const primaryNetworkConfig = {
     "56": {
         slug: "bnb",
         name: "BNB Chain",
@@ -59,7 +96,36 @@ const networkConfig = {
             "wss://polygon.api.onfinality.io/public-ws"
         ]
     },
+    "80002": {
+        slug: "amoy",
+        name: "Polygon Amoy",
+        displayName: "Polygon Amoy",
+        logo: "img/token-logos/0x0000000000000000000000000000000000001010.png",
+        isDefault: false,
+        contractAddress: "0x0aB6ca718d12349B5477fD480a13F5e21a786222",
+        contractABI: CONTRACT_ABI,
+        explorer: "https://amoy.polygonscan.com",
+        rpcUrl: "https://rpc-amoy.polygon.technology",
+        fallbackRpcUrls: [
+            "https://polygon-amoy-bor-rpc.publicnode.com"
+        ],
+        chainId: "0x13882",
+        nativeCurrency: {
+            name: "POL",
+            symbol: "POL",
+            decimals: 18
+        },
+        multicallAddress: null,
+        wsUrl: "wss://polygon-amoy-bor-rpc.publicnode.com",
+        fallbackWsUrls: [
+            "wss://polygon-amoy.gateway.tenderly.co"
+        ]
+    },
 };
+
+const networkConfig = isLocalHostname()
+    ? { ...primaryNetworkConfig, ...localNetworkConfig }
+    : primaryNetworkConfig;
 
 const normalizeChainId = (chainId) => {
     if (chainId === null || chainId === undefined) {

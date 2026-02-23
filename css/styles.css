@@ -1003,13 +1003,14 @@ input {
 .info-icon {
   display: inline-block;
   font-size: 14px;
-  color: #888;
+  color: var(--text-secondary);
   margin-left: 4px;
   cursor: help;
+  transition: color 0.15s ease;
 }
 
 .info-icon:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 /* Add new standardized card class */

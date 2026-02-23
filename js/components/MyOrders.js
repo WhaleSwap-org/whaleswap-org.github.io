@@ -25,6 +25,17 @@ export class MyOrders extends BaseComponent {
         this.isLoading = false;
         this.pricingService = null;
         this.currentAccount = null;
+        this._refreshTimeout = null;
+
+        // Debounce refreshes after websocket/order events and cancel actions.
+        this.debouncedRefresh = () => {
+            clearTimeout(this._refreshTimeout);
+            this._refreshTimeout = setTimeout(() => {
+                this.refreshOrdersView().catch(error => {
+                    this.error('Error refreshing orders:', error);
+                });
+            }, 100);
+        };
         
         // Initialize sort config with id as default sort, descending
         this.sortConfig = {
@@ -132,6 +143,7 @@ export class MyOrders extends BaseComponent {
             // Get all orders first
             const ws = this.ctx.getWebSocket();
             const wallet = this.ctx.getWallet();
+            await ws.ensureFreshChainTime();
             let ordersToDisplay = Array.from(ws.orderCache.values());
             
             // Filter for user's orders only
@@ -595,10 +607,14 @@ export class MyOrders extends BaseComponent {
             const sellPriceClass = (pricing && pricing.isPriceEstimated(order.sellToken)) ? 'price-estimate' : '';
             const buyPriceClass = (pricing && pricing.isPriceEstimated(order.buyToken)) ? 'price-estimate' : '';
 
-            const currentTime = Math.floor(Date.now() / 1000);
-            const timeUntilExpiry = order?.timings?.expiresAt ? order.timings.expiresAt - currentTime : 0;
+            const currentTime = ws.getCurrentTimestamp();
+            const timeUntilExpiry = Number.isFinite(currentTime) && order?.timings?.expiresAt
+                ? order.timings.expiresAt - currentTime
+                : 0;
             const orderStatusForExpiry = ws.getOrderStatus(order);
-            const expiryText = orderStatusForExpiry === 'Active' ? formatTimeDiff(timeUntilExpiry) : '';
+            const expiryText = orderStatusForExpiry === 'Active' && Number.isFinite(currentTime)
+                ? formatTimeDiff(timeUntilExpiry)
+                : '';
 
             // Get order status from WebSocket cache
             const orderStatus = ws.getOrderStatus(order);
@@ -696,7 +712,11 @@ export class MyOrders extends BaseComponent {
                         // Remove the cancel button
                         actionCell.textContent = '-';
 
-                        this.debouncedRefresh();
+                        if (this.debouncedRefresh) {
+                            this.debouncedRefresh();
+                        } else {
+                            await this.refreshOrdersView();
+                        }
                     } catch (error) {
                         this.debug('Error cancelling order:', error);
                         handleTransactionError(error, this, 'order cancellation');
@@ -822,6 +842,10 @@ export class MyOrders extends BaseComponent {
         if (this.expiryTimers) {
             this.expiryTimers.forEach(timerId => clearInterval(timerId));
             this.expiryTimers.clear();
+        }
+        if (this._refreshTimeout) {
+            clearTimeout(this._refreshTimeout);
+            this._refreshTimeout = null;
         }
         
         // Reset state
