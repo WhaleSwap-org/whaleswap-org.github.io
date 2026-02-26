@@ -417,7 +417,7 @@ export class TakerOrders extends BaseComponent {
                 actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}">Fill</button>`;
                 const fillButton = actionCell.querySelector('.fill-button');
                 if (fillButton) {
-                    fillButton.addEventListener('click', () => this.fillOrder(order.id));
+                    fillButton.addEventListener('click', () => this.helper.fillOrder(order.id));
                 }
             }
         } else {
@@ -425,10 +425,12 @@ export class TakerOrders extends BaseComponent {
         }
     }
 
-    async fillOrder(orderId) {
-        // Delegate to helper or implement fill logic
-        this.debug('Fill order requested:', orderId);
-        this.showInfo(`Fill order ${orderId} - functionality inherited from ViewOrders`);
+    async getContract() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws?.contract) {
+            throw new Error('WebSocket contract not initialized');
+        }
+        return ws.contract;
     }
 
     cleanup() {

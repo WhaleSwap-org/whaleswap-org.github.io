@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { contractService } from '../services/ContractService.js';
+import { walletManager } from '../services/WalletManager.js';
 import { getTokenBalanceInfo as getTokenBalanceInfoFromTokens } from './contractTokens.js';
 import { createLogger } from '../services/LogService.js';
 
@@ -30,11 +31,9 @@ export async function validateSellBalance(tokenAddress, sellAmount, decimals = 1
         }
         
         // Check if wallet is connected
-        if (!window.ethereum || !window.ethereum.selectedAddress) {
+        if (!walletManager.getAccount?.()) {
             throw new Error('Wallet not connected');
         }
-
-        const userAddress = window.ethereum.selectedAddress;
         const provider = contractService.getProvider();
         
         if (!provider) {
@@ -97,12 +96,10 @@ export async function getTokenBalanceInfo(tokenAddress) {
             return { balance: '0', symbol: 'N/A', decimals: 18 };
         }
         
-        if (!window.ethereum || !window.ethereum.selectedAddress) {
+        if (!walletManager.getAccount?.()) {
             debug('Wallet not connected');
             return { balance: '0', symbol: 'N/A', decimals: 18 };
         }
-
-        const userAddress = window.ethereum.selectedAddress;
         const provider = contractService.getProvider();
         
         if (!provider) {
@@ -132,7 +129,7 @@ export async function getTokenBalanceInfo(tokenAddress) {
 export async function validateBalanceService() {
     try {
         // Check if wallet is connected
-        if (!window.ethereum || !window.ethereum.selectedAddress) {
+        if (!walletManager.getAccount?.()) {
             debug('Balance service validation failed: Wallet not connected');
             return false;
         }
@@ -159,7 +156,7 @@ export async function validateBalanceService() {
 export function getValidationStats() {
     return {
         serviceValid: validateBalanceService(),
-        walletConnected: !!(window.ethereum && window.ethereum.selectedAddress),
+        walletConnected: !!walletManager.getAccount?.(),
         providerAvailable: !!contractService.getProvider()
     };
 }

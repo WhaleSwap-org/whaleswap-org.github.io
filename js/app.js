@@ -1068,37 +1068,6 @@ class App {
 		this.initializeTabRail();
 	}
 
-	initializeDebugPanel() {
-		// Show debug panel with keyboard shortcut (Ctrl+Shift+D)
-		document.addEventListener('keydown', (e) => {
-			if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-				const panel = document.querySelector('.debug-panel');
-				if (panel) {
-					panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-				}
-			}
-		});
-
-		// Initialize checkboxes from localStorage
-		const savedDebug = localStorage.getItem('debug');
-		if (savedDebug) {
-			const settings = JSON.parse(savedDebug);
-			document.querySelectorAll('[data-debug]').forEach(checkbox => {
-				checkbox.checked = settings[checkbox.dataset.debug] ?? false;
-			});
-		}
-
-		// Handle apply button
-		document.getElementById('applyDebug')?.addEventListener('click', () => {
-			const settings = {};
-			document.querySelectorAll('[data-debug]').forEach(checkbox => {
-				settings[checkbox.dataset.debug] = checkbox.checked;
-			});
-			localStorage.setItem('debug', JSON.stringify(settings));
-			location.reload(); // Reload to apply new debug settings
-		});
-	}
-
 	async initializeWalletManager() {
 		try {
 			this.debug('Initializing wallet manager...');
@@ -1526,9 +1495,6 @@ window.app = new App();
 // Removed window.* assignments - all components use ctx or BaseComponent methods
 window.getToast = getToast; // Keep for external/debug access if needed
 
-// Make DEBUG_CONFIG globally available for debug panel
-window.DEBUG_CONFIG = DEBUG_CONFIG;
-
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
 	window.app.showGlobalLoader('Checking for updates...');
@@ -1706,7 +1672,7 @@ function syncAddNetworkButtonVisibility() {
 	const walletChainId = window.app?.ctx?.getWalletChainId?.();
 	const walletNetwork = walletChainId ? getNetworkById(walletChainId) : null;
 	const shouldShow = Boolean(
-		window.ethereum
+		walletManager.hasInjectedProvider()
 		&& walletChainId
 		&& !networkSwitchInProgress
 		&& (!walletNetwork || walletNetwork.slug !== selectedSlug)
@@ -1862,8 +1828,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			const selectedSlug = selectedNetworkSlug || window.app?.ctx?.getSelectedChainSlug?.() || getDefaultNetwork().slug;
 			const selectedNetwork = getNetworkBySlug(selectedSlug) || getDefaultNetwork();
 
-			if (!window.ethereum) {
-				window.app?.showWarning?.('No injected wallet detected.');
+			if (!walletManager.hasInjectedProvider()) {
+				window.app?.showWarning?.('MetaMask is required. Phantom is not supported.');
 				return;
 			}
 

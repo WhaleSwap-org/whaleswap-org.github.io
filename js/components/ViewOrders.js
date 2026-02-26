@@ -1,9 +1,8 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ethers } from 'ethers';
-import { erc20Abi } from '../abi/erc20.js';
 import { createLogger } from '../services/LogService.js';
-import { createDealCellHTML, handleTransactionError } from '../utils/ui.js';
-import { formatTimeDiff, getOrderStatusText, calculateTotalValue } from '../utils/orderUtils.js';
+import { createDealCellHTML } from '../utils/ui.js';
+import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 
@@ -26,6 +25,7 @@ export class ViewOrders extends BaseComponent {
         this.tokenList = [];
         this.currentAccount = null;
         this.isLoading = false;
+        this.isProcessingFill = false;
         this.pricingService = null;
         
         // Bound handlers for cleanup
@@ -231,238 +231,9 @@ export class ViewOrders extends BaseComponent {
             tbody.addEventListener('click', async (e) => {
                 if (e.target.classList.contains('fill-button')) {
                     const orderId = e.target.dataset.orderId;
-                    await this.fillOrder(orderId);
+                    await this.helper.fillOrder(orderId);
                 }
             });
-        }
-    }
-
-    async checkAllowance(tokenAddress, owner, amount) {
-        try {
-            if (!this.provider) {
-                return false;
-            }
-            const tokenContract = new ethers.Contract(
-                tokenAddress,
-                ['function allowance(address owner, address spender) view returns (uint256)'],
-                this.provider
-            );
-            const ws = this.ctx.getWebSocket();
-            const allowance = await tokenContract.allowance(owner, ws.contractAddress);
-            return allowance.gte(amount);
-        } catch (error) {
-            this.error('Error checking allowance:', error);
-            return false;
-        }
-    }
-
-    async fillOrder(orderId) {
-        const button = this.container.querySelector(`button[data-order-id="${orderId}"]`);
-        
-        try {
-            if (!this.provider) {
-                throw new Error('MetaMask is not installed. Please install MetaMask to take orders.');
-            }
-
-            // Check if wallet is connected and has an account
-            const wallet = this.ctx.getWallet();
-            const connectedAccount = wallet?.getAccount();
-            if (!connectedAccount) {
-                throw new Error('Please sign in to fill order');
-            }
-
-            // Additional check to ensure signer is properly connected
-            try {
-                const signer = this.provider.getSigner();
-                await signer.getAddress(); // This will throw if not properly connected
-            } catch (error) {
-                throw new Error('Please sign in to fill order');
-            }
-
-            if (button) {
-                button.disabled = true;
-                button.textContent = 'Filling...';
-                button.classList.add('disabled');
-            }
-
-            this.debug('Starting fill order process for orderId:', orderId);
-            
-            const ws = this.ctx.getWebSocket();
-            const order = ws.orderCache.get(Number(orderId));
-            this.debug('Order details:', order);
-
-            if (!order) {
-                throw new Error('Order not found');
-            }
-
-            // Get contract from WebSocket and connect to signer
-            const contract = await this.getContract();
-            if (!contract) {
-                throw new Error('Contract not available');
-            }
-            const signer = this.provider.getSigner();
-            const contractWithSigner = contract.connect(signer);
-
-            // Check order status first
-            const currentOrder = await contractWithSigner.orders(orderId);
-            this.debug('Current order state:', currentOrder);
-            
-            if (currentOrder.status !== 0) {
-                throw new Error(`Order is not active (status: ${getOrderStatusText(currentOrder.status)})`);
-            }
-
-            // Check expiry
-            await ws.ensureFreshChainTime(0);
-            const now = ws.getCurrentTimestamp();
-            const expiryTime = ws.getOrderExpiryTime(order);
-            
-            if (Number.isFinite(expiryTime) && now > expiryTime) {
-                throw new Error('Order has expired');
-            }
-
-            // Get token contracts
-            const buyToken = new ethers.Contract(
-                order.buyToken,
-                erc20Abi,
-                this.provider.getSigner()
-            );
-            
-            const sellToken = new ethers.Contract(
-                order.sellToken,
-                erc20Abi,
-                this.provider.getSigner()
-            );
-
-            const currentAccount = await this.provider.getSigner().getAddress();
-
-            // Get token details for proper formatting
-            const buyTokenDecimals = await buyToken.decimals();
-            const buyTokenSymbol = await buyToken.symbol();
-            
-            // Check balances first
-            const buyTokenBalance = await buyToken.balanceOf(currentAccount);
-            this.debug('Buy token balance:', {
-                balance: buyTokenBalance.toString(),
-                required: order.buyAmount.toString()
-            });
-
-            if (buyTokenBalance.lt(order.buyAmount)) {
-                const formattedBalance = ethers.utils.formatUnits(buyTokenBalance, buyTokenDecimals);
-                const formattedRequired = ethers.utils.formatUnits(order.buyAmount, buyTokenDecimals);
-                
-                throw new Error(
-                    `Insufficient ${buyTokenSymbol} balance.\n` +
-                    `Required: ${Number(formattedRequired).toLocaleString()} ${buyTokenSymbol}\n` +
-                    `Available: ${Number(formattedBalance).toLocaleString()} ${buyTokenSymbol}`
-                );
-            }
-
-            // Check allowances
-            const buyTokenAllowance = await buyToken.allowance(currentAccount, contract.address);
-            this.debug('Buy token allowance:', {
-                current: buyTokenAllowance.toString(),
-                required: order.buyAmount.toString()
-            });
-
-            if (buyTokenAllowance.lt(order.buyAmount)) {
-                this.debug('Requesting buy token approval');
-                const approveTx = await buyToken.approve(
-                    contract.address, 
-                    order.buyAmount  // Use exact order amount instead of MaxUint256
-                );
-                await approveTx.wait();
-                this.showSuccess(`${buyTokenSymbol} approval granted`);
-            }
-
-            // Verify contract has enough sell tokens
-            const contractSellBalance = await sellToken.balanceOf(contract.address);
-            this.debug('Contract sell token balance:', {
-                balance: contractSellBalance.toString(),
-                required: order.sellAmount.toString()
-            });
-
-            if (contractSellBalance.lt(order.sellAmount)) {
-                const sellTokenSymbol = await sellToken.symbol();
-                const sellTokenDecimals = await sellToken.decimals();
-                const formattedBalance = ethers.utils.formatUnits(contractSellBalance, sellTokenDecimals);
-                const formattedRequired = ethers.utils.formatUnits(order.sellAmount, sellTokenDecimals);
-                
-                throw new Error(
-                    `Contract has insufficient ${sellTokenSymbol} balance.\n` +
-                    `Required: ${Number(formattedRequired).toLocaleString()} ${sellTokenSymbol}\n` +
-                    `Available: ${Number(formattedBalance).toLocaleString()} ${sellTokenSymbol}`
-                );
-            }
-
-            // Add gas buffer and execute transaction
-            const gasEstimate = await contractWithSigner.estimateGas.fillOrder(orderId);
-            this.debug('Gas estimate:', gasEstimate.toString());
-            
-            const gasLimit = gasEstimate.mul(120).div(100); // Add 20% buffer
-            const tx = await contractWithSigner.fillOrder(orderId, { gasLimit });
-            this.debug('Transaction sent:', tx.hash);
-            
-            const receipt = await tx.wait();
-            this.debug('Transaction receipt:', receipt);
-
-            if (receipt.status === 0) {
-                throw new Error('Transaction reverted by contract');
-            }
-
-            order.status = 'Filled';
-            await this.refreshOrdersView();
-
-            this.showSuccess(`Order ${orderId} filled successfully!`);
-
-        } catch (error) {
-            this.debug('Fill order error details:', error);
-            
-            // Use utility function for consistent error handling
-            handleTransactionError(error, this, 'fill order');
-        } finally {
-            if (button) {
-                button.disabled = false;
-                button.textContent = 'Fill Order';
-                button.classList.remove('disabled');
-            }
-        }
-    }
-
-    getReadableError(error) {
-        if (error.message?.includes('insufficient allowance')) {
-            return 'Insufficient token allowance';
-        }
-        if (error.message?.includes('insufficient balance')) {
-            return 'Insufficient token balance';
-        }
-        
-        // Handle contract revert errors with detailed messages
-        if (error.code === -32603 && error.data?.message) {
-            return error.data.message;
-        }
-        
-        // Try to extract error from ethers error structure
-        if (error.error?.data?.message) {
-            return error.error.data.message;
-        }
-        
-        switch (error.code) {
-            case 'ACTION_REJECTED':
-                return 'Transaction was rejected by user';
-            case 'INSUFFICIENT_FUNDS':
-                return 'Insufficient funds for gas';
-            case -32603:
-                return 'Transaction would fail. Check order status and approvals.';
-            case 'UNPREDICTABLE_GAS_LIMIT':
-                // For contract revert errors, extract the actual revert message
-                if (error.error?.data?.message) {
-                    return error.error.data.message;
-                } else if (error.reason) {
-                    return error.reason;
-                }
-                return 'Error estimating gas. The transaction may fail.';
-            default:
-                return error.reason || error.message || 'Unknown error occurred';
         }
     }
 
@@ -641,7 +412,7 @@ export class ViewOrders extends BaseComponent {
             actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}">Fill</button>`;
             const fillButton = actionCell.querySelector('.fill-button');
             if (fillButton) {
-                fillButton.addEventListener('click', () => this.fillOrder(order.id));
+                fillButton.addEventListener('click', () => this.helper.fillOrder(order.id));
             }
         } else {
             actionCell.innerHTML = '';

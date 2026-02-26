@@ -27,6 +27,8 @@ const normalizeChainId = (chainId) => {
     return null;
 };
 
+const STARTUP_REQUEST_TIMEOUT_MS = 4000;
+
 export class WalletManager {
     constructor() {
         // Initialize logger
@@ -51,24 +53,139 @@ export class WalletManager {
         this.contractABI = getActiveNetwork().contractABI;
         this.isInitialized = false;
         this.contractInitialized = false;
+        this.injectedProvider = null;
+        this.boundHandleAccountsChanged = this.handleAccountsChanged.bind(this);
+        this.boundHandleChainChanged = this.handleChainChanged.bind(this);
+        this.boundHandleConnect = this.handleConnect.bind(this);
+        this.boundHandleDisconnect = this.handleDisconnect.bind(this);
         
         // Add user preference tracking for disconnect state
         this.userDisconnected = false;
         this.STORAGE_KEY = 'wallet_user_disconnected';
     }
 
+    describeProvider(provider, index = null) {
+        return {
+            index,
+            isMetaMask: !!provider?.isMetaMask,
+            isPhantom: !!provider?.isPhantom,
+            isCoinbaseWallet: !!provider?.isCoinbaseWallet,
+            isBraveWallet: !!provider?.isBraveWallet
+        };
+    }
+
+    isSupportedInjectedProvider(provider) {
+        // Product requirement: only MetaMask is supported right now.
+        return !!provider?.isMetaMask && !provider?.isPhantom;
+    }
+
+    resolveInjectedProvider() {
+        if (typeof window === 'undefined') {
+            return null;
+        }
+
+        const { ethereum } = window;
+        if (!ethereum) {
+            return null;
+        }
+
+        const providers = Array.isArray(ethereum.providers)
+            ? ethereum.providers.filter(Boolean)
+            : [];
+
+        if (providers.length === 0) {
+            if (this.isSupportedInjectedProvider(ethereum)) {
+                return ethereum;
+            }
+
+            this.warn('Unsupported injected provider detected. MetaMask is required.', {
+                provider: this.describeProvider(ethereum)
+            });
+            return null;
+        }
+
+        const selectedProvider = providers.find((provider) => this.isSupportedInjectedProvider(provider)) || null;
+        if (!selectedProvider) {
+            this.warn('No supported MetaMask provider found among injected wallets.', {
+                providers: providers.map((provider, index) => this.describeProvider(provider, index))
+            });
+            return null;
+        }
+
+        this.debug('Multiple wallet providers detected; selected MetaMask provider:', {
+            selected: this.describeProvider(selectedProvider),
+            providers: providers.map((provider, index) => this.describeProvider(provider, index))
+        });
+
+        return selectedProvider;
+    }
+
+    getInjectedProvider() {
+        if (!this.injectedProvider) {
+            this.injectedProvider = this.resolveInjectedProvider();
+        }
+        return this.injectedProvider;
+    }
+
+    hasInjectedProvider() {
+        return !!this.getInjectedProvider();
+    }
+
+    async request(method, params = undefined) {
+        const injectedProvider = this.getInjectedProvider();
+        if (!injectedProvider?.request) {
+            throw new Error('MetaMask is required. Phantom is not supported.');
+        }
+
+        const payload = params === undefined
+            ? { method }
+            : { method, params };
+        return injectedProvider.request(payload);
+    }
+
+    async requestWithTimeout(method, params = undefined, timeoutMs = STARTUP_REQUEST_TIMEOUT_MS) {
+        if (!timeoutMs || timeoutMs <= 0) {
+            return this.request(method, params);
+        }
+
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                const timeoutError = new Error(`Wallet request timed out: ${method}`);
+                timeoutError.code = 'WALLET_REQUEST_TIMEOUT';
+                timeoutError.method = method;
+                reject(timeoutError);
+            }, timeoutMs);
+        });
+
+        try {
+            return await Promise.race([
+                this.request(method, params),
+                timeoutPromise
+            ]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
     async init() {
         try {
             this.debug('Starting initialization...');
-            
-            if (typeof window.ethereum === 'undefined') {
-                this.debug('MetaMask is not installed, initializing in read-only mode');
+
+            if (this.isInitialized) {
+                this.debug('Wallet manager already initialized');
+                return;
+            }
+
+            const injectedProvider = this.getInjectedProvider();
+            if (!injectedProvider) {
+                this.debug('No supported MetaMask provider found, initializing in read-only mode');
                 this.provider = null;
                 this.isInitialized = true;
                 return;
             }
 
-            this.provider = new ethers.providers.Web3Provider(window.ethereum);
+            this.provider = new ethers.providers.Web3Provider(injectedProvider);
             
             // Set contract configuration
             const networkCfg = getNetworkConfig();
@@ -82,33 +199,38 @@ export class WalletManager {
             });
 
             // Setup event listeners
-            window.ethereum.on('accountsChanged', this.handleAccountsChanged.bind(this));
-            window.ethereum.on('chainChanged', this.handleChainChanged.bind(this));
-            window.ethereum.on('connect', this.handleConnect.bind(this));
-            window.ethereum.on('disconnect', this.handleDisconnect.bind(this));
+            injectedProvider.on('accountsChanged', this.boundHandleAccountsChanged);
+            injectedProvider.on('chainChanged', this.boundHandleChainChanged);
+            injectedProvider.on('connect', this.boundHandleConnect);
+            injectedProvider.on('disconnect', this.boundHandleDisconnect);
 
             // Check user disconnect preference before auto-connecting
             this.loadUserDisconnectPreference();
             
             // Only auto-connect if user hasn't manually disconnected
             if (!this.userDisconnected) {
-                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-                if (accounts.length > 0) {
-                    this.debug('Auto-connecting to existing MetaMask session');
-                    // Ensure internal state reflects connected session
-                    this.account = accounts[0];
-                    const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                    this.chainId = chainId;
-                    // Keep wallet-reported chain state; app-level logic decides if network is acceptable.
-                    this.notifyListeners('chainChanged', { chainId });
-                    this.isConnected = true;
-                    // Initialize signer and contract for the session
-                    await this.initializeSigner(this.account);
-                    // Notify listeners so UI can react as connected
-                    this.notifyListeners('connect', {
-                        account: this.account,
-                        chainId: this.chainId
-                    });
+                try {
+                    const accounts = await this.requestWithTimeout('eth_accounts');
+
+                    if (accounts.length > 0) {
+                        this.debug('Auto-connecting to existing wallet session');
+                        // Ensure internal state reflects connected session
+                        this.account = accounts[0];
+                        const chainId = await this.requestWithTimeout('eth_chainId');
+                        this.chainId = chainId;
+                        // Keep wallet-reported chain state; app-level logic decides if network is acceptable.
+                        this.notifyListeners('chainChanged', { chainId });
+                        this.isConnected = true;
+                        // Initialize signer and contract for the session
+                        await this.initializeSigner(this.account);
+                        // Notify listeners so UI can react as connected
+                        this.notifyListeners('connect', {
+                            account: this.account,
+                            chainId: this.chainId
+                        });
+                    }
+                } catch (autoConnectError) {
+                    this.warn('Wallet auto-connect check failed, continuing in read-only mode', autoConnectError);
                 }
             } else {
                 this.debug('User has manually disconnected, skipping auto-connect');
@@ -183,21 +305,17 @@ export class WalletManager {
         }
 
         if (!this.provider) {
-            throw new Error('MetaMask is not installed');
+            throw new Error('MetaMask is required. Phantom is not supported.');
         }
 
         this.isConnecting = true;
         try {
             this.debug('Requesting accounts...');
-            const accounts = await window.ethereum.request({ 
-                method: 'eth_requestAccounts' 
-            });
+            const accounts = await this.request('eth_requestAccounts');
             
             this.debug('Accounts received:', accounts);
             
-            const chainId = await window.ethereum.request({ 
-                method: 'eth_chainId' 
-            });
+            const chainId = await this.request('eth_chainId');
             this.debug('Chain ID:', chainId);
 
             const decimalChainId = parseInt(chainId, 16).toString();
@@ -232,8 +350,8 @@ export class WalletManager {
     }
 
     async switchToNetwork(targetNetworkRef) {
-        if (typeof window.ethereum === 'undefined') {
-            throw new Error('MetaMask is not installed');
+        if (!this.hasInjectedProvider()) {
+            throw new Error('MetaMask is required. Phantom is not supported.');
         }
 
         const targetNetwork =
@@ -245,33 +363,27 @@ export class WalletManager {
             throw new Error(`Unsupported target network: ${targetNetworkRef}`);
         }
 
-        const currentChainId = this.chainId || await window.ethereum.request({ method: 'eth_chainId' });
+        const currentChainId = this.chainId || await this.request('eth_chainId');
         if (normalizeChainId(currentChainId) === normalizeChainId(targetNetwork.chainId)) {
             setActiveNetwork(targetNetwork);
             return targetNetwork;
         }
 
         try {
-            await window.ethereum.request({
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: targetNetwork.chainId }]
-            });
+            await this.request('wallet_switchEthereumChain', [{ chainId: targetNetwork.chainId }]);
         } catch (error) {
             if (error?.code !== 4902) {
                 throw error;
             }
 
             try {
-                await window.ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
+                await this.request('wallet_addEthereumChain', [{
                         chainId: targetNetwork.chainId,
                         chainName: targetNetwork.displayName || targetNetwork.name,
                         nativeCurrency: targetNetwork.nativeCurrency,
                         rpcUrls: [targetNetwork.rpcUrl, ...(targetNetwork.fallbackRpcUrls || [])],
                         blockExplorerUrls: [targetNetwork.explorer]
-                    }]
-                });
+                    }]);
             } catch (addError) {
                 addError.requiresWalletNetworkAddition = true;
                 addError.missingNetworkSlug = targetNetwork.slug;
@@ -281,10 +393,7 @@ export class WalletManager {
             }
 
             try {
-                await window.ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: targetNetwork.chainId }]
-                });
+                await this.request('wallet_switchEthereumChain', [{ chainId: targetNetwork.chainId }]);
             } catch (switchAfterAddError) {
                 if (switchAfterAddError?.code === 4902) {
                     switchAfterAddError.requiresWalletNetworkAddition = true;
@@ -295,7 +404,7 @@ export class WalletManager {
             }
         }
 
-        const switchedChainId = await window.ethereum.request({ method: 'eth_chainId' });
+        const switchedChainId = await this.request('eth_chainId');
         this.chainId = switchedChainId;
         setActiveNetwork(targetNetwork);
 

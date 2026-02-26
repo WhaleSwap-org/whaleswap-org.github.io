@@ -261,8 +261,8 @@ export class WalletUI extends BaseComponent {
         try {
             this.debug('Checking initial connection state...');
             
-            if (typeof window.ethereum === 'undefined') {
-                this.debug('MetaMask is not installed, initializing in read-only mode');
+            if (!walletManager.hasInjectedProvider()) {
+                this.debug('No supported MetaMask provider found, initializing in read-only mode');
                 return;
             }
             
@@ -283,13 +283,24 @@ export class WalletUI extends BaseComponent {
                 return;
             }
 
-            // Fallback: reflect provider account in UI without triggering another connect flow.
+            // Recovery path: if wallet init partially failed, probe session and sync state.
             if (!walletManager.isConnecting) {
-                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-                if (accounts && accounts.length > 0) {
-                    this.debug('Found provider session, syncing UI without reconnect');
-                    this.updateUI(accounts[0]);
-                    this.updateNetworkBadge(walletManager.chainId);
+                try {
+                    const accounts = await walletManager.requestWithTimeout('eth_accounts', undefined, 3000);
+                    if (accounts && accounts.length > 0) {
+                        const chainId = await walletManager.requestWithTimeout('eth_chainId', undefined, 3000);
+                        walletManager.account = accounts[0];
+                        walletManager.chainId = chainId;
+                        walletManager.isConnected = true;
+                        await walletManager.initializeSigner(accounts[0]);
+                        this.ctx?.setWalletChainId?.(walletManager.chainId || null);
+
+                        this.debug('Recovered existing provider session, syncing UI');
+                        this.updateUI(accounts[0]);
+                        this.updateNetworkBadge(walletManager.chainId);
+                    }
+                } catch (fallbackError) {
+                    this.warn('Failed to recover wallet session after init fallback', fallbackError);
                 }
             }
         } catch (error) {

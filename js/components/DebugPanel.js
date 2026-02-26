@@ -1,3 +1,5 @@
+import { DEBUG_CONFIG, getStoredDebugSettings, saveDebugSettings } from '../config/debug.js';
+
 export class DebugPanel {
     constructor() {
         this.panel = document.querySelector('.debug-panel');
@@ -37,17 +39,12 @@ export class DebugPanel {
     }
 
     loadDebugSettings() {
-        const savedSettings = localStorage.getItem('debug');
-        let settings = {};
-        
-        if (savedSettings) {
-            settings = JSON.parse(savedSettings);
-        }
+        const settings = getStoredDebugSettings();
         
         this.checkboxes.forEach(checkbox => {
             const debugKey = checkbox.getAttribute('data-debug');
             // Use saved setting if available, otherwise use default from DEBUG_CONFIG
-            checkbox.checked = settings[debugKey] ?? window.DEBUG_CONFIG?.[debugKey] ?? false;
+            checkbox.checked = settings[debugKey] ?? DEBUG_CONFIG[debugKey] ?? false;
         });
     }
 
@@ -65,11 +62,11 @@ export class DebugPanel {
             settings[debugKey] = checkbox.checked;
         });
         
-        localStorage.setItem('debug', JSON.stringify(settings));
+        saveDebugSettings(settings);
         location.reload(); // Reload to apply new debug settings
     }
 
     togglePanel() {
         this.panel.style.display = this.panel.style.display === 'none' ? 'block' : 'none';
     }
-} 
+}

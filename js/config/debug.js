@@ -18,12 +18,40 @@ export const DEBUG_CONFIG = {
     // Add more specific flags as needed
 };
 
-export const isDebugEnabled = (component) => {
-    // Check if debug mode is forced via localStorage
-    const localDebug = localStorage.getItem('debug');
-    if (localDebug) {
-        const debugSettings = JSON.parse(localDebug);
-        return debugSettings[component] ?? DEBUG_CONFIG[component];
+export const DEBUG_STORAGE_KEY = 'whaleswap_debug';
+
+const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+
+const parseDebugSettings = (rawValue) => {
+    if (!rawValue || typeof rawValue !== 'string') {
+        return null;
     }
+
+    try {
+        const parsed = JSON.parse(rawValue);
+        return isPlainObject(parsed) ? parsed : null;
+    } catch (_) {
+        return null;
+    }
+};
+
+export const getStoredDebugSettings = () => {
+    return parseDebugSettings(localStorage.getItem(DEBUG_STORAGE_KEY)) || {};
+};
+
+export const saveDebugSettings = (settings) => {
+    if (!isPlainObject(settings)) {
+        return;
+    }
+
+    localStorage.setItem(DEBUG_STORAGE_KEY, JSON.stringify(settings));
+};
+
+export const isDebugEnabled = (component) => {
+    const debugSettings = getStoredDebugSettings();
+    if (Object.prototype.hasOwnProperty.call(debugSettings, component)) {
+        return debugSettings[component];
+    }
+
     return DEBUG_CONFIG[component];
 };
