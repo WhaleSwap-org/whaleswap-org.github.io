@@ -19,6 +19,22 @@ export class Footer extends BaseComponent {
                 <span class="footer-text">Powered by</span>
                 <a href="https://github.com/WhaleSwap-org" target="_blank" rel="noopener noreferrer" class="footer-link">WhaleSwap</a>
             </div>
+            <div class="legal-help-inline" id="legal-help-inline" aria-label="Legal links">
+                <button
+                    type="button"
+                    class="legal-help-inline-item"
+                    data-legal-target="tos"
+                >
+                    Terms
+                </button>
+                <button
+                    type="button"
+                    class="legal-help-inline-item"
+                    data-legal-target="privacy"
+                >
+                    Privacy
+                </button>
+            </div>
             <button
                 type="button"
                 class="legal-help-launcher"
@@ -68,6 +84,7 @@ export class Footer extends BaseComponent {
     bindEvents() {
         const launcher = document.getElementById('legal-help-launcher');
         const dropdown = document.getElementById('legal-help-dropdown');
+        const inlineActions = document.getElementById('legal-help-inline');
         const overlay = document.getElementById('legal-modal-overlay');
         const closeButton = document.getElementById('legal-modal-close');
         const modalTitle = document.getElementById('legal-modal-title');
@@ -207,6 +224,14 @@ export class Footer extends BaseComponent {
         });
 
         dropdown.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const type = target.getAttribute('data-legal-target');
+            if (!type) return;
+            openModal(type);
+        });
+
+        inlineActions?.addEventListener('click', (event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
             const type = target.getAttribute('data-legal-target');

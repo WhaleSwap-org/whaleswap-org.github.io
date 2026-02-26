@@ -32,6 +32,7 @@
     <link rel="stylesheet" href="css/components/tabs.css" />
     <link rel="stylesheet" href="css/components/wallet.css" />
     <link rel="stylesheet" href="css/components/cleanup.css" />
+    <link rel="stylesheet" href="css/components/claim.css" />
     <link rel="stylesheet" href="css/components/contract-params.css" />
     <link rel="stylesheet" href="css/components/debug.css" />
     <link rel="stylesheet" href="css/components/toast.css" />
@@ -448,13 +449,16 @@
           <div class="logo-container">
             <img src="img/whaleSwap.png" alt="WhaleSwap Logo" class="logo-image" />
             <h1>WhaleSwap</h1>
-            <span class="version">v1.0.43</span>
+            <span class="version">v1.0.44</span>
           </div>
         </div>
         <!-- Theme toggle and wallet connection controls -->
         <div class="header-right">
           <!-- Wallet connection and network selection -->
           <div id="wallet-container" class="wallet-container">
+            <button id="addNetworkButton" class="add-network-button hidden" type="button">
+              Add Network
+            </button>
             <!-- Network dropdown selector -->
             <div class="network-selector">
               <button class="network-button">
@@ -596,60 +600,103 @@
       <main class="main-content">
         <div class="content-wrapper card card--transparent">
           <!-- Navigation tabs for different sections -->
-          <nav class="nav-tabs">
-            <button class="tab-button" data-tab="intro" style="display: block">
-              Intro
-            </button>
+          <div class="tab-rail-shell" data-tab-rail-shell>
             <button
-              class="tab-button active"
-              data-tab="create-order"
-              style="display: none"
+              type="button"
+              class="tab-rail-arrow tab-rail-arrow--left"
+              data-tab-rail-arrow="left"
+              aria-label="Scroll tabs left"
             >
-              Create Order
+              &lt;
             </button>
+            <nav
+              id="primary-tab-nav"
+              class="nav-tabs"
+              aria-label="Primary tabs"
+              data-mobile-tab-rail="true"
+            >
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="intro"
+                style="display: block"
+              >
+                Intro
+              </button>
+              <button
+                type="button"
+                class="tab-button active"
+                data-tab="create-order"
+                style="display: none"
+              >
+                Create Order
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="view-orders"
+                style="display: none"
+              >
+                View Orders
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="my-orders"
+                style="display: none"
+              >
+                My Orders
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="claim"
+                style="display: none"
+              >
+                Claim
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="taker-orders"
+                style="display: none"
+              >
+                Invited Orders
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="cleanup-orders"
+                style="display: none"
+              >
+                Cleanup
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="contract-params"
+                style="display: none"
+              >
+                Parameters
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-tab="admin"
+                style="display: none"
+              >
+                Admin
+              </button>
+            </nav>
             <button
-              class="tab-button"
-              data-tab="view-orders"
-              style="display: none"
+              type="button"
+              class="tab-rail-arrow tab-rail-arrow--right"
+              data-tab-rail-arrow="right"
+              aria-label="Scroll tabs right"
             >
-              View Orders
+              &gt;
             </button>
-            <button
-              class="tab-button"
-              data-tab="my-orders"
-              style="display: none"
-            >
-              My Orders
-            </button>
-            <button
-              class="tab-button"
-              data-tab="taker-orders"
-              style="display: none"
-            >
-              Invited Orders
-            </button>
-            <button
-              class="tab-button"
-              data-tab="cleanup-orders"
-              style="display: none"
-            >
-              Cleanup
-            </button>
-            <button
-              class="tab-button"
-              data-tab="contract-params"
-              style="display: none"
-            >
-              Parameters
-            </button>
-            <button
-              class="tab-button"
-              data-tab="admin"
-              style="display: none"
-            >
-              Admin
-            </button>
-          </nav>
+          </div>
 
           <!-- Create Order tab content -->
           <div id="create-order" class="tab-content active card card--transparent">
@@ -659,6 +706,7 @@
           <div id="intro" class="tab-content card card--transparent"></div>
           <div id="view-orders" class="tab-content card card--transparent"></div>
           <div id="my-orders" class="tab-content card card--transparent"></div>
+          <div id="claim" class="tab-content card card--transparent"></div>
           <div id="taker-orders" class="tab-content card card--transparent"></div>
           <div id="cleanup-orders" class="tab-content card card--transparent">
             <div id="cleanup-container" class="cleanup-container"></div>

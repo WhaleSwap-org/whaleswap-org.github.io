@@ -134,6 +134,36 @@
   background: rgba(102, 102, 102, 0.2);
 }
 
+.add-network-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid #4b6bfb;
+  background: rgba(75, 107, 251, 0.12);
+  color: #2c47c7;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 50ms ease;
+}
+
+.add-network-button:hover:not(:disabled) {
+  background: rgba(75, 107, 251, 0.2);
+}
+
+.add-network-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.add-network-button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .wallet-button {
   display: flex;
   align-items: center;
@@ -474,4 +504,179 @@
 
 [data-theme="dark"] .disconnect-button:hover {
   background: rgba(239, 68, 68, 0.3);
+}
+
+[data-theme="dark"] .add-network-button {
+  border-color: #6480ff;
+  background: rgba(100, 128, 255, 0.2);
+  color: #d4ddff;
+}
+
+[data-theme="dark"] .add-network-button:hover:not(:disabled) {
+  background: rgba(100, 128, 255, 0.3);
+}
+
+@media (max-width: 768px) {
+  .header-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .header-right .wallet-button,
+  .header-right .wallet-info {
+    min-width: 0;
+    width: auto;
+    max-width: 100%;
+  }
+
+  .wallet-container {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .network-selector {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .network-button,
+  .wallet-button,
+  .wallet-info,
+  .add-network-button {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .wallet-button,
+  .wallet-info,
+  .add-network-button {
+    flex: 1 1 180px;
+  }
+
+  .account-address {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .network-dropdown {
+    max-width: min(360px, calc(100vw - 24px));
+  }
+
+  .wallet-info-popup {
+    width: min(280px, calc(100vw - 20px));
+  }
+}
+
+@media (max-width: 480px) {
+  .header-right .wallet-button,
+  .header-right .wallet-info {
+    width: auto;
+  }
+
+  .wallet-container {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .network-selector,
+  .add-network-button {
+    min-width: 0;
+  }
+
+  .network-selector {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .wallet-button,
+  .wallet-info,
+  .add-network-button {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 42%;
+    min-width: 0;
+  }
+
+  .network-button,
+  .wallet-button,
+  .wallet-info,
+  .add-network-button {
+    min-height: 36px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.1;
+  }
+
+  .network-button {
+    width: 100%;
+  }
+
+  .network-badge {
+    gap: 4px;
+    padding: 2px 4px;
+    margin-right: 2px;
+    font-size: 12px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .network-badge::before {
+    width: 5px;
+    height: 5px;
+    margin-right: 4px;
+  }
+
+  .network-badge-logo {
+    width: 14px;
+    height: 14px;
+  }
+
+  .network-badge-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .wallet-button-text,
+  .account-address {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-address {
+    max-width: clamp(84px, 23vw, 112px);
+    font-size: 12px;
+  }
+
+  .network-dropdown {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .network-button,
+  .wallet-button,
+  .wallet-info,
+  .add-network-button {
+    font-size: 12px;
+    padding: 7px 9px;
+  }
+
+  .account-address {
+    font-size: 12px;
+  }
 }

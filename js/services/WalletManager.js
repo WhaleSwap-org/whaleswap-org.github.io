@@ -261,21 +261,38 @@ export class WalletManager {
                 throw error;
             }
 
-            await window.ethereum.request({
-                method: 'wallet_addEthereumChain',
-                params: [{
-                    chainId: targetNetwork.chainId,
-                    chainName: targetNetwork.displayName || targetNetwork.name,
-                    nativeCurrency: targetNetwork.nativeCurrency,
-                    rpcUrls: [targetNetwork.rpcUrl, ...(targetNetwork.fallbackRpcUrls || [])],
-                    blockExplorerUrls: [targetNetwork.explorer]
-                }]
-            });
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: targetNetwork.chainId,
+                        chainName: targetNetwork.displayName || targetNetwork.name,
+                        nativeCurrency: targetNetwork.nativeCurrency,
+                        rpcUrls: [targetNetwork.rpcUrl, ...(targetNetwork.fallbackRpcUrls || [])],
+                        blockExplorerUrls: [targetNetwork.explorer]
+                    }]
+                });
+            } catch (addError) {
+                addError.requiresWalletNetworkAddition = true;
+                addError.missingNetworkSlug = targetNetwork.slug;
+                addError.targetNetwork = targetNetwork;
+                addError.originalSwitchError = error;
+                throw addError;
+            }
 
-            await window.ethereum.request({
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: targetNetwork.chainId }]
-            });
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: targetNetwork.chainId }]
+                });
+            } catch (switchAfterAddError) {
+                if (switchAfterAddError?.code === 4902) {
+                    switchAfterAddError.requiresWalletNetworkAddition = true;
+                    switchAfterAddError.missingNetworkSlug = targetNetwork.slug;
+                    switchAfterAddError.targetNetwork = targetNetwork;
+                }
+                throw switchAfterAddError;
+            }
         }
 
         const switchedChainId = await window.ethereum.request({ method: 'eth_chainId' });

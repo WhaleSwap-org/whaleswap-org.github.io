@@ -17,3 +17,6 @@ deprecated/
 
 # docs folder
 docs/
+
+# vscode folder
+.vscode/

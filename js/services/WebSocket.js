@@ -43,6 +43,18 @@ export class WebSocketService {
         this.chainTimeSyncedAtMonotonicMs = null;
         this.chainTimeSyncPromise = null;
         this.chainTimeMaxAgeMs = 30000;
+
+        // Order sync lifecycle state
+        this.orderSyncPromise = null;
+        this.hasCompletedOrderSync = false;
+
+        // Contract disabled-state cache
+        this.contractDisabledCache = null;
+        this.contractDisabledFetchedAt = 0;
+        this.contractDisabledInFlight = null;
+        this.contractDisabledInFlightRequestId = 0;
+        this.contractDisabledRequestSeq = 0;
+        this.contractDisabledReadError = false;
         
 
         const logger = createLogger('WEBSOCKET');
@@ -51,6 +63,20 @@ export class WebSocketService {
         this.warn = logger.warn.bind(logger);
         
         this.tokenCache = new Map();  // Add token cache
+    }
+
+    resetContractDisabledStateCache() {
+        this.contractDisabledCache = null;
+        this.contractDisabledFetchedAt = 0;
+        this.contractDisabledInFlight = null;
+        this.contractDisabledInFlightRequestId = 0;
+        this.contractDisabledReadError = false;
+    }
+
+    markContractDisabledStateReadError() {
+        this.contractDisabledReadError = true;
+        this.contractDisabledCache = null;
+        this.contractDisabledFetchedAt = 0;
     }
 
     hasContractEvent(contract, eventName) {
@@ -276,6 +302,82 @@ export class WebSocketService {
         } finally {
             this.activeRequests--;
         }
+    }
+
+    withTimeout(promise, timeoutMs, message) {
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error(message));
+            }, timeoutMs);
+
+            promise.then(
+                (result) => {
+                    clearTimeout(timeoutId);
+                    resolve(result);
+                },
+                (error) => {
+                    clearTimeout(timeoutId);
+                    reject(error);
+                }
+            );
+        });
+    }
+
+    async getContractDisabledState({ maxAgeMs = 10000, timeoutMs = 4000, force = false } = {}) {
+        const now = Date.now();
+        if (
+            !force &&
+            !this.contractDisabledReadError &&
+            this.contractDisabledCache !== null &&
+            (now - this.contractDisabledFetchedAt) < maxAgeMs
+        ) {
+            return this.contractDisabledCache;
+        }
+
+        if (!this.contractDisabledInFlight) {
+            const requestId = ++this.contractDisabledRequestSeq;
+            this.contractDisabledInFlightRequestId = requestId;
+            const requestPromise = this.queueRequest(async () => {
+                if (!this.contract) {
+                    throw new Error('Contract not initialized');
+                }
+
+                // Timeout must apply to the queued RPC itself so queue slots are released.
+                const isDisabled = await this.withTimeout(
+                    Promise.resolve(this.contract.isDisabled()),
+                    timeoutMs,
+                    'isDisabled timeout'
+                );
+                return Boolean(isDisabled);
+            })
+                .then((isDisabled) => {
+                    // Ignore stale completions from older requests.
+                    if (this.contractDisabledInFlightRequestId !== requestId) {
+                        return isDisabled;
+                    }
+                    this.contractDisabledCache = isDisabled;
+                    this.contractDisabledFetchedAt = Date.now();
+                    this.contractDisabledReadError = false;
+                    return isDisabled;
+                })
+                .catch((error) => {
+                    // Ignore stale completions from older requests.
+                    if (this.contractDisabledInFlightRequestId === requestId) {
+                        this.markContractDisabledStateReadError();
+                    }
+                    throw error;
+                });
+
+            this.contractDisabledInFlight = requestPromise.finally(() => {
+                if (this.contractDisabledInFlightRequestId === requestId) {
+                    this.contractDisabledInFlight = null;
+                    this.contractDisabledInFlightRequestId = 0;
+                }
+            });
+        }
+
+        const inFlightPromise = this.contractDisabledInFlight;
+        return await inFlightPromise;
     }
 
     async initialize() {
@@ -518,6 +620,17 @@ export class WebSocketService {
                     this.notifySubscribers("OrderCleanedUp", { id: orderIdNum });
                 }
             });
+
+            if (this.hasContractEvent(contract, "ContractDisabled")) {
+                contract.on("ContractDisabled", () => {
+                    this.contractDisabledCache = true;
+                    this.contractDisabledFetchedAt = Date.now();
+                    this.contractDisabledReadError = false;
+                    this.notifySubscribers("ContractDisabled", { disabled: true });
+                });
+            } else {
+                this.debug('ContractDisabled event not found in ABI, skipping listener registration');
+            }
             
             if (this.hasContractEvent(contract, "RetryOrder")) {
                 contract.on("RetryOrder", (oldOrderId, newOrderId, maker, tries, timestamp) => {
@@ -540,6 +653,50 @@ export class WebSocketService {
                 });
             } else {
                 this.debug('RetryOrder event not found in ABI, skipping listener registration');
+            }
+
+            if (this.hasContractEvent(contract, "ClaimCredited")) {
+                contract.on("ClaimCredited", (beneficiary, token, amount, orderId, reason, timestamp) => {
+                    const creditedEvent = {
+                        beneficiary,
+                        token,
+                        amount: amount?.toString?.() ?? String(amount ?? '0'),
+                        orderId: orderId?.toString?.() ?? String(orderId ?? '0'),
+                        reason: reason || '',
+                        timestamp: timestamp?.toString?.() ?? String(timestamp ?? '0')
+                    };
+
+                    this.notifySubscribers("ClaimCredited", creditedEvent);
+                    this.notifySubscribers("claimsUpdated", {
+                        beneficiary,
+                        token,
+                        amount: creditedEvent.amount,
+                        source: "ClaimCredited"
+                    });
+                });
+            } else {
+                this.debug('ClaimCredited event not found in ABI, skipping listener registration');
+            }
+
+            if (this.hasContractEvent(contract, "ClaimWithdrawn")) {
+                contract.on("ClaimWithdrawn", (beneficiary, token, amount, timestamp) => {
+                    const withdrawnEvent = {
+                        beneficiary,
+                        token,
+                        amount: amount?.toString?.() ?? String(amount ?? '0'),
+                        timestamp: timestamp?.toString?.() ?? String(timestamp ?? '0')
+                    };
+
+                    this.notifySubscribers("ClaimWithdrawn", withdrawnEvent);
+                    this.notifySubscribers("claimsUpdated", {
+                        beneficiary,
+                        token,
+                        amount: withdrawnEvent.amount,
+                        source: "ClaimWithdrawn"
+                    });
+                });
+            } else {
+                this.debug('ClaimWithdrawn event not found in ABI, skipping listener registration');
             }
             
             this.debug('Event listeners setup complete');
@@ -582,18 +739,20 @@ export class WebSocketService {
             }
 
             // Try once, then retry once on failure before falling back
-            // Apply a simple timeout wrapper to multicall
-            const withTimeout = (p, ms) => Promise.race([
-                p,
-                new Promise((_, rej) => setTimeout(() => rej(new Error('multicall timeout')), ms))
-            ]);
-
-            let results = await withTimeout(multicallTryAggregate(calls, { requireSuccess: false }), 5000);
+            let results = await this.withTimeout(
+                multicallTryAggregate(calls, { requireSuccess: false }),
+                5000,
+                'multicall timeout'
+            );
             if (!results) {
                 this.debug('Multicall returned null, retrying once after short delay...');
                 await new Promise(r => setTimeout(r, 150));
                 try {
-                    results = await withTimeout(multicallTryAggregate(calls, { requireSuccess: false }), 5000);
+                    results = await this.withTimeout(
+                        multicallTryAggregate(calls, { requireSuccess: false }),
+                        5000,
+                        'multicall timeout'
+                    );
                 } catch (_) {
                     results = null;
                 }
@@ -744,6 +903,15 @@ export class WebSocketService {
                 this.contract.removeAllListeners("OrderFilled");
                 this.contract.removeAllListeners("OrderCanceled");
                 this.contract.removeAllListeners("OrderCleanedUp");
+                if (this.hasContractEvent(this.contract, "ContractDisabled")) {
+                    this.contract.removeAllListeners("ContractDisabled");
+                }
+                if (this.hasContractEvent(this.contract, "ClaimCredited")) {
+                    this.contract.removeAllListeners("ClaimCredited");
+                }
+                if (this.hasContractEvent(this.contract, "ClaimWithdrawn")) {
+                    this.contract.removeAllListeners("ClaimWithdrawn");
+                }
                 if (this.hasContractEvent(this.contract, "RetryOrder")) {
                     this.contract.removeAllListeners("RetryOrder");
                 }
@@ -755,6 +923,9 @@ export class WebSocketService {
             this.lastKnownChainBlock = null;
             this.chainTimeSyncedAtMonotonicMs = null;
             this.chainTimeSyncPromise = null;
+            this.orderSyncPromise = null;
+            this.hasCompletedOrderSync = false;
+            this.resetContractDisabledStateCache();
             
             this.debug('WebSocket service cleanup complete');
         } catch (error) {
@@ -762,64 +933,91 @@ export class WebSocketService {
         }
     }
 
-        async syncAllOrders() {
-        this.debug('Starting order sync with existing contract...');
-        
-        if (!this.contract) {
-            throw new Error('Contract not initialized. Call initialize() first.');
+    async waitForOrderSync({ triggerIfNeeded = true } = {}) {
+        if (this.orderSyncPromise) {
+            return this.orderSyncPromise;
         }
-        try {
-            this.debug('Starting order sync with contract:', this.contract.address);
-            await this.syncChainTime();
-            
-            let nextOrderId = 0;
+        if (this.hasCompletedOrderSync) {
+            return true;
+        }
+        if (!triggerIfNeeded) {
+            return false;
+        }
+        return this.syncAllOrders();
+    }
+
+    async syncAllOrders() {
+        if (this.orderSyncPromise) {
+            this.debug('Order sync already in progress; waiting for existing sync');
+            return this.orderSyncPromise;
+        }
+
+        this.orderSyncPromise = (async () => {
+            this.debug('Starting order sync with existing contract...');
+
             try {
-                nextOrderId = await this.contract.nextOrderId();
-                this.debug('nextOrderId result:', nextOrderId.toString());
-            } catch (error) {
-                this.debug('nextOrderId call failed, using default value:', error);
-            }
-
-            // Clear existing cache before sync
-            this.orderCache.clear();
-
-            // Use optimized batched fetch (multicall with fallback)
-            const fetchedOrders = await this.fetchOrdersBatched(Number(nextOrderId), 50);
-
-            // Enrich with timings and populate cache
-            for (const o of fetchedOrders) {
-                const orderData = {
-                    ...o,
-                    timings: this.buildOrderTimings(o.timestamp)
-                };
-                // Calculate deal metrics for the order
-                try {
-                    const enrichedOrderData = await this.calculateDealMetrics(orderData);
-                    this.orderCache.set(o.id, enrichedOrderData);
-                    this.debug('Added order to cache with deal metrics:', enrichedOrderData);
-                } catch (error) {
-                    this.debug('Failed to calculate deal metrics for order', o.id, ':', error);
-                    // Still add the order without deal metrics as fallback
-                    this.orderCache.set(o.id, orderData);
-                    this.debug('Added order to cache without deal metrics:', orderData);
+                if (!this.contract) {
+                    throw new Error('Contract not initialized. Call initialize() first.');
                 }
+                this.debug('Starting order sync with contract:', this.contract.address);
+                await this.syncChainTime();
+
+                let nextOrderId = 0;
+                try {
+                    nextOrderId = await this.contract.nextOrderId();
+                    this.debug('nextOrderId result:', nextOrderId.toString());
+                } catch (error) {
+                    this.debug('nextOrderId call failed, using default value:', error);
+                }
+
+                // Clear existing cache before sync
+                this.orderCache.clear();
+
+                // Use optimized batched fetch (multicall with fallback)
+                const fetchedOrders = await this.fetchOrdersBatched(Number(nextOrderId), 50);
+
+                // Enrich with timings and populate cache
+                for (const o of fetchedOrders) {
+                    const orderData = {
+                        ...o,
+                        timings: this.buildOrderTimings(o.timestamp)
+                    };
+                    // Calculate deal metrics for the order
+                    try {
+                        const enrichedOrderData = await this.calculateDealMetrics(orderData);
+                        this.orderCache.set(o.id, enrichedOrderData);
+                        this.debug('Added order to cache with deal metrics:', enrichedOrderData);
+                    } catch (error) {
+                        this.debug('Failed to calculate deal metrics for order', o.id, ':', error);
+                        // Still add the order without deal metrics as fallback
+                        this.orderCache.set(o.id, orderData);
+                        this.debug('Added order to cache without deal metrics:', orderData);
+                    }
+                }
+
+                // Validate and summarize order cache
+                try {
+                    this.validateOrderCache();
+                } catch (_) {}
+
+                this.debug('Order sync complete. Cache size:', this.orderCache.size);
+                this.notifySubscribers('orderSyncComplete', Object.fromEntries(this.orderCache));
+                this.debug('Setting up event listeners...');
+                await this.setupEventListeners(this.contract);
+                this.hasCompletedOrderSync = true;
+                return true;
+            } catch (error) {
+                this.debug('Order sync failed:', error);
+                this.orderCache.clear();
+                this.notifySubscribers('orderSyncComplete', {});
+                this.hasCompletedOrderSync = false;
+                return false;
+            } finally {
+                this.orderSyncPromise = null;
             }
+        })();
 
-            // Validate and summarize order cache
-            try {
-                this.validateOrderCache();
-            } catch (_) {}
-
-            this.debug('Order sync complete. Cache size:', this.orderCache.size);
-            this.notifySubscribers('orderSyncComplete', Object.fromEntries(this.orderCache));
-            this.debug('Setting up event listeners...');
-            await this.setupEventListeners(this.contract);
-
-        } catch (error) {
-            this.debug('Order sync failed:', error);
-            this.orderCache.clear();
-            this.notifySubscribers('orderSyncComplete', {});
-        }
+        return this.orderSyncPromise;
     }
 
     // Basic validation and summary for testing/diagnostics
@@ -963,27 +1161,95 @@ export class WebSocketService {
         return null;
     }
 
-    //TODO: calculate deal metric based on buy value / sell value where buy value is the amount of buy tokens * token price and sell value is the amount of sell tokens * token price
+    // Deal = buy USD value / sell USD value using token-normalized (decimal-adjusted) amounts.
     async calculateDealMetrics(orderData) {
-        const buyTokenInfo = await this.getTokenInfo(orderData.buyToken); // person who created order set this
-        const sellTokenInfo = await this.getTokenInfo(orderData.sellToken);// person who created order set this
+        const buyTokenInfo = await this.getTokenInfo(orderData.buyToken); // maker wants to receive this
+        const sellTokenInfo = await this.getTokenInfo(orderData.sellToken); // maker offers this
+
+        const buyTokenDecimals = Number.isInteger(buyTokenInfo?.decimals) ? buyTokenInfo.decimals : 18;
+        const sellTokenDecimals = Number.isInteger(sellTokenInfo?.decimals) ? sellTokenInfo.decimals : 18;
+
+        const formattedBuyAmount = ethers.utils.formatUnits(orderData.buyAmount || 0, buyTokenDecimals);
+        const formattedSellAmount = ethers.utils.formatUnits(orderData.sellAmount || 0, sellTokenDecimals);
+
+        const buyAmount = Number(formattedBuyAmount);
+        const sellAmount = Number(formattedSellAmount);
+
+        if (!Number.isFinite(buyAmount) || !Number.isFinite(sellAmount) || sellAmount <= 0) {
+            this.debug('Invalid normalized token amounts, skipping deal calculation for order:', orderData.id);
+            return {
+                ...orderData,
+                dealMetrics: {
+                    ...orderData.dealMetrics,
+                    formattedBuyAmount,
+                    formattedSellAmount
+                }
+            };
+        }
+
         const pricing = this.pricingService;
         if (!pricing) {
             this.debug('PricingService not available for deal calculation');
-            return orderData;
+            return {
+                ...orderData,
+                dealMetrics: {
+                    ...orderData.dealMetrics,
+                    formattedBuyAmount,
+                    formattedSellAmount
+                }
+            };
         }
+
         const buyTokenUsdPrice = pricing.getPrice(orderData.buyToken);
         const sellTokenUsdPrice = pricing.getPrice(orderData.sellToken);
-        if (buyTokenUsdPrice === undefined || sellTokenUsdPrice === undefined || buyTokenUsdPrice === 0 || sellTokenUsdPrice === 0) {
+        if (
+            buyTokenUsdPrice === undefined ||
+            sellTokenUsdPrice === undefined ||
+            buyTokenUsdPrice <= 0 ||
+            sellTokenUsdPrice <= 0
+        ) {
             this.debug('Missing price data, skipping deal calculation for order:', orderData.id);
-            return orderData;
+            return {
+                ...orderData,
+                dealMetrics: {
+                    ...orderData.dealMetrics,
+                    formattedBuyAmount,
+                    formattedSellAmount,
+                    buyTokenUsdPrice,
+                    sellTokenUsdPrice
+                }
+            };
         }
-        const buyValue = Number(orderData.buyAmount) * buyTokenUsdPrice;
-        const sellValue = Number(orderData.sellAmount) * sellTokenUsdPrice;
+
+        const buyValue = buyAmount * buyTokenUsdPrice;
+        const sellValue = sellAmount * sellTokenUsdPrice;
+
+        if (!Number.isFinite(buyValue) || !Number.isFinite(sellValue) || sellValue <= 0) {
+            this.debug('Invalid USD values, skipping deal calculation for order:', orderData.id);
+            return {
+                ...orderData,
+                dealMetrics: {
+                    ...orderData.dealMetrics,
+                    formattedBuyAmount,
+                    formattedSellAmount,
+                    buyTokenUsdPrice,
+                    sellTokenUsdPrice
+                }
+            };
+        }
+
         const deal = buyValue / sellValue;
+
         return {
             ...orderData,
             dealMetrics: {
+                ...orderData.dealMetrics,
+                formattedBuyAmount,
+                formattedSellAmount,
+                buyTokenUsdPrice,
+                sellTokenUsdPrice,
+                buyValue,
+                sellValue,
                 deal
             }
         };
@@ -1148,6 +1414,7 @@ export class WebSocketService {
         this.lastKnownChainBlock = null;
         this.chainTimeSyncedAtMonotonicMs = null;
         this.chainTimeSyncPromise = null;
+        this.resetContractDisabledStateCache();
 
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.initialize();

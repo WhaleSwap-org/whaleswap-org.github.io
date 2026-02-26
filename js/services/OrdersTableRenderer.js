@@ -1,5 +1,6 @@
 import { formatTimeDiff } from '../utils/orderUtils.js';
 import { createLogger } from './LogService.js';
+import { createInlineTooltipIcon, setupOrderTooltips } from '../utils/ui.js';
 
 /**
  * OrdersTableRenderer - Handles table structure, pagination, and expiry timers
@@ -39,6 +40,9 @@ export class OrdersTableRenderer {
         this.debug = logger.debug.bind(logger);
         this.error = logger.error.bind(logger);
         this.warn = logger.warn.bind(logger);
+
+        this._refreshInFlight = false;
+        this._refreshStatusTimeout = null;
     }
 
     /**
@@ -81,6 +85,7 @@ export class OrdersTableRenderer {
         
         // Setup event listeners AFTER appending (so elements exist in DOM)
         this._setupTableEventListeners(onRefresh);
+        setupOrderTooltips(this.component.container);
     }
 
     /**
@@ -94,6 +99,17 @@ export class OrdersTableRenderer {
         const tokens = Array.from(ws.tokenCache.values())
             .sort((a, b) => a.symbol.localeCompare(b.symbol));
         
+        let mobileRefreshSection = '';
+        if (this.options.showRefreshButton) {
+            mobileRefreshSection = `
+                <div class="refresh-container refresh-container--mobile">
+                    <button class="refresh-prices-button js-refresh-prices" type="button">↻ Refresh Prices</button>
+                    <span class="refresh-status"></span>
+                    <span class="last-updated js-last-updated"></span>
+                </div>
+            `;
+        }
+
         filterControls.innerHTML = `
             <div class="filter-row">
                 <div class="filters-group">
@@ -128,6 +144,7 @@ export class OrdersTableRenderer {
                     </div>
                 </div>
             </div>
+            ${mobileRefreshSection}
         `;
 
         // Advanced filters
@@ -189,7 +206,11 @@ export class OrdersTableRenderer {
             const th = this.component.createElement('th');
             th.textContent = header.text;
             if (header.title) {
-                th.innerHTML = `${header.text} <span class="info-icon" title="${header.title}">ⓘ</span>`;
+                const tooltipIcon = createInlineTooltipIcon(header.title, {
+                    className: 'info-icon order-tooltip-icon',
+                    ariaLabel: `${header.text} information`
+                });
+                th.innerHTML = `${header.text} ${tooltipIcon}`;
             }
             headerRow.appendChild(th);
         });
@@ -211,9 +232,9 @@ export class OrdersTableRenderer {
         if (this.options.showRefreshButton) {
             refreshSection = `
                 <div class="refresh-container">
-                    <button id="refresh-prices-btn" class="refresh-prices-button">↻ Refresh Prices</button>
+                    <button class="refresh-prices-button js-refresh-prices" type="button">↻ Refresh Prices</button>
                     <span class="refresh-status"></span>
-                    <span class="last-updated" id="last-updated-timestamp"></span>
+                    <span class="last-updated js-last-updated"></span>
                 </div>
             `;
         }
@@ -230,49 +251,6 @@ export class OrdersTableRenderer {
                 </div>
             </div>
         `;
-        
-        // Setup refresh button if enabled
-        if (this.options.showRefreshButton && this.component.helper) {
-            const refreshButton = bottomControls.querySelector('#refresh-prices-btn');
-            const statusIndicator = bottomControls.querySelector('.refresh-status');
-            const lastUpdatedElement = bottomControls.querySelector('#last-updated-timestamp');
-            
-            this.component.helper.updateLastUpdatedTimestamp(lastUpdatedElement);
-            
-            let refreshTimeout;
-            refreshButton.addEventListener('click', async () => {
-                if (refreshTimeout) return;
-                
-                refreshButton.disabled = true;
-                refreshButton.innerHTML = '↻ Refreshing...';
-                statusIndicator.className = 'refresh-status loading';
-                statusIndicator.style.opacity = 1;
-                
-                try {
-                    const result = await this.component.pricingService.refreshPrices();
-                    if (result.success) {
-                        statusIndicator.className = 'refresh-status success';
-                        statusIndicator.textContent = `Updated ${new Date().toLocaleTimeString()}`;
-                        this.component.helper.updateLastUpdatedTimestamp(lastUpdatedElement);
-                        if (onRefresh) await onRefresh();
-                    } else {
-                        statusIndicator.className = 'refresh-status error';
-                        statusIndicator.textContent = result.message;
-                    }
-                } catch (error) {
-                    statusIndicator.className = 'refresh-status error';
-                    statusIndicator.textContent = 'Failed to refresh prices';
-                } finally {
-                    refreshButton.disabled = false;
-                    refreshButton.innerHTML = '↻ Refresh Prices';
-                    
-                    refreshTimeout = setTimeout(() => {
-                        refreshTimeout = null;
-                        statusIndicator.style.opacity = 0;
-                    }, 2000);
-                }
-            });
-        }
         
         return bottomControls;
     }
@@ -331,6 +309,10 @@ export class OrdersTableRenderer {
         
         // Pagination listeners
         this._setupPaginationListeners(onRefresh);
+
+        if (this.options.showRefreshButton) {
+            this._setupRefreshControls(onRefresh);
+        }
     }
 
     /**
@@ -365,6 +347,94 @@ export class OrdersTableRenderer {
 
         const controls = this.component.container.querySelectorAll('.filter-controls');
         controls.forEach(setupPaginationListeners);
+    }
+
+    _setupRefreshControls(onRefresh) {
+        if (!this.options.showRefreshButton || !this.component.helper || !this.component.pricingService) {
+            return;
+        }
+
+        const refreshContainers = Array.from(this.component.container.querySelectorAll('.refresh-container'));
+        if (refreshContainers.length === 0) {
+            return;
+        }
+
+        const controls = refreshContainers.map((container) => ({
+            button: container.querySelector('.js-refresh-prices'),
+            status: container.querySelector('.refresh-status'),
+            timestamp: container.querySelector('.js-last-updated')
+        })).filter(control => control.button && control.status);
+
+        if (controls.length === 0) {
+            return;
+        }
+
+        controls.forEach((control) => {
+            if (control.timestamp) {
+                this.component.helper.updateLastUpdatedTimestamp(control.timestamp);
+            }
+
+            control.button.addEventListener('click', async () => {
+                if (this._refreshInFlight) return;
+                this._refreshInFlight = true;
+
+                this._setRefreshControlsState(controls, {
+                    isLoading: true,
+                    text: '',
+                    statusClass: 'loading'
+                });
+
+                try {
+                    const result = await this.component.pricingService.refreshPrices();
+                    if (result.success) {
+                        this._setRefreshControlsState(controls, {
+                            isLoading: false,
+                            text: `Updated ${new Date().toLocaleTimeString()}`,
+                            statusClass: 'success'
+                        });
+                        controls.forEach((entry) => {
+                            if (entry.timestamp) {
+                                this.component.helper.updateLastUpdatedTimestamp(entry.timestamp);
+                            }
+                        });
+                        if (onRefresh) await onRefresh();
+                    } else {
+                        this._setRefreshControlsState(controls, {
+                            isLoading: false,
+                            text: result.message || 'Failed to refresh prices',
+                            statusClass: 'error'
+                        });
+                    }
+                } catch (error) {
+                    this._setRefreshControlsState(controls, {
+                        isLoading: false,
+                        text: 'Failed to refresh prices',
+                        statusClass: 'error'
+                    });
+                } finally {
+                    this._refreshInFlight = false;
+                    if (this._refreshStatusTimeout) {
+                        clearTimeout(this._refreshStatusTimeout);
+                    }
+                    this._refreshStatusTimeout = setTimeout(() => {
+                        controls.forEach((entry) => {
+                            entry.status.style.opacity = 0;
+                        });
+                        this._refreshStatusTimeout = null;
+                    }, 2000);
+                }
+            });
+        });
+    }
+
+    _setRefreshControlsState(controls, { isLoading = false, text = '', statusClass = '' }) {
+        controls.forEach((control) => {
+            control.button.disabled = isLoading;
+            control.button.textContent = isLoading ? '↻ Refreshing...' : '↻ Refresh Prices';
+            control.status.className = `refresh-status${statusClass ? ` ${statusClass}` : ''}`;
+            control.status.textContent = text;
+            control.status.style.opacity = text || isLoading ? 1 : 0;
+        });
     }
 
     /**
@@ -430,7 +500,7 @@ export class OrdersTableRenderer {
         }
 
         const updateExpiryAndButton = async () => {
-            const expiresCell = row.querySelector('td:nth-child(5)');
+            const expiresCell = row.querySelector('.order-cell--expires') || row.querySelector('td:nth-child(5)');
             const statusCell = row.querySelector('.order-status');
             const actionCell = row.querySelector('.action-column');
             if (!expiresCell || !statusCell || !actionCell) return;
@@ -501,6 +571,7 @@ export class OrdersTableRenderer {
             try {
                 const row = await this.options.rowRenderer(order);
                 if (row) {
+                    this._applyRowCellMetadata(row);
                     tbody.appendChild(row);
                     // Start expiry timer
                     this.startExpiryTimer(row);
@@ -509,12 +580,62 @@ export class OrdersTableRenderer {
                 this.error('Error rendering order row:', error);
             }
         }
+
+        setupOrderTooltips(this.component.container);
+    }
+
+    _applyRowCellMetadata(row) {
+        if (!row || row.classList.contains('empty-message')) {
+            return;
+        }
+
+        row.classList.add('orders-row');
+        const descriptors = this._getTableColumnDescriptors();
+        const cells = Array.from(row.querySelectorAll('td'));
+        cells.forEach((cell, index) => {
+            const descriptor = descriptors[index] || {
+                label: `Column ${index + 1}`,
+                key: `col-${index + 1}`
+            };
+            cell.dataset.label = descriptor.label;
+            cell.dataset.colKey = descriptor.key;
+            cell.classList.add('order-cell', `order-cell--${descriptor.key}`);
+        });
+    }
+
+    _getTableColumnDescriptors() {
+        const defaultKeys = ['id', 'buy', 'sell', 'deal', 'expires', 'status', 'action'];
+        const headerCells = Array.from(this.component.container.querySelectorAll('thead th'));
+        return headerCells.map((headerCell, index) => {
+            const label = this._extractHeaderLabel(headerCell);
+            const normalized = label.toLowerCase();
+            let key = defaultKeys[index] || `col-${index + 1}`;
+            if (normalized.includes('id')) key = 'id';
+            else if (normalized.includes('buy')) key = 'buy';
+            else if (normalized.includes('sell')) key = 'sell';
+            else if (normalized.includes('deal')) key = 'deal';
+            else if (normalized.includes('expire')) key = 'expires';
+            else if (normalized.includes('status')) key = 'status';
+            else if (normalized.includes('action')) key = 'action';
+            return { label, key };
+        });
+    }
+
+    _extractHeaderLabel(headerCell) {
+        if (!headerCell) return '';
+        const clone = headerCell.cloneNode(true);
+        clone.querySelectorAll('.info-icon').forEach((icon) => icon.remove());
+        return clone.textContent.replace(/\s+/g, ' ').trim();
     }
 
     /**
      * Cleanup timers
      */
     cleanup() {
+        if (this._refreshStatusTimeout) {
+            clearTimeout(this._refreshStatusTimeout);
+            this._refreshStatusTimeout = null;
+        }
         if (this.component.expiryTimers) {
             this.component.expiryTimers.forEach(timerId => clearInterval(timerId));
             this.component.expiryTimers.clear();

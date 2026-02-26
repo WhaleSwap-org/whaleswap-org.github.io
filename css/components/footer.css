@@ -4,6 +4,9 @@
   background: transparent;
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .footer-wrapper {
@@ -30,6 +33,33 @@
 
 .footer-link:hover {
   text-decoration: underline;
+}
+
+.legal-help-inline {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.legal-help-inline-item {
+  border: 1px solid var(--border-color, #e0e0e0);
+  background: rgba(255, 255, 255, 0.24);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.legal-help-inline-item:hover {
+  background: var(--bg-hover, #f5f5f5);
+}
+
+[data-theme="dark"] .legal-help-inline-item {
+  background: rgba(148, 163, 184, 0.16);
 }
 
 .legal-help-launcher {
@@ -338,6 +368,38 @@
 
 /* Responsive design for smaller screens */
 @media (max-width: 768px) {
+  .app-footer {
+    padding: 14px 12px;
+    gap: 10px;
+  }
+
+  .legal-help-inline {
+    display: inline-flex;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .legal-help-launcher,
+  .legal-help-dropdown {
+    display: none !important;
+  }
+
+  .legal-modal {
+    width: min(640px, calc(100vw - 24px));
+    max-height: 88dvh;
+    border-radius: 16px;
+    padding: 14px 14px 16px;
+  }
+
+  .legal-modal-title {
+    font-size: 16px;
+  }
+
+  .legal-modal-body {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
   .intro-sections-grid {
     grid-template-columns: 1fr;
     gap: 16px;
@@ -372,5 +434,22 @@
   .faq-toggle {
     padding: 10px 16px;
     font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .footer-wrapper {
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+
+  .legal-help-inline-item {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  .legal-modal {
+    width: calc(100vw - 16px);
+    padding: 12px 12px 14px;
   }
 }

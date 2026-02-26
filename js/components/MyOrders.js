@@ -1,7 +1,16 @@
 import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { ethers } from 'ethers';
-import { handleTransactionError, processOrderAddress, generateStatusCellHTML, setupClickToCopy } from '../utils/ui.js';
+import {
+    DEAL_TOOLTIP_TEXT,
+    createDealCellHTML,
+    createInlineTooltipIcon,
+    handleTransactionError,
+    processOrderAddress,
+    generateStatusCellHTML,
+    setupClickToCopy,
+    setupOrderTooltips
+} from '../utils/ui.js';
 import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
@@ -289,6 +298,11 @@ export class MyOrders extends BaseComponent {
                     </div>
                     ${paginationControls}
                 </div>
+                <div class="refresh-container refresh-container--mobile">
+                    <button class="refresh-prices-button js-refresh-prices" type="button">↻ Refresh Prices</button>
+                    <span class="refresh-status"></span>
+                    <span class="last-updated js-last-updated"></span>
+                </div>
                 <div class="advanced-filters" style="display: none;">
                     <div class="filter-row">
                         <div class="token-filters">
@@ -317,14 +331,19 @@ export class MyOrders extends BaseComponent {
             <div class="filter-controls bottom-controls">
                 <div class="filter-row">
                     <div class="refresh-container">
-                        <button id="refresh-prices-btn" class="refresh-prices-button">↻ Refresh Prices</button>
+                        <button class="refresh-prices-button js-refresh-prices" type="button">↻ Refresh Prices</button>
                         <span class="refresh-status"></span>
-                        <span class="last-updated" id="last-updated-timestamp"></span>
+                        <span class="last-updated js-last-updated"></span>
                     </div>
                     ${paginationControls}
                 </div>
             </div>
         `;
+
+        const dealTooltipIcon = createInlineTooltipIcon(DEAL_TOOLTIP_TEXT, {
+            className: 'info-icon order-tooltip-icon',
+            ariaLabel: 'Explain deal value'
+        });
 
         this.container.innerHTML = `
             <div class="table-container">
@@ -337,11 +356,7 @@ export class MyOrders extends BaseComponent {
                             <th>Buy</th>
                             <th>
                                 Deal
-                                <span class="info-icon" title="Deal = Buy Value / Sell Value
-
-• Higher deal number is better
-• Deal > 1: better deal based on market prices
-• Deal < 1: worse deal based on market prices">ⓘ</span>
+                                ${dealTooltipIcon}
                             </th>
                             <th>Expires</th>
                             <th>Status</th>
@@ -440,53 +455,80 @@ export class MyOrders extends BaseComponent {
             });
         });
 
+        setupOrderTooltips(this.container);
         this.setupEventListeners();
     }
 
     setupEventListeners() {
-        // Add refresh button functionality
-        const refreshButton = this.container.querySelector('#refresh-prices-btn');
-        const statusIndicator = this.container.querySelector('.refresh-status');
-        const lastUpdatedElement = this.container.querySelector('#last-updated-timestamp');
-        
-        // Initialize last updated timestamp
-        this.helper.updateLastUpdatedTimestamp(lastUpdatedElement);
-        
-        let refreshTimeout;
-        if (refreshButton) {
-            refreshButton.addEventListener('click', async () => {
-                if (refreshTimeout) return;
-                
-                refreshButton.disabled = true;
-                refreshButton.innerHTML = '↻ Refreshing...';
-                statusIndicator.className = 'refresh-status loading';
-                statusIndicator.style.opacity = 1;
-                
+        // Refresh controls are rendered in top (mobile) + bottom (desktop), share one in-flight state.
+        const refreshControls = Array.from(this.container.querySelectorAll('.refresh-container')).map((container) => ({
+            button: container.querySelector('.js-refresh-prices'),
+            status: container.querySelector('.refresh-status'),
+            timestamp: container.querySelector('.js-last-updated')
+        })).filter(control => control.button && control.status);
+
+        refreshControls.forEach((control) => {
+            if (control.timestamp) {
+                this.helper.updateLastUpdatedTimestamp(control.timestamp);
+            }
+        });
+
+        let refreshTimeout = null;
+        this._refreshInFlight = false;
+        const setRefreshState = ({ isLoading = false, text = '', statusClass = '' }) => {
+            refreshControls.forEach((control) => {
+                control.button.disabled = isLoading;
+                control.button.textContent = isLoading ? '↻ Refreshing...' : '↻ Refresh Prices';
+                control.status.className = `refresh-status${statusClass ? ` ${statusClass}` : ''}`;
+                control.status.textContent = text;
+                control.status.style.opacity = text || isLoading ? 1 : 0;
+            });
+        };
+
+        refreshControls.forEach((control) => {
+            control.button.addEventListener('click', async () => {
+                if (this._refreshInFlight) return;
+                this._refreshInFlight = true;
+                setRefreshState({ isLoading: true, statusClass: 'loading' });
+
                 try {
                     const result = await this.pricingService.refreshPrices();
                     if (result.success) {
-                        statusIndicator.className = 'refresh-status success';
-                        statusIndicator.textContent = `Updated ${new Date().toLocaleTimeString()}`;
-                        // Update timestamp after successful refresh
-                        this.updateLastUpdatedTimestamp(lastUpdatedElement);
+                        setRefreshState({
+                            isLoading: false,
+                            text: `Updated ${new Date().toLocaleTimeString()}`,
+                            statusClass: 'success'
+                        });
+                        refreshControls.forEach((entry) => {
+                            if (entry.timestamp) {
+                                this.updateLastUpdatedTimestamp(entry.timestamp);
+                            }
+                        });
                     } else {
-                        statusIndicator.className = 'refresh-status error';
-                        statusIndicator.textContent = result.message;
+                        setRefreshState({
+                            isLoading: false,
+                            text: result.message || 'Failed to refresh prices',
+                            statusClass: 'error'
+                        });
                     }
                 } catch (error) {
-                    statusIndicator.className = 'refresh-status error';
-                    statusIndicator.textContent = 'Failed to refresh prices';
+                    setRefreshState({
+                        isLoading: false,
+                        text: 'Failed to refresh prices',
+                        statusClass: 'error'
+                    });
                 } finally {
-                    refreshButton.disabled = false;
-                    refreshButton.innerHTML = '↻ Refresh Prices';
-                    
+                    this._refreshInFlight = false;
+                    if (refreshTimeout) clearTimeout(refreshTimeout);
                     refreshTimeout = setTimeout(() => {
+                        refreshControls.forEach((entry) => {
+                            entry.status.style.opacity = 0;
+                        });
                         refreshTimeout = null;
-                        statusIndicator.style.opacity = 0;
                     }, 2000);
                 }
             });
-        }
+        });
 
         // Add pagination event listeners for both top and bottom controls
         const controls = this.container.querySelectorAll('.filter-controls');
@@ -623,6 +665,7 @@ export class MyOrders extends BaseComponent {
             const wallet = this.ctx.getWallet();
             const userAddress = wallet?.getAccount()?.toLowerCase();
             const { counterpartyAddress, isZeroAddr, formattedAddress } = processOrderAddress(order, userAddress);
+            const dealText = deal !== undefined ? (deal || 0).toFixed(6) : 'N/A';
             tr.innerHTML = `
                 <td>${order.id}</td>
                 <td>
@@ -649,7 +692,7 @@ export class MyOrders extends BaseComponent {
                         </div>
                     </div>
                 </td>
-                <td>${deal !== undefined ? (deal || 0).toFixed(6) : 'N/A'}</td>
+                <td class="deal-cell">${createDealCellHTML(dealText)}</td>
                 <td>${expiryText}</td>
                 <td class="order-status">
                     ${generateStatusCellHTML(orderStatus, counterpartyAddress, isZeroAddr, formattedAddress)}

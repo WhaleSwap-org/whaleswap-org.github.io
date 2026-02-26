@@ -1,5 +1,5 @@
 .form-container {
-  max-width: 560px;
+  max-width: 395px;
   margin: 0 auto;
   padding: 0;
   background: transparent;
@@ -456,6 +456,23 @@
   align-items: center;
 }
 
+.info-tooltip-trigger {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.info-tooltip-trigger:focus-visible {
+  outline: 2px solid var(--accent-color, #4b6bfb);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
 .info-tooltip .tooltip-text {
   visibility: hidden;
   position: absolute;
@@ -472,9 +489,17 @@
   width: 240px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   pointer-events: none;
+  overflow-wrap: anywhere;
 }
 
-.info-tooltip:hover .tooltip-text {
+.info-tooltip:hover .tooltip-text,
+.info-tooltip:focus-within .tooltip-text,
+.info-tooltip.is-open .tooltip-text {
+  visibility: visible;
+}
+
+.info-tooltip:focus-within .tooltip-text,
+.info-tooltip.is-open .tooltip-text {
   visibility: visible;
 }
 
@@ -505,16 +530,20 @@
   color: #666;
 }
 
-/* Add arrow to tooltip */
-.tooltip-text::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -5px;
-  border-width: 5px;
-  border-style: solid;
-  border-color: #333 transparent transparent transparent;
+@media (max-width: 640px) {
+  #create-order .info-tooltip .tooltip-text {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(240px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+  }
+
+  #create-order .info-tooltip .tooltip-text::after {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 .token-select {
@@ -930,7 +959,7 @@
 .token-input-label {
   font-size: 14px;
   color: #666;
-  padding-left: 2px;
+  padding-left: 12px;
 }
 
 .token-amount-input {
@@ -1064,8 +1093,16 @@
   position: relative;
 }
 
+.taker-input-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+}
+
 .taker-toggle {
-  width: 100%;
+  width: auto;
+  flex: 1;
   padding: 16px;
   display: flex;
   justify-content: space-between;
@@ -1077,6 +1114,10 @@
   font-size: 14px;
   gap: 8px;
   transition: all 0.2s ease;
+}
+
+.taker-input-header .info-tooltip {
+  flex-shrink: 0;
 }
 
 .taker-toggle:hover {
@@ -1550,6 +1591,11 @@
   min-width: 156px; /* match selector min-width */
 }
 
+.balance-clickable--placeholder {
+  cursor: default;
+  pointer-events: none;
+}
+
 .balance-clickable:hover {
   background: var(--bg-tertiary);
 }
@@ -1582,8 +1628,7 @@
 }
 
 /* Explicitly hide balance USD chips by ID when present */
-#sellTokenBalanceUSD,
-#buyTokenBalanceUSD {
+#sellTokenBalanceUSD {
   display: none !important;
 }
 
@@ -2000,6 +2045,9 @@
   font-size: 0.95rem;
   opacity: 0.9;
   text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .admin-panel .admin-token-rows {
@@ -2171,14 +2219,21 @@
 #create-order .token-amount-input {
   font-size: clamp(22px, 2vw, 28px);
   line-height: 1.08;
+  padding-left: 10px; 
 }
 
 #create-order .token-selector-group {
-  gap: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 #create-order .token-selector-button {
-  min-width: 140px;
+  min-width: 0;
+  max-width: 100%;
   height: 36px;
   padding: 6px 12px;
   font-size: 13px;
@@ -2186,7 +2241,8 @@
 
 #create-order .balance-clickable,
 #create-order .token-balance-display {
-  min-width: 140px;
+  min-width: 0;
+  max-width: 100%;
   padding: 4px 10px;
 }
 
@@ -2261,7 +2317,43 @@
   #create-order .token-selector-button,
   #create-order .balance-clickable,
   #create-order .token-balance-display {
-    min-width: 132px;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  #create-order .token-selector-group {
+    --selector-chip-width: clamp(136px, 40vw, 156px);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    width: auto;
+  }
+
+  #create-order .token-selector,
+  #create-order .token-balance-display {
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    padding: 0;
+  }
+
+  #create-order .token-selector-button,
+  #create-order .balance-clickable {
+    width: var(--selector-chip-width);
+    min-width: var(--selector-chip-width);
+    max-width: var(--selector-chip-width);
+    box-sizing: border-box;
+  }
+
+  #create-order .token-selector-button {
+    justify-content: space-between;
+  }
+
+  #create-order .balance-clickable {
+    justify-content: center;
   }
 }
 

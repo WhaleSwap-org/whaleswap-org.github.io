@@ -89,3 +89,32 @@
   border: 1px solid #dc3545;
   color: #dc3545;
 }
+
+@media (max-width: 768px) {
+  .cleanup-container {
+    padding: 1.25rem 1rem;
+  }
+
+  .cleanup-stats {
+    padding: 1.1rem;
+  }
+
+  #cleanup-button {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .cleanup-container {
+    padding: 1rem 0.75rem;
+  }
+
+  .cleanup-section h2 {
+    font-size: 1.3rem;
+  }
+
+  #cleanup-button {
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+  }
+}

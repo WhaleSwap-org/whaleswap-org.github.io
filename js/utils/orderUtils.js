@@ -109,3 +109,16 @@ export function calculateTotalValue(price, amount) {
     if (total >= 1) return `$${total.toFixed(2)}`;
     return `$${total.toFixed(4)}`;
 }
+
+/**
+ * Format deal ratio with up to 6 decimal places, trimming trailing zeros.
+ * @param {number|undefined|null} deal - Deal ratio value
+ * @returns {string} Formatted deal value or "N/A" if invalid
+ */
+export function formatDealValue(deal) {
+    if (deal === undefined || deal === null || !Number.isFinite(Number(deal))) return 'N/A';
+
+    const normalized = Number(deal);
+    const fixed = normalized.toFixed(6);
+    return fixed.replace(/\.?0+$/, '');
+}

@@ -31,9 +31,14 @@ export class CreateOrder extends BaseComponent {
         this.feeLoadPromise = null;
         this.sellToken = null;
         this.buyToken = null;
+        this.isContractDisabled = false;
+        this.contractStateReadError = false;
         this.tokenSelectorListeners = {};  // Store listeners to prevent duplicates
         this.boundWindowClickHandler = null;
+        this.boundTooltipOutsideClickHandler = null;
         this.amountInputListeners = {};
+        this.boundTooltipEscapeHandler = null;
+        this.tooltipCleanupCallbacks = [];
         
         // Initialize logger
         const logger = createLogger('CREATE_ORDER');
@@ -113,11 +118,20 @@ export class CreateOrder extends BaseComponent {
         this.allowedTokensLoadPromise = null;
         this.feeLoadPromise = null;
         this.feeToken = null;
+        this.isContractDisabled = false;
+        this.contractStateReadError = false;
         if (clearSelections) {
             this.clearSelectedTokens();
         }
         // Token cache is centralized in WebSocket - no local cache to clear
         this.resetBalanceDisplays();
+    }
+
+    applyDisconnectedState() {
+        this.contractStateReadError = false;
+        this.isContractDisabled = false;
+        this.isSubmitting = false;
+        this.updateCreateButtonState();
     }
 
     async initializeContract() {
@@ -180,11 +194,9 @@ export class CreateOrder extends BaseComponent {
                 const sellUsd = document.getElementById('sellAmountUSD');
                 const buyUsd = document.getElementById('buyAmountUSD');
                 const sellBal = document.getElementById('sellTokenBalanceDisplay');
-                const buyBal = document.getElementById('buyTokenBalanceDisplay');
                 setVisibility(sellUsd, false);
                 setVisibility(buyUsd, false);
                 setVisibility(sellBal, false);
-                setVisibility(buyBal, false);
             }
             
             // Keep status area quiet in read-only mode, but continue initialization so
@@ -246,6 +258,7 @@ export class CreateOrder extends BaseComponent {
             
             // Wait for contract to be ready
             await this.waitForContract();
+            await this.refreshContractDisabledState();
             
             // Load fee/token data in background so initial tab render is not blocked.
             this.startBackgroundDataLoading();
@@ -379,20 +392,35 @@ export class CreateOrder extends BaseComponent {
         throw new Error('Contract not ready after timeout');
     }
 
+    async refreshContractDisabledState(options = {}) {
+        try {
+            const ws = this.ctx.getWebSocket();
+            if (!ws?.getContractDisabledState) {
+                throw new Error('Disabled-state accessor unavailable');
+            }
+
+            const contractDisabled = await ws.getContractDisabledState(options);
+            this.contractStateReadError = false;
+            this.isContractDisabled = Boolean(contractDisabled);
+        } catch (error) {
+            // Fail closed: if we cannot verify state, block order creation.
+            this.contractStateReadError = true;
+            this.isContractDisabled = true;
+            this.debug('Error fetching contract disabled state:', error);
+        } finally {
+            this.updateCreateButtonState();
+        }
+
+        return this.isContractDisabled;
+    }
+
     setReadOnlyMode() {
         this.debug('Setting read-only mode');
-        const createOrderBtn = document.getElementById('createOrderBtn');
-        const orderCreationFee = document.getElementById('orderCreationFee');
         
         // Ensure UI is hidden per styles by removing wallet-connected
         const swapSection = document.querySelector('.swap-section');
         if (swapSection) {
             swapSection.classList.remove('wallet-connected');
-        }
-
-        if (createOrderBtn) {
-            createOrderBtn.disabled = true;
-            createOrderBtn.textContent = 'Connect Wallet to Create Order';
         }
         
         // Disable input fields
@@ -400,21 +428,15 @@ export class CreateOrder extends BaseComponent {
             const element = document.getElementById(id);
             if (element) element.disabled = true;
         });
+
+        this.updateCreateButtonState();
     }
 
     setConnectedMode() {
-        const createOrderBtn = document.getElementById('createOrderBtn');
-        const orderCreationFee = document.getElementById('orderCreationFee');
-        
         // Make sure the swap section is marked as wallet-connected so CSS reveals inputs
         const swapSection = document.querySelector('.swap-section');
         if (swapSection) {
             swapSection.classList.add('wallet-connected');
-        }
-
-        if (createOrderBtn) {
-            createOrderBtn.disabled = false;
-            createOrderBtn.textContent = 'Create Order';
         }
         
         // Enable input fields
@@ -431,6 +453,8 @@ export class CreateOrder extends BaseComponent {
                 feeElement.textContent = `${formattedFee} ${this.feeToken.symbol}`;
             }
         }
+
+        this.updateCreateButtonState();
     }
 
     /**
@@ -510,10 +534,13 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
-
-
     setupCreateOrderListener() {
-        const createOrderBtn = document.getElementById('createOrderBtn');
+        const createOrderBtn = this.container?.querySelector('#createOrderBtn');
+        if (!createOrderBtn) {
+            this.warn('Create order button not found');
+            return;
+        }
+
         // Remove ALL existing listeners using clone technique
         const newButton = createOrderBtn.cloneNode(true);
         createOrderBtn.parentNode.replaceChild(newButton, createOrderBtn);
@@ -521,7 +548,7 @@ export class CreateOrder extends BaseComponent {
         newButton.addEventListener('click', this.boundCreateOrderHandler);
 
         // Setup taker toggle functionality
-        const takerToggle = document.querySelector('.taker-toggle');
+        const takerToggle = this.container?.querySelector('.taker-toggle');
         if (takerToggle) {
             this.debug('Setting up taker toggle functionality');
             // Remove existing listeners using clone technique
@@ -534,8 +561,10 @@ export class CreateOrder extends BaseComponent {
                 e.preventDefault();
                 e.stopPropagation();
                 
-                newTakerToggle.classList.toggle('active');
-                const takerInputContent = document.querySelector('.taker-input-content');
+                const isExpanded = newTakerToggle.classList.toggle('active');
+                newTakerToggle.setAttribute('aria-expanded', String(isExpanded));
+
+                const takerInputContent = this.container?.querySelector('.taker-input-content');
                 if (takerInputContent) {
                     takerInputContent.classList.toggle('hidden');
                 }
@@ -543,11 +572,11 @@ export class CreateOrder extends BaseComponent {
                 // Update chevron direction
                 const chevron = newTakerToggle.querySelector('.chevron-down');
                 if (chevron) {
-                    if (newTakerToggle.classList.contains('active')) {
+                    if (isExpanded) {
                         chevron.style.transform = 'rotate(180deg)';
                         // Focus on taker address input when toggle is activated
                         setTimeout(() => {
-                            const takerAddressInput = document.getElementById('takerAddress');
+                            const takerAddressInput = this.container?.querySelector('#takerAddress');
                             if (takerAddressInput) {
                                 takerAddressInput.focus();
                             }
@@ -560,6 +589,158 @@ export class CreateOrder extends BaseComponent {
         } else {
             this.debug('Taker toggle button not found');
         }
+
+        this.setupInfoTooltipInteractions();
+    }
+
+    setTooltipExpanded(tooltipElement, isExpanded, persistState = null) {
+        if (!tooltipElement) return;
+
+        const trigger = tooltipElement.querySelector('.info-tooltip-trigger');
+        const tooltipText = tooltipElement.querySelector('.tooltip-text');
+
+        if (persistState !== null) {
+            tooltipElement.classList.toggle('is-open', persistState);
+        }
+        if (trigger) {
+            trigger.setAttribute('aria-expanded', String(isExpanded));
+        }
+        if (tooltipText) {
+            tooltipText.setAttribute('aria-hidden', String(!isExpanded));
+        }
+    }
+
+    setupInfoTooltipInteractions() {
+        this.clearInfoTooltipInteractions();
+
+        const tooltipElements = document.querySelectorAll('.info-tooltip');
+        if (!tooltipElements.length) {
+            return;
+        }
+
+        const syncTooltipFromState = (tooltipElement) => {
+            const shouldBeExpanded = tooltipElement.classList.contains('is-open')
+                || tooltipElement.matches(':hover')
+                || tooltipElement.matches(':focus-within');
+            this.setTooltipExpanded(tooltipElement, shouldBeExpanded);
+        };
+
+        const closeOtherTooltips = (activeTooltip = null) => {
+            tooltipElements.forEach((tooltipElement) => {
+                if (tooltipElement !== activeTooltip) {
+                    this.setTooltipExpanded(tooltipElement, false, false);
+                }
+            });
+        };
+
+        tooltipElements.forEach((tooltipElement, index) => {
+            const trigger = tooltipElement.querySelector('.info-tooltip-trigger');
+            const tooltipText = tooltipElement.querySelector('.tooltip-text');
+            if (!trigger || !tooltipText) {
+                return;
+            }
+
+            const fallbackId = `create-order-tooltip-${index + 1}`;
+            const tooltipId = tooltipText.id || fallbackId;
+            tooltipText.id = tooltipId;
+            tooltipText.setAttribute('role', 'tooltip');
+            tooltipText.setAttribute('aria-hidden', 'true');
+
+            trigger.setAttribute('role', 'button');
+            trigger.setAttribute('tabindex', '0');
+            trigger.setAttribute('aria-describedby', tooltipId);
+            trigger.setAttribute('aria-expanded', 'false');
+
+            const onTriggerPointerDown = (event) => {
+                event.stopPropagation();
+            };
+
+            const onTriggerClick = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const shouldExpand = !tooltipElement.classList.contains('is-open');
+                closeOtherTooltips(shouldExpand ? tooltipElement : null);
+                this.setTooltipExpanded(tooltipElement, shouldExpand, shouldExpand);
+            };
+
+            const onTriggerKeyDown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const shouldExpand = !tooltipElement.classList.contains('is-open');
+                    closeOtherTooltips(shouldExpand ? tooltipElement : null);
+                    this.setTooltipExpanded(tooltipElement, shouldExpand, shouldExpand);
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.setTooltipExpanded(tooltipElement, false, false);
+                }
+            };
+
+            const onTooltipMouseEnter = () => syncTooltipFromState(tooltipElement);
+            const onTooltipMouseLeave = () => syncTooltipFromState(tooltipElement);
+            const onTooltipFocusIn = () => syncTooltipFromState(tooltipElement);
+            const onTooltipFocusOut = () => {
+                requestAnimationFrame(() => syncTooltipFromState(tooltipElement));
+            };
+
+            trigger.addEventListener('pointerdown', onTriggerPointerDown);
+            trigger.addEventListener('click', onTriggerClick);
+            trigger.addEventListener('keydown', onTriggerKeyDown);
+            tooltipElement.addEventListener('mouseenter', onTooltipMouseEnter);
+            tooltipElement.addEventListener('mouseleave', onTooltipMouseLeave);
+            tooltipElement.addEventListener('focusin', onTooltipFocusIn);
+            tooltipElement.addEventListener('focusout', onTooltipFocusOut);
+
+            this.tooltipCleanupCallbacks.push(() => {
+                trigger.removeEventListener('pointerdown', onTriggerPointerDown);
+                trigger.removeEventListener('click', onTriggerClick);
+                trigger.removeEventListener('keydown', onTriggerKeyDown);
+                tooltipElement.removeEventListener('mouseenter', onTooltipMouseEnter);
+                tooltipElement.removeEventListener('mouseleave', onTooltipMouseLeave);
+                tooltipElement.removeEventListener('focusin', onTooltipFocusIn);
+                tooltipElement.removeEventListener('focusout', onTooltipFocusOut);
+            });
+        });
+
+        this.boundTooltipOutsideClickHandler = (event) => {
+            tooltipElements.forEach((tooltipElement) => {
+                if (!tooltipElement.contains(event.target)) {
+                    this.setTooltipExpanded(tooltipElement, false, false);
+                }
+            });
+        };
+        document.addEventListener('click', this.boundTooltipOutsideClickHandler);
+
+        this.boundTooltipEscapeHandler = (event) => {
+            if (event.key === 'Escape') {
+                closeOtherTooltips(null);
+            }
+        };
+        document.addEventListener('keydown', this.boundTooltipEscapeHandler);
+    }
+
+    clearInfoTooltipInteractions() {
+        if (Array.isArray(this.tooltipCleanupCallbacks)) {
+            this.tooltipCleanupCallbacks.forEach((cleanupFn) => {
+                try {
+                    cleanupFn();
+                } catch (error) {
+                    this.debug('Tooltip listener cleanup failed:', error);
+                }
+            });
+            this.tooltipCleanupCallbacks = [];
+        }
+
+        if (this.boundTooltipOutsideClickHandler) {
+            document.removeEventListener('click', this.boundTooltipOutsideClickHandler);
+            this.boundTooltipOutsideClickHandler = null;
+        }
+
+        if (this.boundTooltipEscapeHandler) {
+            document.removeEventListener('keydown', this.boundTooltipEscapeHandler);
+            this.boundTooltipEscapeHandler = null;
+        }
     }
 
     async handleCreateOrder(event) {
@@ -569,13 +750,20 @@ export class CreateOrder extends BaseComponent {
             this.debug('Already processing a transaction');
             return;
         }
-        
-        const createOrderBtn = document.getElementById('createOrderBtn');
+
+        this.isSubmitting = true;
+        this.updateCreateButtonState();
         
         try {
-            this.isSubmitting = true;
-            createOrderBtn.disabled = true;
-            createOrderBtn.classList.add('disabled');
+            const contractDisabled = await this.refreshContractDisabledState({ force: true });
+            if (this.contractStateReadError) {
+                this.showError('Unable to verify contract state. Please check your network and try again.');
+                return;
+            }
+            if (contractDisabled) {
+                this.showWarning('New orders are disabled on this contract.');
+                return;
+            }
 
             // Get fresh signer and reinitialize contract
             const signer = walletManager.getSigner();
@@ -823,8 +1011,7 @@ export class CreateOrder extends BaseComponent {
             handleTransactionError(error, this, 'order creation');
         } finally {
             this.isSubmitting = false;
-            createOrderBtn.disabled = false;
-            createOrderBtn.classList.remove('disabled');
+            this.updateCreateButtonState();
         }
     }
 
@@ -974,25 +1161,34 @@ export class CreateOrder extends BaseComponent {
             tokenSelectorContainer.className = 'token-selector';
             tokenSelectorContainer.appendChild(tokenSelector);
 
-            // Create balance display (hidden until a token is selected) AS A SIBLING UNDER THE SELECTOR
+            // Keep selector rows structurally identical for sell/buy so button position stays aligned.
+            const isSellBalance = type === 'sell';
             const balanceDisplay = document.createElement('div');
-            balanceDisplay.id = `${type}TokenBalanceDisplay`;
             balanceDisplay.className = 'token-balance-display is-hidden';
             balanceDisplay.setAttribute('aria-hidden', 'true');
-            balanceDisplay.innerHTML = `
-                <button id="${type}TokenBalanceBtn" class="balance-clickable" aria-label="Click to fill ${type} amount with available balance">
-                    <span class="balance-amount" id="${type}TokenBalanceAmount">0.00</span>
-                    <span class="balance-usd" id="${type}TokenBalanceUSD">• $0.00</span>
-                </button>
-            `;
+            if (isSellBalance) {
+                balanceDisplay.id = `${type}TokenBalanceDisplay`;
+                balanceDisplay.innerHTML = `
+                    <button id="${type}TokenBalanceBtn" class="balance-clickable" aria-label="Click to fill ${type} amount with available balance">
+                        <span class="balance-amount" id="${type}TokenBalanceAmount">0.00</span>
+                        <span class="balance-usd" id="${type}TokenBalanceUSD">• $0.00</span>
+                    </button>
+                `;
+            } else {
+                balanceDisplay.classList.add('token-balance-display--placeholder');
+                balanceDisplay.innerHTML = `
+                    <span class="balance-clickable balance-clickable--placeholder" aria-hidden="true">
+                        <span class="balance-amount">0.00</span>
+                        <span class="balance-usd">• $0.00</span>
+                    </span>
+                `;
+            }
 
             // Group selector and balance vertically so balance sits under the button
             const selectorGroup = document.createElement('div');
             selectorGroup.className = 'token-selector-group';
             selectorGroup.appendChild(tokenSelectorContainer);
-            if (type === 'sell') {
-                selectorGroup.appendChild(balanceDisplay);
-            }
+            selectorGroup.appendChild(balanceDisplay);
 
             // Assemble the components
             container.appendChild(inputWrapper);
@@ -1534,10 +1730,16 @@ export class CreateOrder extends BaseComponent {
             this.expiryTimers.forEach(timerId => clearInterval(timerId));
             this.expiryTimers.clear();
         }
+        this.clearInfoTooltipInteractions();
         // Remove global click handler for modals if present
         if (this.boundWindowClickHandler) {
             window.removeEventListener('click', this.boundWindowClickHandler);
             this.boundWindowClickHandler = null;
+        }
+
+        if (this.boundTooltipOutsideClickHandler) {
+            document.removeEventListener('click', this.boundTooltipOutsideClickHandler);
+            this.boundTooltipOutsideClickHandler = null;
         }
     }
 
@@ -1887,9 +2089,18 @@ export class CreateOrder extends BaseComponent {
 
     async handleTokenItemClick(type, tokenItem) {
         try {
-            const isWalletConnected = typeof walletManager.isConnected === 'function'
-                ? walletManager.isConnected()
-                : Boolean(walletManager.isConnected);
+            if (this.contractStateReadError) {
+                this.showWarning('Unable to verify contract state right now. Please try again shortly.');
+                void this.refreshContractDisabledState();
+                return;
+            }
+
+            if (this.isContractDisabled) {
+                this.showWarning('No new orders can be created because this contract is disabled.');
+                return;
+            }
+
+            const isWalletConnected = walletManager.isWalletConnected();
             if (!isWalletConnected) {
                 this.showWarning('Connect wallet to select a token.');
                 return;
@@ -1950,10 +2161,11 @@ export class CreateOrder extends BaseComponent {
 
     updateCreateButtonState() {
         try {
-            const createButton = document.getElementById('createOrderButton');
+            const createButton = document.getElementById('createOrderBtn');
             if (!createButton) return;
 
             // Check if we have both tokens selected and valid amounts
+            const isWalletConnected = walletManager.isWalletConnected();
             const hasTokens = this.sellToken && this.buyToken;
             const sellAmount = document.getElementById('sellAmount')?.value;
             const buyAmount = document.getElementById('buyAmount')?.value;
@@ -1961,8 +2173,28 @@ export class CreateOrder extends BaseComponent {
                              Number(sellAmount) > 0 && 
                              Number(buyAmount) > 0;
 
-            // Enable button only if we have both tokens and valid amounts
-            createButton.disabled = !(hasTokens && hasAmounts);
+            const canCreateOrder =
+                isWalletConnected &&
+                !this.contractStateReadError &&
+                !this.isContractDisabled &&
+                !this.isSubmitting &&
+                hasTokens &&
+                hasAmounts;
+
+            createButton.disabled = !canCreateOrder;
+            createButton.classList.toggle('disabled', !canCreateOrder);
+
+            if (!isWalletConnected) {
+                createButton.textContent = 'Connect Wallet to Create Order';
+            } else if (this.contractStateReadError) {
+                createButton.textContent = 'Unable to Verify Contract State';
+            } else if (this.isContractDisabled) {
+                createButton.textContent = 'New Orders Disabled';
+            } else if (this.isSubmitting) {
+                createButton.textContent = 'Creating Order...';
+            } else {
+                createButton.textContent = 'Create Order';
+            }
         } catch (error) {
             this.debug('Error updating create button state:', error);
         }
@@ -2040,8 +2272,21 @@ export class CreateOrder extends BaseComponent {
                 }
 
                 // Create new listener for opening modal
-                this.tokenSelectorListeners[type] = async () => {
+                this.tokenSelectorListeners[type] = () => {
+                    // Fast path: gate by known cached state to keep UI responsive.
+                    if (this.contractStateReadError) {
+                        this.showWarning('Unable to verify contract state right now. Please try again shortly.');
+                        void this.refreshContractDisabledState();
+                        return;
+                    }
+                    if (this.isContractDisabled) {
+                        this.showWarning('No new orders can be created because this contract is disabled.');
+                        return;
+                    }
                     modal.style.display = 'block';
+
+                    // Keep state fresh without blocking modal open on network issues.
+                    void this.refreshContractDisabledState();
                 };
 
                 // Add new listener
@@ -2252,31 +2497,47 @@ export class CreateOrder extends BaseComponent {
                                 <span>Select Token</span>
                             </div>
                         </div>
+                        <div class="token-balance-display token-balance-display--placeholder is-hidden" aria-hidden="true">
+                            <span class="balance-clickable balance-clickable--placeholder" aria-hidden="true">
+                                <span class="balance-amount">0.00</span>
+                                <span class="balance-usd">• $0.00</span>
+                            </span>
+                        </div>
                     </div>
 
                     <!-- Optional taker address input -->
                     <div class="taker-input-container">
-                        <button class="taker-toggle">
-                            <div class="taker-toggle-content">
-                                <span class="taker-toggle-text">Specify Taker Address</span>
-                                <span class="info-tooltip">
+                        <div class="taker-input-header">
+                            <button class="taker-toggle" type="button" aria-expanded="false" aria-controls="taker-input-content">
+                                <div class="taker-toggle-content">
+                                    <span class="taker-toggle-text">Specify Taker Address</span>
+                                    <span class="optional-text">(optional)</span>
+                                </div>
+                                <svg class="chevron-down" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M6 9l6 6 6-6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            </button>
+                            <span class="info-tooltip">
+                                <button
+                                    type="button"
+                                    class="info-tooltip-trigger"
+                                    aria-label="Explain taker address"
+                                    aria-describedby="taker-address-tooltip"
+                                    aria-expanded="false"
+                                >
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                                         <circle cx="12" cy="12" r="10" stroke-width="2" />
                                         <path d="M12 16v-4" stroke-width="2" stroke-linecap="round" />
                                         <circle cx="12" cy="8" r="1" fill="currentColor" />
                                     </svg>
-                                    <span class="tooltip-text">
-                                        Specify a wallet address that can take this order.
-                                        Leave empty to allow anyone to take it.
-                                    </span>
+                                </button>
+                                <span id="taker-address-tooltip" class="tooltip-text" role="tooltip">
+                                    Specify a wallet address that can take this order.
+                                    Leave empty to allow anyone to take it.
                                 </span>
-                                <span class="optional-text">(optional)</span>
-                            </div>
-                            <svg class="chevron-down" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M6 9l6 6 6-6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </button>
-                        <div class="taker-input-content hidden">
+                            </span>
+                        </div>
+                        <div id="taker-input-content" class="taker-input-content hidden">
                             <input type="text" id="takerAddress" class="taker-address-input" placeholder="0x..." />
                         </div>
                     </div>
@@ -2286,12 +2547,20 @@ export class CreateOrder extends BaseComponent {
                         <label>
                             Order Creation Fee:
                             <span class="info-tooltip">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <circle cx="12" cy="12" r="10" stroke-width="2" />
-                                    <path d="M12 16v-4" stroke-width="2" stroke-linecap="round" />
-                                    <circle cx="12" cy="8" r="1" fill="currentColor" />
-                                </svg>
-                                <span class="tooltip-text">
+                                <button
+                                    type="button"
+                                    class="info-tooltip-trigger"
+                                    aria-label="Explain order creation fee"
+                                    aria-describedby="order-fee-tooltip"
+                                    aria-expanded="false"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <circle cx="12" cy="12" r="10" stroke-width="2" />
+                                        <path d="M12 16v-4" stroke-width="2" stroke-linecap="round" />
+                                        <circle cx="12" cy="8" r="1" fill="currentColor" />
+                                    </svg>
+                                </button>
+                                <span id="order-fee-tooltip" class="tooltip-text" role="tooltip">
                                     <strong>Order Creation Fee:</strong> A small fee in <span class="fee-token-symbol">the configured fee token</span> is required to create an order.
                                     This helps prevent spam and incentivizes users who assist in cleaning up expired orders.
                                 </span>

@@ -1,0 +1,29 @@
+name: E2E (UI PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    if: github.event.pull_request.draft == false
+    uses: WhaleSwap-org/WhaleSwap-E2E/.github/workflows/manual-e2e.yml@main
+    with:
+      e2e_ref: main
+      contract_ref: main
+      ui_repository: ${{ github.event.pull_request.head.repo.full_name }}
+      ui_ref: ${{ github.event.pull_request.head.sha }}
+      playwright_args: ""
+      headless: true

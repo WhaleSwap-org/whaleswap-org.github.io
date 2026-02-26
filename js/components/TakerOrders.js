@@ -2,7 +2,7 @@ import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { ethers } from 'ethers';
 import { processOrderAddress, generateStatusCellHTML, setupClickToCopy } from '../utils/ui.js';
-import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
+import { formatTimeDiff, calculateTotalValue, formatDealValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 
@@ -374,7 +374,7 @@ export class TakerOrders extends BaseComponent {
                         </div>
                     </div>
                 </td>
-                <td>${deal !== undefined ? (deal || 0).toFixed(6) : 'N/A'}</td>
+                <td>${formatDealValue(deal)}</td>
                 <td>${expiryText}</td>
                 <td class="order-status">
                     ${generateStatusCellHTML(orderStatus, counterpartyAddress, isZeroAddr, formattedAddress)}

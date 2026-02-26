@@ -64,20 +64,20 @@ http-server
 
 Use this when testing against a local `whaleswap-contract` deployment.
 
-1. In `/Users/erebus/Documents/code/liberdus/whaleswap-contract`, start node:
+1. In the `whaleswap-contract` repo, start a local node:
 ```bash
+cd ../whaleswap-contract
 npx hardhat node
 ```
 
 2. In another terminal, deploy local contracts/tokens:
 ```bash
-cd /Users/erebus/Documents/code/liberdus/whaleswap-contract
+cd ../whaleswap-contract
 npm run deploy:local
 ```
 
-3. Start this UI:
+3. In the `whaleswap-ui` repo, start this UI:
 ```bash
-cd /Users/erebus/Documents/code/liberdus/whaleswap-ui
 npm install
 npm start
 ```

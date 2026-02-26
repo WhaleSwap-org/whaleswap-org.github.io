@@ -1,6 +1,7 @@
+
 **WhaleSwap Terms of Service**
 
-**Last modified: Feb 23 2026**
+**Last modified: Feb 24 2026**
 
 These Terms of Service (the “Agreement”) explain the terms and conditions by which you may access and use the WhaleSwap open-source interface and software (the “Service” or “WhaleSwap”). WhaleSwap is a decentralized, community-driven project and is not a company, corporation, or legal entity. The Service provides a permissionless, non-custodial Over-The-Counter (OTC) swap interface for ERC-20 tokens.
 
@@ -20,13 +21,10 @@ WhaleSwap does not charge any service fees, trading fees, or commissions. The pr
 **2. Your Responsibilities and Compliance**
 
 **2.1 User Responsibility**
-You are solely responsible for your use of the Service. Because WhaleSwap is decentralized and stateless, we do not screen users or perform Know Your Customer (KYC) or Anti-Money Laundering (AML) checks. You further agree that your use of the Service complies with all local laws and regulations in your jurisdiction, including tax obligations.
+You are solely responsible for your use of the Service. Because WhaleSwap is decentralized and stateless, we do not screen users or perform Know Your Customer (KYC) or Anti-Money Laundering (AML) checks. You further agree that your use of the Service complies with all local laws and regulations in your jurisdiction, including tax obligations. You agree not to use the Service for any illegal purpose.
 
 **2.2 Wallet Security**
 To use the Service, you must connect a non-custodial wallet. You are solely responsible for the security of your wallet, private keys, and seed phrases. WhaleSwap cannot access your wallet, recover your keys, or reverse transactions. If you lose access to your wallet, your assets may be lost permanently.
-
-**2.3 Prohibited Uses**
-You agree not to use the Service for any illegal purpose, including but not limited to money laundering, terrorist financing, fraud, or the sale of illegal goods. While WhaleSwap does not monitor or censor transactions, engaging in illegal activities is a violation of this Agreement and may result in you being banned from using the frontend interface (though we cannot stop you from interacting with the smart contracts directly).
 
 **3. Assumption of Risk and Disclaimers**
 
@@ -47,22 +45,22 @@ WhaleSwap provides no investment, financial, tax, or legal advice. The informati
 **4. Limitation of Liability and Indemnification**
 
 **4.1 Waiver of Liability**
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL WHALESWAP, ITS DEVELOPERS, CONTRIBUTORS, OR ANY AFFILIATED PARTIES BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, RESULTING FROM YOUR ACCESS TO OR USE OF THE SERVICE.
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL WHALESWAP, ITS DEVELOPERS, CONTRIBUTORS, OR ANY AFFILIATED PARTIES BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER LOSSES, RESULTING FROM YOUR ACCESS TO OR USE OF THE SERVICE.
 WHALESWAP TAKES NO RESPONSIBILITY FOR ANY LOSS OR DAMAGE CAUSED BY THE USE OF THE SERVICE. WE ARE NOT RESPONSIBLE FOR FAILED TRANSACTIONS, LOST FUNDS, OR MALICIOUS ACTIVITY BY THIRD PARTIES.
 
 **4.2 Indemnification**
-You agree to defend, indemnify, and hold harmless the WhaleSwap developers, contributors, and community members from and against any claims, damages, obligations, losses, liabilities, costs, or debt arising from: (a) your use of the Service; (b) your violation of these terms; (c) your violation of any third-party right, including intellectual property rights; or (d) your violation of any applicable law or regulation.
+You agree to defend, indemnify, and hold harmless the WhaleSwap developers, contributors, and community members from and against any claims, damages, obligations, losses, liabilities, costs, or debt arising from: (a) your use of the Service; (b) your violation of these terms; (c) your violation of any third-party right, including intellectual property rights; (d) your violation of any applicable law or regulation; or (e) any other unforeseen situation.
 
 **5. Intellectual Property**
-WhaleSwap is open-source software. The code is made available under the relevant open-source license (e.g., MIT). While you are free to view, copy, and modify the code for your own use, you may not use the "WhaleSwap" name, logo, or trademarks to imply endorsement or confuse users without permission.
+WhaleSwap is open-source software. The code is made available under the relevant open-source license (e.g., MIT). While you are free to view, copy, and modify the code for your own use, **you may not make the service available to the public using the "WhaleSwap" name, or logo, to imply endorsement or confuse users.**
 
 **6. Governing Law and Dispute Resolution**
 
 **6.1 No Specific Jurisdiction**
-Because WhaleSwap is a decentralized, open-source protocol not based in any specific country, it is not subject to the laws of any single nation. However, in the event that a dispute arises and legal action is taken despite the decentralized nature of the project, you agree that the laws of a neutral jurisdiction (to be determined by the consensus of the community or the location of the defendant) may apply.
+Because WhaleSwap is a decentralized, open-source protocol not based in any specific country, it is not subject to the laws of any single nation.
 
 **6.2 Dispute Resolution**
-Any disputes relating to the Service or this Agreement shall be resolved amicably by the community. Because WhaleSwap is not a legal entity, it cannot be sued in a court of law. Any liability is limited to the extent of the assets held in the smart contracts, and there is no corporate entity to pursue for damages. You waive your right to participate in class action lawsuits against WhaleSwap contributors or developers.
+However, in the event that a dispute arises you agree to resolve the dispute through mediation and binding arbitration through an online arbitration service chosen by WhaleSwap. You waive any rights to participate in individual or class action lawsuits against WhaleSwap contributors or developers.
 
 **7. Modifications**
 We reserve the right to modify these Terms at any time by posting the updated terms on the website. Your continued use of the Service following the posting of changes constitutes your acceptance of such changes.

@@ -177,6 +177,73 @@
   z-index: 9998;
 }
 
+/* Shared tooltip icon styles for table and card layouts */
+button.info-icon.order-tooltip-icon {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  line-height: 1;
+}
+
+.order-tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.order-tooltip-icon:focus-visible {
+  outline: 2px solid var(--accent-color, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+.deal-cell-content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.deal-card-label {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.deal-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Viewport-clamped tooltip popover for deal info icons */
+.order-tooltip-popover {
+  position: fixed;
+  z-index: 10000;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: var(--card-shadow);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  white-space: pre-line;
+  word-break: break-word;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.order-tooltip-popover.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* Action column specific styles */
 .action-column {
   text-align: center;
@@ -577,6 +644,15 @@
   .orders-table td:nth-child(2),
   .orders-table td:nth-child(3) {
     padding: 0.25rem 0.25rem;
+  }
+
+  .deal-cell-content {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .deal-card-label {
+    display: inline-flex;
   }
 }
 
@@ -1181,4 +1257,456 @@ th[data-sort].active-sort .sort-icon {
   text-align: center;
   padding: 2rem 1rem;
   background: var(--bg-secondary);
+}
+
+/* Final responsive normalization for orders tabs */
+#view-orders,
+#my-orders,
+#taker-orders {
+  overflow-x: hidden;
+}
+
+.table-container {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.orders-table {
+  min-width: 42rem;
+}
+
+.refresh-container--mobile {
+  display: none;
+}
+
+/* Mobile card mode */
+@media (max-width: 768px) {
+  .filter-controls.bottom-controls {
+    display: none;
+  }
+
+  .filter-controls {
+    display: flex;
+    flex-direction: column;
+    padding: 0.875rem;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--border-color);
+  }
+
+  /* Flatten top row so we can place pagination at the bottom of the card */
+  .filter-controls > .filter-row {
+    display: contents;
+  }
+
+  .filter-controls > .filter-row > .filters-left {
+    display: contents;
+  }
+
+  .filter-controls > .filter-row > .filters-group {
+    order: 1;
+  }
+
+  .filter-controls > .filter-row > .filters-left > .filters-group {
+    order: 1;
+  }
+
+  .filter-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.875rem;
+    padding: 0;
+  }
+
+  .filters-group {
+    display: grid;
+    width: 100%;
+    gap: 0.625rem;
+    align-items: stretch;
+  }
+
+  .advanced-filters-toggle {
+    width: 100%;
+    justify-content: space-between;
+    min-height: 40px;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .filter-toggle {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.625rem;
+    background: var(--bg-secondary);
+  }
+
+  .filter-toggle input[type="checkbox"] {
+    margin-top: 0.1rem;
+    flex: 0 0 auto;
+  }
+
+  .filter-toggle span {
+    line-height: 1.35;
+  }
+
+  .pagination-controls {
+    order: 4;
+    width: 100%;
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.625rem;
+  }
+
+  .page-size-select {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    padding-right: 2.25rem;
+  }
+
+  .pagination-buttons {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr) 2.25rem;
+    align-items: center;
+    justify-content: unset;
+    gap: 0.5rem;
+  }
+
+  .pagination-button {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .page-info {
+    min-width: 0;
+    flex: 1;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.35;
+    font-size: 0.8125rem;
+    padding: 0 0.25rem;
+  }
+
+  .advanced-filters .filter-row {
+    padding: 0;
+    gap: 0.625rem;
+  }
+
+  .advanced-filters {
+    order: 2;
+    margin-top: 0.875rem;
+    padding-top: 0.875rem;
+  }
+
+  .token-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.625rem;
+  }
+
+  .token-filter,
+  .order-sort {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+  }
+
+  .refresh-container--mobile {
+    display: flex;
+    order: 3;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    position: static;
+    margin-top: 0.125rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .refresh-container--mobile .refresh-prices-button {
+    width: 100%;
+    min-height: 42px;
+    font-size: 0.875rem;
+  }
+
+  .refresh-container--mobile .refresh-status {
+    position: static;
+    transform: none;
+    margin-left: 0;
+    white-space: normal;
+  }
+
+  .refresh-container--mobile .last-updated {
+    margin-left: 0;
+    white-space: normal;
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .table-container {
+    overflow-x: visible;
+    padding: 0.25rem;
+  }
+
+  .orders-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: auto;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .orders-table thead {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  .orders-table,
+  .orders-table tbody,
+  .orders-table tr,
+  .orders-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .orders-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .orders-table tbody tr.orders-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      "id deal expires"
+      "sell buy status"
+      "action action action";
+    gap: 0.625rem;
+    align-items: stretch;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    padding: 0.75rem;
+    box-shadow: var(--card-shadow);
+  }
+
+  .orders-table tbody tr.orders-row:nth-child(even) {
+    background: var(--bg-secondary);
+  }
+
+  .orders-table tbody tr.orders-row:hover {
+    background: var(--bg-secondary);
+  }
+
+  .orders-table td.order-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 0.35rem;
+    width: auto;
+    min-width: 0;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    font-size: 0.875rem;
+  }
+
+  .orders-table td.order-cell::before {
+    content: attr(data-label);
+    display: block;
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    padding-top: 0;
+  }
+
+  .orders-table td.order-cell > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .orders-table td.order-cell--id {
+    grid-area: id;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .orders-table td.order-cell--deal {
+    grid-area: deal;
+  }
+
+  .orders-table td.order-cell--deal::before {
+    content: none;
+  }
+
+  .orders-table td.order-cell--sell {
+    grid-area: sell;
+  }
+
+  .orders-table td.order-cell--buy {
+    grid-area: buy;
+  }
+
+  .orders-table td.order-cell--expires {
+    grid-area: expires;
+  }
+
+  .orders-table td.order-cell--buy .token-info,
+  .orders-table td.order-cell--sell .token-info {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .orders-table td.order-cell--buy .token-symbol-row,
+  .orders-table td.order-cell--sell .token-symbol-row {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .orders-table td.order-cell--buy .token-symbol,
+  .orders-table td.order-cell--sell .token-symbol {
+    max-width: none;
+  }
+
+  .orders-table td.order-cell--buy .token-amount,
+  .orders-table td.order-cell--sell .token-amount,
+  .orders-table td.order-cell--buy .token-price,
+  .orders-table td.order-cell--sell .token-price {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    text-align: left;
+  }
+
+  .orders-table td.order-cell--status {
+    grid-area: status;
+  }
+
+  .orders-table td.order-cell--status .order-status {
+    align-items: flex-start;
+  }
+
+  .orders-table td.order-cell--action {
+    grid-area: action;
+    padding-top: 0.625rem;
+  }
+
+  .orders-table td.order-cell--action .fill-button,
+  .orders-table td.order-cell--action .cancel-order-btn {
+    width: 100%;
+    min-height: 40px;
+    font-size: 0.875rem;
+  }
+
+  .orders-table td.order-cell--action .your-order,
+  .orders-table td.order-cell--action .mine-label {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 0.5rem 0.25rem;
+  }
+
+  .orders-table tbody tr.empty-message {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    box-shadow: var(--card-shadow);
+  }
+
+  .orders-table tbody tr.empty-message td {
+    padding: 1rem;
+    border: none;
+  }
+
+  .orders-table tbody tr.empty-message td::before {
+    content: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .filter-controls {
+    padding: 0.75rem;
+  }
+
+  .advanced-filters-toggle,
+  .page-size-select,
+  .token-filter,
+  .order-sort {
+    font-size: 0.8125rem;
+  }
+
+  .pagination-buttons {
+    grid-template-columns: 2rem minmax(0, 1fr) 2rem;
+  }
+
+  .pagination-button {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .page-info {
+    font-size: 0.75rem;
+  }
+
+  .refresh-container--mobile .last-updated {
+    font-size: 0.72rem;
+  }
+
+  .orders-table tbody tr.orders-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "id deal"
+      "sell buy"
+      "expires status"
+      "action action";
+    gap: 0.5rem;
+    padding: 0.625rem;
+  }
+
+  .orders-table td.order-cell {
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+  }
+
+  .orders-table td.order-cell::before {
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .orders-table tbody tr.orders-row {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "id"
+      "deal"
+      "sell"
+      "buy"
+      "expires"
+      "status"
+      "action";
+  }
 }

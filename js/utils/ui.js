@@ -4,6 +4,183 @@ export function setVisibility(element, isVisible) {
     element.setAttribute('aria-hidden', String(!isVisible));
 }
 
+const ORDER_TOOLTIP_ELEMENT_ID = 'order-tooltip-popover';
+const ORDER_TOOLTIP_OFFSET = 10;
+const ORDER_TOOLTIP_VIEWPORT_PADDING = 12;
+
+let activeOrderTooltipTrigger = null;
+
+export const DEAL_TOOLTIP_TEXT = `Deal = Buy Value / Sell Value
+
+• Higher deal number is better
+• Deal > 1: better deal based on market prices
+• Deal < 1: worse deal based on market prices`;
+
+function escapeHtmlAttribute(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/\r?\n/g, '&#10;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlText(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function getOrderTooltipElement() {
+    let tooltip = document.getElementById(ORDER_TOOLTIP_ELEMENT_ID);
+    if (tooltip) return tooltip;
+
+    tooltip = document.createElement('div');
+    tooltip.id = ORDER_TOOLTIP_ELEMENT_ID;
+    tooltip.className = 'order-tooltip-popover';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(tooltip);
+    return tooltip;
+}
+
+function positionOrderTooltip(trigger, tooltip) {
+    const triggerRect = trigger.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+
+    let left = triggerRect.left + (triggerRect.width / 2) - (tooltipRect.width / 2);
+    left = Math.max(
+        ORDER_TOOLTIP_VIEWPORT_PADDING,
+        Math.min(left, window.innerWidth - tooltipRect.width - ORDER_TOOLTIP_VIEWPORT_PADDING)
+    );
+
+    let top = triggerRect.top - tooltipRect.height - ORDER_TOOLTIP_OFFSET;
+    let placement = 'top';
+
+    if (top < ORDER_TOOLTIP_VIEWPORT_PADDING) {
+        top = triggerRect.bottom + ORDER_TOOLTIP_OFFSET;
+        placement = 'bottom';
+    }
+
+    if (top + tooltipRect.height > window.innerHeight - ORDER_TOOLTIP_VIEWPORT_PADDING) {
+        top = Math.max(
+            ORDER_TOOLTIP_VIEWPORT_PADDING,
+            triggerRect.top - tooltipRect.height - ORDER_TOOLTIP_OFFSET
+        );
+        placement = 'top';
+    }
+
+    tooltip.dataset.placement = placement;
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
+}
+
+function hideOrderTooltip() {
+    const tooltip = document.getElementById(ORDER_TOOLTIP_ELEMENT_ID);
+    if (!tooltip) return;
+
+    tooltip.classList.remove('is-visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+    activeOrderTooltipTrigger = null;
+}
+
+function showOrderTooltip(trigger) {
+    const message = trigger?.dataset?.orderTooltip;
+    if (!message) return;
+
+    const tooltip = getOrderTooltipElement();
+    tooltip.textContent = message;
+    tooltip.classList.add('is-visible');
+    tooltip.setAttribute('aria-hidden', 'false');
+
+    activeOrderTooltipTrigger = trigger;
+    requestAnimationFrame(() => {
+        if (activeOrderTooltipTrigger === trigger) {
+            positionOrderTooltip(trigger, tooltip);
+        }
+    });
+}
+
+function bindGlobalTooltipEvents() {
+    if (document.body.dataset.orderTooltipGlobalBound === 'true') return;
+    document.body.dataset.orderTooltipGlobalBound = 'true';
+
+    window.addEventListener('resize', () => {
+        if (!activeOrderTooltipTrigger) return;
+        const tooltip = document.getElementById(ORDER_TOOLTIP_ELEMENT_ID);
+        if (!tooltip) return;
+        positionOrderTooltip(activeOrderTooltipTrigger, tooltip);
+    });
+
+    window.addEventListener('scroll', () => {
+        if (!activeOrderTooltipTrigger) return;
+        const tooltip = document.getElementById(ORDER_TOOLTIP_ELEMENT_ID);
+        if (!tooltip) return;
+        positionOrderTooltip(activeOrderTooltipTrigger, tooltip);
+    }, true);
+
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (target?.closest?.('.order-tooltip-icon[data-order-tooltip]')) return;
+        hideOrderTooltip();
+    });
+}
+
+export function createInlineTooltipIcon(
+    tooltipText,
+    {
+        className = 'info-icon order-tooltip-icon',
+        ariaLabel = 'More information'
+    } = {}
+) {
+    const safeTooltip = escapeHtmlAttribute(tooltipText);
+    const safeAriaLabel = escapeHtmlAttribute(ariaLabel);
+    return `<button type="button" class="${className}" data-order-tooltip="${safeTooltip}" aria-label="${safeAriaLabel}">ⓘ</button>`;
+}
+
+export function createDealCellHTML(dealText) {
+    const safeDealText = escapeHtmlText(dealText);
+    return `
+        <div class="deal-cell-content">
+            <span class="deal-card-label">
+                Deal
+                ${createInlineTooltipIcon(DEAL_TOOLTIP_TEXT, {
+                    className: 'info-icon order-tooltip-icon deal-tooltip-icon',
+                    ariaLabel: 'Explain deal value'
+                })}
+            </span>
+            <span class="deal-value">${safeDealText}</span>
+        </div>
+    `;
+}
+
+export function setupOrderTooltips(container = document) {
+    if (!container || typeof container.querySelectorAll !== 'function') return;
+
+    bindGlobalTooltipEvents();
+
+    const triggers = container.querySelectorAll('.order-tooltip-icon[data-order-tooltip]');
+    triggers.forEach((trigger) => {
+        if (trigger.dataset.orderTooltipBound === 'true') return;
+        trigger.dataset.orderTooltipBound = 'true';
+
+        trigger.addEventListener('mouseenter', () => showOrderTooltip(trigger));
+        trigger.addEventListener('mouseleave', () => {
+            if (activeOrderTooltipTrigger === trigger) hideOrderTooltip();
+        });
+        trigger.addEventListener('focus', () => showOrderTooltip(trigger));
+        trigger.addEventListener('blur', () => {
+            if (activeOrderTooltipTrigger === trigger) hideOrderTooltip();
+        });
+        trigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            showOrderTooltip(trigger);
+        });
+    });
+}
+
 /**
  * Check if an error represents a user rejection of a transaction
  * @param {Error} error - The error object to check
@@ -248,5 +425,3 @@ export function processOrderAddress(order, userAddress) {
         formattedAddress
     };
 }
-
-

@@ -228,15 +228,16 @@ export class WalletUI extends BaseComponent {
                 window.app.components['create-order'].cleanup();
             }
             
-            // Update create order button
-            const createOrderBtn = document.getElementById('createOrderBtn');
-            if (createOrderBtn) {
-                createOrderBtn.disabled = true;
-                createOrderBtn.textContent = 'Connect Wallet to Create Order';
-            }
-            
             // Use the new disconnect method that saves user preference
             walletManager.disconnect();
+
+            // Let CreateOrder own its button state/messages.
+            const createOrderComponent = window.app?.components?.['create-order'];
+            if (createOrderComponent?.applyDisconnectedState) {
+                createOrderComponent.applyDisconnectedState();
+            } else if (createOrderComponent?.updateCreateButtonState) {
+                createOrderComponent.updateCreateButtonState();
+            }
             
             // Reset UI
             this.showConnectButton();

@@ -1,0 +1,24 @@
+name: E2E (UI Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      playwright_args:
+        description: "Optional Playwright args (example: tests/specs/create-order.spec.ts --project=chromium)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    uses: WhaleSwap-org/WhaleSwap-E2E/.github/workflows/manual-e2e.yml@main
+    with:
+      e2e_ref: main
+      contract_ref: main
+      ui_repository: WhaleSwap-org/WhaleSwap-UI
+      ui_ref: ${{ github.ref_name }}
+      playwright_args: ${{ inputs.playwright_args }}
+      headless: true
