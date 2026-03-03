@@ -947,7 +947,7 @@ button.info-icon.order-tooltip-icon {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1; /* Take available space */
-  min-width: 30px; /* Allow shrinking */
+  min-width: 45px; /* Allow shrinking */
   max-width: 60%; /* Prevent symbol from taking too much space */
 }
 

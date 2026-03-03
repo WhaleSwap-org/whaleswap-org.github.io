@@ -4,6 +4,7 @@ import { createLogger } from '../services/LogService.js';
 import { handleTransactionError, isUserRejection } from '../utils/ui.js';
 import { generateTokenIconHTML } from '../utils/tokenIcons.js';
 import { getClaimableSnapshot } from '../utils/claims.js';
+import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
 function escapeHtml(value) {
     return String(value)
@@ -40,6 +41,7 @@ export class Claim extends BaseComponent {
         this.pendingClaims = new Set();
         this.refreshRequestId = 0;
         this.refreshDebounceTimer = null;
+        this.claimDisplaySymbolMap = new Map();
 
         this.claimsUpdatedHandler = null;
         this.walletListener = null;
@@ -145,6 +147,7 @@ export class Claim extends BaseComponent {
         const rowsMarkup = claims.map((claim) => {
             const tokenLower = claim.tokenLower || claim.token.toLowerCase();
             const pending = this.pendingClaims.has(tokenLower);
+            const tokenSymbol = claim.displaySymbol || claim.symbol;
             const iconHtml = generateTokenIconHTML(
                 claim.iconUrl,
                 claim.symbol,
@@ -156,8 +159,8 @@ export class Claim extends BaseComponent {
                     <div class="claim-token">
                         ${iconHtml}
                         <div class="claim-token-meta">
-                            <div class="claim-token-symbol">${escapeHtml(claim.symbol)}</div>
-                            <div class="claim-token-name">${escapeHtml(claim.name || claim.symbol)}</div>
+                            <div class="claim-token-symbol">${escapeHtml(tokenSymbol)}</div>
+                            <div class="claim-token-name">${escapeHtml(claim.name || tokenSymbol)}</div>
                         </div>
                     </div>
                     <div class="claim-actions">
@@ -215,13 +218,33 @@ export class Claim extends BaseComponent {
 
             if (requestId !== this.refreshRequestId) return;
 
-            this.claims = claims;
             if (!claims.length) {
+                this.claims = [];
+                this.claimDisplaySymbolMap = new Map();
                 this.renderEmptyState();
                 return;
             }
 
-            this.renderClaimRows(claims);
+            const chainId = this.ctx?.getWalletChainId?.();
+            this.claimDisplaySymbolMap = buildTokenDisplaySymbolMap(
+                claims.map((claim) => ({
+                    address: claim.token,
+                    symbol: claim.symbol
+                })),
+                chainId
+            );
+
+            this.claims = claims
+                .map((claim) => ({
+                    ...claim,
+                    displaySymbol: getDisplaySymbol(
+                        { address: claim.token, symbol: claim.symbol, displaySymbol: claim.displaySymbol },
+                        this.claimDisplaySymbolMap
+                    )
+                }))
+                .sort((a, b) => (a.displaySymbol || a.symbol).localeCompare(b.displaySymbol || b.symbol));
+
+            this.renderClaimRows(this.claims);
         } catch (error) {
             if (requestId !== this.refreshRequestId) return;
             this.error('Failed to refresh claimables:', error);
@@ -284,7 +307,9 @@ export class Claim extends BaseComponent {
 
             const claimItem = this.claims.find((item) => item.tokenLower === tokenLower);
             const decimals = claimItem?.decimals ?? 18;
-            const symbol = claimItem?.symbol || `${normalizedToken.slice(0, 6)}...${normalizedToken.slice(-4)}`;
+            const symbol = claimItem?.displaySymbol
+                || claimItem?.symbol
+                || `${normalizedToken.slice(0, 6)}...${normalizedToken.slice(-4)}`;
             const formatted = this.formatDisplayAmount(
                 ethers.utils.formatUnits(latestAmount, decimals)
             );
@@ -393,6 +418,7 @@ export class Claim extends BaseComponent {
 
         this.claims = [];
         this.pendingClaims.clear();
+        this.claimDisplaySymbolMap = new Map();
         this.contract = null;
         this.webSocket = null;
         this.isInitialized = false;

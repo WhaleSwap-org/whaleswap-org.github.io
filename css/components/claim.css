@@ -38,7 +38,7 @@
 
 .claim-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   justify-content: stretch;
   gap: 12px;
   width: 100%;

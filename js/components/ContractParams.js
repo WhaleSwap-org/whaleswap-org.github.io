@@ -16,7 +16,7 @@ export class ContractParams extends BaseComponent {
         this.isInitialized = false;
         this.cachedParams = null;
         this.lastFetchTime = 0;
-        this.CACHE_DURATION = 20 * 1000; // 20 seconds for testing
+        this.CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
         this.REQUEST_TIMEOUT_MS = 7000;
         this.RECONNECT_TIMEOUT_MS = 45000;
         this.RECONNECT_RETRY_LIMIT = 1;

@@ -10,8 +10,14 @@ import { createLogger } from '../services/LogService.js';
 import { validateSellBalance } from '../utils/balanceValidation.js';
 import { tokenIconService } from '../services/TokenIconService.js';
 import { generateTokenIconHTML, getFallbackIconData } from '../utils/tokenIcons.js';
-import { handleTransactionError } from '../utils/ui.js';
+import { createTransactionProgressSession } from '../utils/transactionProgress.js';
+import {
+    extractTransactionErrorMessage,
+    handleTransactionError,
+    isUserRejection,
+} from '../utils/ui.js';
 import { getExplorerUrl } from '../utils/orderUtils.js';
+import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
 export class CreateOrder extends BaseComponent {
     constructor() {
@@ -36,12 +42,14 @@ export class CreateOrder extends BaseComponent {
         this.buyToken = null;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
+        this.transactionProgressSession = null;
         this.tokenSelectorListeners = {};  // Store listeners to prevent duplicates
         this.boundWindowClickHandler = null;
         this.boundTooltipOutsideClickHandler = null;
         this.amountInputListeners = {};
         this.boundTooltipEscapeHandler = null;
         this.tooltipCleanupCallbacks = [];
+        this.tokenDisplaySymbolMap = new Map();
         
         // Initialize logger
         const logger = createLogger('CREATE_ORDER');
@@ -124,6 +132,7 @@ export class CreateOrder extends BaseComponent {
         this.feeToken = null;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
+        this.tokenDisplaySymbolMap = new Map();
         if (clearSelections) {
             this.clearSelectedTokens();
         }
@@ -814,6 +823,10 @@ export class CreateOrder extends BaseComponent {
         event.preventDefault();
         
         if (this.isSubmitting) {
+            if (this.transactionProgressSession?.isHidden()) {
+                this.transactionProgressSession.reopen();
+                this.updateCreateButtonState();
+            }
             this.debug('Already processing a transaction');
             return;
         }
@@ -869,7 +882,8 @@ export class CreateOrder extends BaseComponent {
 
             // Check if the same token is selected for both buy and sell
             if (this.sellToken.address.toLowerCase() === this.buyToken.address.toLowerCase()) {
-                this.showError(`Cannot create an order with the same token (${this.sellToken.symbol}) for both buy and sell. Please select different tokens.`);
+                const sellTokenLabel = this.sellToken.displaySymbol || this.sellToken.symbol;
+                this.showError(`Cannot create an order with the same token (${sellTokenLabel}) for both buy and sell. Please select different tokens.`);
                 return;
             }
 
@@ -881,12 +895,14 @@ export class CreateOrder extends BaseComponent {
                 ]);
 
                 if (!sellTokenAllowed) {
-                    this.showError(`Sell token ${this.sellToken.symbol} is not allowed for trading. Please select an allowed token.`);
+                    const sellTokenLabel = this.sellToken.displaySymbol || this.sellToken.symbol;
+                    this.showError(`Sell token ${sellTokenLabel} is not allowed for trading. Please select an allowed token.`);
                     return;
                 }
 
                 if (!buyTokenAllowed) {
-                    this.showError(`Buy token ${this.buyToken.symbol} is not allowed for trading. Please select an allowed token.`);
+                    const buyTokenLabel = this.buyToken.displaySymbol || this.buyToken.symbol;
+                    this.showError(`Buy token ${buyTokenLabel} is not allowed for trading. Please select an allowed token.`);
                     return;
                 }
 
@@ -966,106 +982,177 @@ export class CreateOrder extends BaseComponent {
             this.debug('Sell amount in wei:', sellAmountWei.toString());
             this.debug('Buy amount in wei:', buyAmountWei.toString());
 
-            // Check and approve tokens with retry mechanism
-            let retryCount = 0;
+            const currentAddress = await signer.getAddress();
+            const approvalRequirements = await this.getCreateOrderApprovalRequirements({
+                signer,
+                owner: currentAddress,
+                sellAmountWei,
+            });
+            const defaultSummary = 'Complete the steps below in your wallet and on-chain.';
+            const progressToast = createTransactionProgressSession(this.ctx.toast, {
+                title: 'Creating Order',
+                successTitle: 'Order Created',
+                failureTitle: 'Order Creation Failed',
+                cancelledTitle: 'Order Creation Cancelled',
+                summary: defaultSummary,
+                steps: [
+                    ...approvalRequirements.map(requirement => ({
+                        id: requirement.stepId,
+                        label: requirement.label,
+                        status: requirement.needsApproval ? 'pending' : 'completed',
+                        detail: requirement.needsApproval ? '' : 'Already approved',
+                    })),
+                    { id: 'submit-order', label: 'Submit create order', status: 'pending' },
+                    { id: 'confirm-order', label: 'Confirm order on-chain', status: 'pending' },
+                ],
+            });
+            this.transactionProgressSession = progressToast;
+            progressToast.onVisibilityChange(() => {
+                this.updateCreateButtonState();
+            });
+
+            for (const requirement of approvalRequirements) {
+                if (!requirement.needsApproval) {
+                    continue;
+                }
+
+                try {
+                    await this.approveTokenRequirement(requirement, progressToast);
+                } catch (error) {
+                    this.debug('Create order approval error:', error);
+                    if (isUserRejection(error)) {
+                        progressToast.updateStep(requirement.stepId, {
+                            status: 'cancelled',
+                            detail: 'Wallet request rejected',
+                        });
+                        progressToast.finishCancelled('Cancelled during token approval.');
+                        return;
+                    }
+
+                    const errorMessage = extractTransactionErrorMessage(error);
+                    progressToast.updateStep(requirement.stepId, {
+                        status: 'failed',
+                        detail: errorMessage,
+                    });
+                    progressToast.finishFailure(errorMessage);
+                    return;
+                }
+            }
+
+            const submitStepId = 'submit-order';
+            const confirmStepId = 'confirm-order';
             const maxRetries = 2;
+            let retryCount = 0;
+            let tx = null;
+
+            progressToast.updateStep(submitStepId, {
+                status: 'active',
+                detail: 'Confirm in wallet',
+            });
 
             while (retryCount <= maxRetries) {
                 try {
-                    // Check and approve tokens
-                    const sellTokenApproved = await this.checkAndApproveToken(this.sellToken.address, sellAmountWei);
-                    if (!sellTokenApproved) {
-                        return;
-                    }
-
-                    const feeTokenApproved = await this.checkAndApproveToken(this.feeToken.address, this.feeToken.amount);
-                    if (!feeTokenApproved) {
-                        return;
-                    }
-
-                    // Add small delay after approvals
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-
-                    // Create order
-                    this.showInfo('Creating order...');
-                    const tx = await this.contract.createOrder(
+                    tx = await this.contract.createOrder(
                         taker,
                         this.sellToken.address,
                         sellAmountWei,
                         this.buyToken.address,
                         buyAmountWei
-                    ).catch(error => {
-                        if (error.code === 4001 || error.code === 'ACTION_REJECTED') {
-                            this.showWarning('Order creation declined');
-                            return null;
-                        }
-                        throw error;
-                    });
-
-                    if (!tx) return; // User rejected the transaction
-
-                    this.showInfo('Waiting for confirmation...');
-                    
-                    // Add timeout handling for tx.wait()
-                    const waitPromise = tx.wait();
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Transaction timeout - please check your wallet')), 30000)
                     );
-                    
-                    const receipt = await Promise.race([waitPromise, timeoutPromise]);
-                    
-                    // Verify transaction was actually successful
-                    if (!receipt || receipt.status === 0) {
-                        throw new Error('Transaction failed on-chain');
-                    }
-                    
-                    this.debug('Transaction confirmed successfully:', receipt);
-                    
-                    // After success: clear cached balances and refresh any open token modals
-                    try {
-                        clearTokenCaches();
-                        this.refreshOpenTokenModals();
-                    } catch (e) {
-                        this.debug('Post-order cache clear/refresh failed:', e);
-                    }
-                    
-                    // Force a sync of all orders after successful creation
-                    const ws = this.ctx.getWebSocket();
-                    if (ws) {
-                        await ws.syncAllOrders(this.contract);
-                    }
-
-                    // If we get here, the transaction was successful
                     break;
-
                 } catch (error) {
-                    retryCount++;
-                    this.debug(`Create order attempt ${retryCount} failed:`, error);
+                    this.debug(`Create order submission attempt ${retryCount + 1} failed:`, error);
 
-                    // Handle timeout specifically
-                    if (error.message?.includes('Transaction timeout')) {
-                        this.showError('Transaction timed out. Please check your wallet and try again.');
-                        return; // Don't retry timeouts, let user try manually
+                    if (isUserRejection(error)) {
+                        progressToast.updateStep(submitStepId, {
+                            status: 'cancelled',
+                            detail: 'Wallet request rejected',
+                        });
+                        progressToast.finishCancelled('Cancelled before order submission.');
+                        return;
                     }
 
-                    // Handle on-chain failures
-                    if (error.message?.includes('Transaction failed on-chain')) {
-                        this.showError('Transaction failed on-chain. Please check your balance and try again.');
-                        return; // Don't retry on-chain failures
-                    }
-
-                    if (retryCount <= maxRetries && 
-                        (error.message?.includes('nonce') || 
-                         error.message?.includes('replacement fee too low'))) {
-                        this.showInfo('Retrying transaction...');
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    if (retryCount < maxRetries && this.isRetryableCreateOrderError(error)) {
+                        retryCount += 1;
+                        progressToast.setSummary('Retrying order submission...');
+                        progressToast.updateStep(submitStepId, {
+                            status: 'active',
+                            detail: `Retrying submission (attempt ${retryCount + 1} of ${maxRetries + 1})`,
+                        });
+                        await this.delay(1000);
                         continue;
                     }
-                    throw error;
+
+                    const errorMessage = extractTransactionErrorMessage(error);
+                    progressToast.updateStep(submitStepId, {
+                        status: 'failed',
+                        detail: errorMessage,
+                    });
+                    progressToast.finishFailure(errorMessage);
+                    return;
                 }
             }
 
-            this.showSuccess('Order created successfully!');
+            progressToast.setSummary(defaultSummary);
+            progressToast.updateStep(submitStepId, {
+                status: 'completed',
+                detail: 'Submitted',
+            });
+            progressToast.setTransaction({
+                hash: tx.hash,
+                chainId: this.ctx.getWalletChainId(),
+            });
+            progressToast.updateStep(confirmStepId, {
+                status: 'active',
+                detail: 'Waiting for confirmation',
+            });
+
+            try {
+                const waitPromise = tx.wait();
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Transaction timeout - please check your wallet')), 30000)
+                );
+
+                const receipt = await Promise.race([waitPromise, timeoutPromise]);
+                if (!receipt || receipt.status === 0) {
+                    throw new Error('Transaction failed on-chain');
+                }
+
+                this.debug('Transaction confirmed successfully:', receipt);
+
+                try {
+                    clearTokenCaches();
+                    this.refreshOpenTokenModals();
+                } catch (refreshError) {
+                    this.debug('Post-order cache clear/refresh failed:', refreshError);
+                }
+
+                const ws = this.ctx.getWebSocket();
+                if (ws) {
+                    await ws.syncAllOrders(this.contract);
+                }
+
+                progressToast.updateStep(confirmStepId, {
+                    status: 'completed',
+                    detail: 'Confirmed',
+                });
+                progressToast.finishSuccess('Order created successfully.');
+            } catch (error) {
+                this.debug('Create order confirmation error:', error);
+                const errorMessage = error.message?.includes('Transaction timeout')
+                    ? 'Transaction timed out. Please check your wallet and try again.'
+                    : error.message?.includes('Transaction failed on-chain')
+                        ? 'Transaction failed on-chain. Please check your balance and try again.'
+                        : extractTransactionErrorMessage(error);
+
+                progressToast.updateStep(confirmStepId, {
+                    status: 'failed',
+                    detail: errorMessage,
+                });
+                progressToast.finishFailure(errorMessage);
+                return;
+            }
+
             // this.resetForm();  // Commented out - not resetting form
             
             // Reload orders if needed
@@ -1078,22 +1165,8 @@ export class CreateOrder extends BaseComponent {
             handleTransactionError(error, this, 'order creation');
         } finally {
             this.isSubmitting = false;
+            this.transactionProgressSession = null;
             this.updateCreateButtonState();
-        }
-    }
-
-    async checkAllowance(tokenAddress, owner, amount) {
-        try {
-            const tokenContract = new ethers.Contract(
-                tokenAddress,
-                ['function allowance(address owner, address spender) view returns (uint256)'],
-                this.provider
-            );
-            const allowance = await tokenContract.allowance(owner, this.contract.address);
-            return allowance.gte(amount);
-        } catch (error) {
-            this.error('Error checking allowance:', error);
-            return false;
         }
     }
 
@@ -1123,6 +1196,10 @@ export class CreateOrder extends BaseComponent {
         try {
             this.debug('Loading allowed wallet tokens...');
             const allowedTokens = await getAllWalletTokens();
+            this.tokenDisplaySymbolMap = buildTokenDisplaySymbolMap(
+                allowedTokens,
+                this.ctx?.getWalletChainId?.()
+            );
             const normalizedAllowed = allowedTokens.map(token => this.normalizeTokenDisplay(token));
 
             this.tokens = normalizedAllowed; // Keep allowed tokens for backward compatibility
@@ -1439,7 +1516,7 @@ export class CreateOrder extends BaseComponent {
                                             </div>
                                             <div class="token-item-info">
                                                 <div class="token-item-symbol">
-                                                    ${token.symbol}
+                                                    ${token.displaySymbol || token.symbol}
                                                 </div>
                                                 <div class="token-item-name">
                                                     ${token.name}
@@ -1501,7 +1578,8 @@ export class CreateOrder extends BaseComponent {
 
                 const searchResults = searchSource.filter(token => 
                     token.name.toLowerCase().includes(searchTerm) ||
-                    token.symbol.toLowerCase().includes(searchTerm)
+                    token.symbol.toLowerCase().includes(searchTerm) ||
+                    (token.displaySymbol || '').toLowerCase().includes(searchTerm)
                 );
 
                 if (searchResults.length > 0) {
@@ -1534,7 +1612,7 @@ export class CreateOrder extends BaseComponent {
                                                 </div>
                                                 <div class="token-item-info">
                                                     <div class="token-item-symbol">
-                                                        ${token.symbol}
+                                                        ${token.displaySymbol || token.symbol}
                                                     </div>
                                                     <div class="token-item-name">
                                                         ${token.name}
@@ -1605,7 +1683,7 @@ export class CreateOrder extends BaseComponent {
         // Clear existing content
         container.innerHTML = '';
 
-        // Sort tokens: tokens with balance first, then alphabetically by symbol
+        // Sort tokens: tokens with balance first, then alphabetically by display symbol
         const sortedTokens = [...tokens]
             .map(token => this.normalizeTokenDisplay(token))
             .sort((a, b) => {
@@ -1616,8 +1694,8 @@ export class CreateOrder extends BaseComponent {
             if (aBalance > 0 && bBalance === 0) return -1;
             if (aBalance === 0 && bBalance > 0) return 1;
             
-            // Then sort alphabetically by symbol
-            return a.symbol.localeCompare(b.symbol);
+            // Then sort alphabetically by display symbol
+            return (a.displaySymbol || a.symbol).localeCompare(b.displaySymbol || b.symbol);
         });
 
         // Add each token to the container
@@ -1625,6 +1703,7 @@ export class CreateOrder extends BaseComponent {
             const tokenElement = document.createElement('div');
             const balance = Number(token.balance) || 0;
             const hasBalance = balance > 0;
+            const tokenLabel = token.displaySymbol || token.symbol;
             
             // For buy tokens, don't grey out tokens with no balance and don't add border classes
             if (type === 'buy') {
@@ -1682,7 +1761,7 @@ export class CreateOrder extends BaseComponent {
                         </div>
                         <div class="token-item-info">
                             <div class="token-item-symbol">
-                                ${token.symbol}
+                                ${tokenLabel}
                             </div>
                             <div class="token-item-name">${token.name}</div>
                         </div>
@@ -1736,7 +1815,14 @@ export class CreateOrder extends BaseComponent {
     }
 
     normalizeTokenDisplay(token) {
-        return token;
+        if (!token || typeof token !== 'object') {
+            return token;
+        }
+
+        return {
+            ...token,
+            displaySymbol: getDisplaySymbol(token, this.tokenDisplaySymbolMap)
+        };
     }
 
     // Add helper method for token icons
@@ -1875,143 +1961,101 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
-    async checkAndApproveToken(tokenAddress, amount) {
-        try {
-            this.debug(`Checking allowance for token: ${tokenAddress}`);
-            
-            // Get signer and current address
-            const signer = walletManager.getSigner();
-            const currentAddress = await walletManager.getCurrentAddress();
-            if (!signer || !currentAddress) {
-                throw new Error('Wallet not connected');
-            }
-
-            // Calculate required amount, accounting for fee token if same as sell token
-            let requiredAmount = ethers.BigNumber.from(amount);
-            
-            if (tokenAddress.toLowerCase() === this.feeToken?.address?.toLowerCase() &&
-                tokenAddress.toLowerCase() === this.sellToken?.address?.toLowerCase()) {
-                const sellAmountStr = document.getElementById('sellAmount')?.value;
-                if (sellAmountStr) {
-                    const tokenDecimals = await this.getTokenDecimals(tokenAddress);
-                    const sellAmountWei = ethers.utils.parseUnits(sellAmountStr, tokenDecimals);
-                    const feeAmountWei = ethers.BigNumber.from(this.feeToken.amount);
-                    requiredAmount = sellAmountWei.add(feeAmountWei);
-                    this.debug(`Combined amount for approval (sell + fee): ${requiredAmount.toString()}`);
-                }
-            }
-
-            // Create token contract instance
-            const tokenContract = new ethers.Contract(
-                tokenAddress,
-                [
-                    'function allowance(address owner, address spender) view returns (uint256)',
-                    'function approve(address spender, uint256 amount) returns (bool)'
-                ],
-                signer
-            );
-
-            // Get current allowance
-            const currentAllowance = await tokenContract.allowance(
-                currentAddress,
-                this.contract.address
-            );
-            this.debug(`Current allowance: ${currentAllowance.toString()}`);
-            this.debug(`Required amount: ${requiredAmount.toString()}`);
-
-            // If allowance is insufficient, approve only what's needed
-            if (currentAllowance.lt(requiredAmount)) {
-                const additionalAmount = requiredAmount.sub(currentAllowance);
-                
-                this.showInfo(`Requesting additional token approval (${ethers.utils.formatUnits(additionalAmount, await this.getTokenDecimals(tokenAddress))} more needed)...`);
-                const approveTx = await tokenContract.approve(this.contract.address, requiredAmount);
-                this.showInfo('Please confirm the approval in your wallet...');
-                
-                await approveTx.wait();
-                this.showSuccess('Token approved successfully');
-
-                const newAllowance = await tokenContract.allowance(currentAddress, this.contract.address);
-                this.debug(`New allowance after approval: ${newAllowance.toString()}`);
-            }
-
-            return true;
-        } catch (error) {
-            this.debug('Token approval error:', error);
-            // Use utility function for consistent error handling
-            handleTransactionError(error, this, 'token approval');
-            return false;
-        }
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    // Add new helper method for user-friendly error messages
-    getUserFriendlyError(error) {
-        // Check for common error codes and messages
-        if (error.code === 4001 || error.code === 'ACTION_REJECTED') {
-            return 'Transaction was declined';
-        }
-        
-        // Handle timeout specifically
-        if (error.message?.includes('Transaction timeout')) {
-            return 'Transaction timed out. Please check your wallet and try again.';
-        }
-        
-        // Handle on-chain failures
-        if (error.message?.includes('Transaction failed on-chain')) {
-            return 'Transaction failed on-chain. Please check your balance and try again.';
-        }
-        
-        // Handle contract revert errors with detailed messages
-        if (error.code === -32603 && error.data?.message) {
-            return error.data.message;
-        }
-        
-        // Handle other specific error cases
-        if (error.message?.includes('insufficient funds')) {
-            return 'Insufficient funds for gas fees';
-        }
-        if (error.message?.includes('nonce')) {
-            return 'Transaction error - please refresh and try again';
-        }
-        if (error.message?.includes('gas required exceeds allowance')) {
-            return 'Transaction requires too much gas';
-        }
-        
-        // Try to extract error from ethers error structure
-        if (error.error?.data?.message) {
-            return error.error.data.message;
-        }
-        
-        // Default generic message
-        return 'Transaction failed - please try again';
+    isRetryableCreateOrderError(error) {
+        const message = error?.message || '';
+        return message.includes('nonce') || message.includes('replacement fee too low');
     }
 
-    // Helper method to verify transaction status
-    async verifyTransactionStatus(txHash) {
-        try {
-            const provider = walletManager.getProvider();
-            if (!provider) {
-                throw new Error('Provider not available');
-            }
+    async getCreateOrderApprovalRequirements({ signer, owner, sellAmountWei }) {
+        const feeAmountWei = ethers.BigNumber.from(this.feeToken.amount);
+        const sellTokenAddress = this.sellToken.address.toLowerCase();
+        const feeTokenAddress = this.feeToken.address.toLowerCase();
 
-            // Wait a bit for transaction to be mined
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Get transaction receipt
-            const receipt = await provider.getTransactionReceipt(txHash);
-            
-            if (!receipt) {
-                throw new Error('Transaction not found on-chain');
-            }
-
-            if (receipt.status === 0) {
-                throw new Error('Transaction failed on-chain');
-            }
-
-            return receipt;
-        } catch (error) {
-            this.debug('Transaction verification failed:', error);
-            throw error;
+        if (sellTokenAddress === feeTokenAddress) {
+            return [
+                await this.getTokenApprovalRequirement({
+                    signer,
+                    owner,
+                    stepId: 'approve-combined',
+                    label: `Approve ${this.sellToken.symbol} for sell amount and fee`,
+                    tokenAddress: this.sellToken.address,
+                    requiredAmount: sellAmountWei.add(feeAmountWei),
+                })
+            ];
         }
+
+        const [sellRequirement, feeRequirement] = await Promise.all([
+            this.getTokenApprovalRequirement({
+                signer,
+                owner,
+                stepId: 'approve-sell',
+                label: `Approve ${this.sellToken.symbol}`,
+                tokenAddress: this.sellToken.address,
+                requiredAmount: sellAmountWei,
+            }),
+            this.getTokenApprovalRequirement({
+                signer,
+                owner,
+                stepId: 'approve-fee',
+                label: `Approve ${this.feeToken.symbol} fee`,
+                tokenAddress: this.feeToken.address,
+                requiredAmount: feeAmountWei,
+            }),
+        ]);
+
+        return [sellRequirement, feeRequirement];
+    }
+
+    async getTokenApprovalRequirement({ signer, owner, stepId, label, tokenAddress, requiredAmount }) {
+        const tokenContract = new ethers.Contract(
+            tokenAddress,
+            [
+                'function allowance(address owner, address spender) view returns (uint256)',
+                'function approve(address spender, uint256 amount) returns (bool)'
+            ],
+            signer
+        );
+        const currentAllowance = await tokenContract.allowance(owner, this.contract.address);
+
+        this.debug(`Current allowance for ${label}: ${currentAllowance.toString()}`);
+        this.debug(`Required amount for ${label}: ${requiredAmount.toString()}`);
+
+        return {
+            stepId,
+            label,
+            tokenAddress,
+            tokenContract,
+            requiredAmount,
+            currentAllowance,
+            needsApproval: currentAllowance.lt(requiredAmount),
+        };
+    }
+
+    async approveTokenRequirement(requirement, progressToast) {
+        progressToast.updateStep(requirement.stepId, {
+            status: 'active',
+            detail: 'Confirm in wallet',
+        });
+
+        const approveTx = await requirement.tokenContract.approve(
+            this.contract.address,
+            requirement.requiredAmount
+        );
+
+        progressToast.updateStep(requirement.stepId, {
+            status: 'active',
+            detail: 'Waiting for confirmation',
+        });
+
+        await approveTx.wait();
+        progressToast.updateStep(requirement.stepId, {
+            status: 'completed',
+            detail: 'Approved',
+        });
     }
 
     // Update the fee display in the UI
@@ -2092,6 +2136,7 @@ export class CreateOrder extends BaseComponent {
             this[`${type}Token`] = {
                 address: token.address,
                 symbol: token.symbol,
+                displaySymbol: token.displaySymbol || token.symbol,
                 decimals: token.decimals || 18,
                 balance: token.balance || '0',
                 usdPrice: usdPrice
@@ -2128,7 +2173,7 @@ export class CreateOrder extends BaseComponent {
                                 }
                             </div>
                             <div class="token-info">
-                                <span class="token-symbol">${token.symbol}</span>
+                                <span class="token-symbol">${token.displaySymbol || token.symbol}</span>
                             </div>
                         </div>
                         <svg width="12" height="12" viewBox="0 0 12 12">
@@ -2207,7 +2252,8 @@ export class CreateOrder extends BaseComponent {
             if (type === 'sell') {
                 const balance = Number(token.balance) || 0;
                 if (balance <= 0) {
-                    this.showWarning(`${token.symbol} has no balance available for selling. Please select a token with a balance.`);
+                    const tokenLabel = token.displaySymbol || token.symbol;
+                    this.showWarning(`${tokenLabel} has no balance available for selling. Please select a token with a balance.`);
                     return; // Don't allow selection of tokens with zero balance for selling
                 }
             }
@@ -2258,6 +2304,15 @@ export class CreateOrder extends BaseComponent {
                 !this.isSubmitting &&
                 hasTokens &&
                 hasAmounts;
+
+            const canViewProgress = this.isSubmitting && this.transactionProgressSession?.isHidden();
+
+            if (canViewProgress) {
+                createButton.disabled = false;
+                createButton.classList.remove('disabled');
+                createButton.textContent = 'View Progress';
+                return;
+            }
 
             createButton.disabled = !canCreateOrder;
             createButton.classList.toggle('disabled', !canCreateOrder);
@@ -2397,6 +2452,7 @@ export class CreateOrder extends BaseComponent {
         const pricing = this.ctx.getPricing();
         modalContent.innerHTML = tokens.map(token => {
             const displayToken = this.normalizeTokenDisplay(token);
+            const tokenLabel = displayToken.displaySymbol || displayToken.symbol;
             const usdPrice = pricing?.getPrice(displayToken.address);
             const balance = parseFloat(displayToken.balance) || 0;
             const balanceUSD = (balance > 0 && usdPrice !== undefined) ? (balance * usdPrice).toFixed(2) : (usdPrice !== undefined ? '0.00' : 'N/A');
@@ -2406,12 +2462,12 @@ export class CreateOrder extends BaseComponent {
                     <div class="token-item-left">
                         <div class="token-icon">
                             ${displayToken.iconUrl && displayToken.iconUrl !== 'fallback' ? 
-                                `<img src="${displayToken.iconUrl}" alt="${displayToken.symbol}" class="token-icon-image">` :
-                                `<div class="token-icon-fallback">${displayToken.symbol.charAt(0)}</div>`
+                                `<img src="${displayToken.iconUrl}" alt="${tokenLabel}" class="token-icon-image">` :
+                                `<div class="token-icon-fallback">${tokenLabel.charAt(0)}</div>`
                             }
                         </div>
                         <div class="token-info">
-                            <span class="token-symbol">${displayToken.symbol}</span>
+                            <span class="token-symbol">${tokenLabel}</span>
                             <span class="token-name">${displayToken.name || ''}</span>
                         </div>
                     </div>

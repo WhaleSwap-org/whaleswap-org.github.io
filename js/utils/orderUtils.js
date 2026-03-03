@@ -69,6 +69,33 @@ export function getExplorerUrl(address) {
 }
 
 /**
+ * Get the blockchain explorer URL for a transaction hash.
+ * @param {string} txHash - Transaction hash
+ * @param {string|number|null} chainId - Optional chain id override
+ * @returns {string} Explorer URL or '#' if not configured
+ */
+export function getTransactionExplorerUrl(txHash, chainId = null) {
+    if (!txHash) return '#';
+
+    let networkConfig = null;
+    try {
+        networkConfig = chainId !== null && chainId !== undefined
+            ? getNetworkConfig(chainId)
+            : getNetworkConfig();
+    } catch (error) {
+        console.warn('[orderUtils] Failed to resolve transaction explorer network', error);
+        return '#';
+    }
+
+    if (!networkConfig?.explorer) {
+        console.warn('[orderUtils] Transaction explorer URL not configured');
+        return '#';
+    }
+
+    return `${networkConfig.explorer}/tx/${txHash}`;
+}
+
+/**
  * Get human-readable text for order status
  * @param {number} status - Order status code (0=Active, 1=Filled, 2=Cancelled)
  * @returns {string} Status text

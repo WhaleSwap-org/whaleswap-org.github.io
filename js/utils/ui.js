@@ -195,6 +195,31 @@ export function isUserRejection(error) {
 }
 
 /**
+ * Extract the most useful user-facing transaction error message.
+ * @param {Error} error
+ * @returns {string}
+ */
+export function extractTransactionErrorMessage(error) {
+    if (!error) {
+        return 'Unknown error occurred';
+    }
+
+    if (error.code === 'UNPREDICTABLE_GAS_LIMIT' && error.error?.data?.message) {
+        return error.error.data.message;
+    }
+
+    if (error.reason) {
+        return error.reason;
+    }
+
+    if (error.error?.data?.message) {
+        return error.error.data.message;
+    }
+
+    return error.message || 'Unknown error occurred';
+}
+
+/**
  * Handle transaction errors with silent user rejection handling
  * @param {Error} error - The error object
  * @param {Object} component - The component instance with debug and showError methods
@@ -207,20 +232,7 @@ export function handleTransactionError(error, component, action = 'transaction')
         component.debug(`User rejected ${action}`);
         return true; // Indicates user rejection was handled
     } else {
-        // Extract the most meaningful error message
-        let errorMessage = error.message || 'Unknown error occurred';
-        
-        // For contract revert errors, try to extract the actual revert message
-        if (error.code === 'UNPREDICTABLE_GAS_LIMIT' && error.error?.data?.message) {
-            // This is a contract revert - use the actual revert message
-            errorMessage = error.error.data.message;
-        } else if (error.reason) {
-            // Use the reason if available (often contains the actual error)
-            errorMessage = error.reason;
-        } else if (error.error?.data?.message) {
-            // Fallback to nested error message
-            errorMessage = error.error.data.message;
-        }
+        const errorMessage = extractTransactionErrorMessage(error);
         
         // Show error for actual failures
         component.error(`${action} failed:`, {

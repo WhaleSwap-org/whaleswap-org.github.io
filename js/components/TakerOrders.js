@@ -5,6 +5,7 @@ import { processOrderAddress, generateStatusCellHTML, setupClickToCopy } from '.
 import { formatTimeDiff, calculateTotalValue, formatDealValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
+import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
 export class TakerOrders extends BaseComponent {
     constructor() {
@@ -93,7 +94,11 @@ export class TakerOrders extends BaseComponent {
 
             // Get all orders and filter for taker
             const ws = this.ctx.getWebSocket();
-            await ws.ensureFreshChainTime();
+            this.tokenDisplaySymbolMap = buildTokenDisplaySymbolMap(
+                Array.from(ws.tokenCache.values()),
+                this.ctx?.getWalletChainId?.()
+            );
+            await ws.ensureChainTimeInitialized();
             let ordersToDisplay = Array.from(ws.orderCache.values())
                 .filter(order => 
                     order?.taker && 
@@ -295,6 +300,8 @@ export class TakerOrders extends BaseComponent {
             const ws = this.ctx.getWebSocket();
             const sellTokenInfo = await ws.getTokenInfo(order.sellToken);
             const buyTokenInfo = await ws.getTokenInfo(order.buyToken);
+            const sellDisplaySymbol = getDisplaySymbol(sellTokenInfo, this.tokenDisplaySymbolMap);
+            const buyDisplaySymbol = getDisplaySymbol(buyTokenInfo, this.tokenDisplaySymbolMap);
 
             // Use pre-formatted values from dealMetrics
             const { 
@@ -353,7 +360,7 @@ export class TakerOrders extends BaseComponent {
                         </div>
                         <div class="token-details">
                             <div class="token-symbol-row">
-                                <span class="token-symbol">${sellTokenInfo.symbol}</span>
+                                <span class="token-symbol">${sellDisplaySymbol}</span>
                                 <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, safeFormattedSellAmount)}</span>
                             </div>
                             <span class="token-amount">${safeFormattedSellAmount}</span>
@@ -367,7 +374,7 @@ export class TakerOrders extends BaseComponent {
                         </div>
                         <div class="token-details">
                             <div class="token-symbol-row">
-                                <span class="token-symbol">${buyTokenInfo.symbol}</span>
+                                <span class="token-symbol">${buyDisplaySymbol}</span>
                                 <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, safeFormattedBuyAmount)}</span>
                             </div>
                             <span class="token-amount">${safeFormattedBuyAmount}</span>
@@ -388,12 +395,17 @@ export class TakerOrders extends BaseComponent {
             // Render token icons asynchronously (target explicit columns)
             const sellTokenIconContainer = tr.querySelector('td:nth-child(2) .token-icon');
             const buyTokenIconContainer = tr.querySelector('td:nth-child(3) .token-icon');
+            const actionCell = tr.querySelector('.action-column');
             
             if (sellTokenIconContainer) {
                 this.helper.renderTokenIcon(sellTokenInfo, sellTokenIconContainer);
             }
             if (buyTokenIconContainer) {
                 this.helper.renderTokenIcon(buyTokenInfo, buyTokenIconContainer);
+            }
+
+            if (actionCell) {
+                this.updateActionColumn(actionCell, order, wallet);
             }
 
             // Start expiry timer for this row
@@ -412,13 +424,15 @@ export class TakerOrders extends BaseComponent {
         const ws = this.ctx.getWebSocket();
 
         // For taker orders, user is the taker - show fill button if they can fill
-        if (ws.canFillOrder(order, currentAccount)) {
+        if (this.helper.isFillProgressActive(order.id)) {
+            actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
+            const fillButton = actionCell.querySelector('.fill-button');
+            this.helper.configureFillButton(fillButton, order.id);
+        } else if (ws.canFillOrder(order, currentAccount)) {
             if (!actionCell.querySelector('.fill-button')) {
-                actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}">Fill</button>`;
+                actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
                 const fillButton = actionCell.querySelector('.fill-button');
-                if (fillButton) {
-                    fillButton.addEventListener('click', () => this.helper.fillOrder(order.id));
-                }
+                this.helper.configureFillButton(fillButton, order.id);
             }
         } else {
             actionCell.innerHTML = '-';

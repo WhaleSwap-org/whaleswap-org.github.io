@@ -683,11 +683,12 @@ class App {
 			this.toast = getToast();
 			this.debug('Toast component initialized');
 
-			// Populate context with toast functions
-			this.ctx.toast.showError = showError;
-			this.ctx.toast.showSuccess = showSuccess;
-			this.ctx.toast.showWarning = showWarning;
-			this.ctx.toast.showInfo = showInfo;
+				// Populate context with toast functions
+				this.ctx.toast.showError = showError;
+				this.ctx.toast.showSuccess = showSuccess;
+				this.ctx.toast.showWarning = showWarning;
+				this.ctx.toast.showInfo = showInfo;
+				this.ctx.toast.createTransactionProgress = this.toast.createTransactionProgress.bind(this.toast);
 
 			// Set brand in document title, header, and favicon from constants
 			try {

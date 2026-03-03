@@ -49,6 +49,7 @@ export function createAppContext() {
             showSuccess: null,
             showWarning: null,
             showInfo: null,
+            createTransactionProgress: null,
         },
         
         /**

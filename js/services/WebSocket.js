@@ -36,9 +36,6 @@ export class WebSocketService {
         this.orderExpiry = null;
         this.gracePeriod = null;
 
-        // Throttle state for block logs
-        this.lastBlockLogTime = 0;
-
         // Periodic websocket health checks catch stale-open sockets that never emit close.
         this.healthCheckIntervalMs = 15000;
         this.healthCheckTimeoutMs = 5000;
@@ -48,10 +45,11 @@ export class WebSocketService {
         
         // Chain-time cache (authoritative source for expiry/grace checks)
         this.lastKnownChainTimestamp = null;
-        this.lastKnownChainBlock = null;
         this.chainTimeSyncedAtMonotonicMs = null;
         this.chainTimeSyncPromise = null;
-        this.chainTimeMaxAgeMs = 30000;
+        this.chainTimeMaxAgeMs = 120000;
+        this.chainTimeRetryCooldownMs = 10000;
+        this.lastChainTimeBootstrapFailureAtMonotonicMs = null;
 
         // Order sync lifecycle state
         this.orderSyncPromise = null;
@@ -226,7 +224,7 @@ export class WebSocketService {
 
     /**
      * Age of the cached chain timestamp.
-     * @returns {number} Milliseconds since last chain-time sync, or `Infinity` if unavailable.
+     * @returns {number} Milliseconds since last successful bootstrap, or `Infinity` if unavailable.
      */
     getChainTimeAgeMs() {
         if (!this.hasChainTime()) {
@@ -236,11 +234,10 @@ export class WebSocketService {
     }
 
     /**
-     * Synchronize local chain-time cache from the provider.
-     * @param {string|number} [blockRef='latest'] - Block tag or number to query.
+     * Bootstrap the chain-time cache from the latest block timestamp.
      * @returns {Promise<number|null>} Synced chain timestamp in seconds, or `null` on failure.
      */
-    async syncChainTime(blockRef = 'latest') {
+    async bootstrapChainTime() {
         if (!this.provider) {
             return null;
         }
@@ -251,29 +248,22 @@ export class WebSocketService {
 
         this.chainTimeSyncPromise = (async () => {
             try {
-                const block = await this.provider.getBlock(blockRef);
+                const block = await this.provider.getBlock('latest');
                 const blockTimestamp = Number(block?.timestamp);
-                const blockNumber = Number(block?.number);
 
                 if (!Number.isFinite(blockTimestamp)) {
+                    this.lastChainTimeBootstrapFailureAtMonotonicMs = this.getMonotonicNowMs();
                     return null;
                 }
 
-                if (Number.isFinite(this.lastKnownChainBlock) &&
-                    Number.isFinite(blockNumber) &&
-                    blockNumber < this.lastKnownChainBlock) {
-                    return this.lastKnownChainTimestamp;
-                }
-
                 this.lastKnownChainTimestamp = blockTimestamp;
-                this.lastKnownChainBlock = Number.isFinite(blockNumber)
-                    ? blockNumber
-                    : this.lastKnownChainBlock;
                 this.chainTimeSyncedAtMonotonicMs = this.getMonotonicNowMs();
+                this.lastChainTimeBootstrapFailureAtMonotonicMs = null;
 
                 return this.lastKnownChainTimestamp;
             } catch (error) {
-                this.debug('Failed to sync chain time:', error);
+                this.lastChainTimeBootstrapFailureAtMonotonicMs = this.getMonotonicNowMs();
+                this.debug('Failed to bootstrap chain time:', error);
                 return null;
             } finally {
                 this.chainTimeSyncPromise = null;
@@ -299,18 +289,23 @@ export class WebSocketService {
     }
 
     /**
-     * Ensure cached chain time exists and is recent enough for UI/eligibility checks.
-     * @param {number} [maxAgeMs=this.chainTimeMaxAgeMs] - Maximum tolerated cache age in ms.
+     * Ensure chain time is initialized before relying on local monotonic extrapolation.
      * @returns {Promise<number|null>} Current chain timestamp in seconds, or `null` if sync failed.
      */
-    async ensureFreshChainTime(maxAgeMs = this.chainTimeMaxAgeMs) {
-        const requestedMaxAgeMs = Number(maxAgeMs);
-        const effectiveMaxAgeMs = Number.isFinite(requestedMaxAgeMs) && requestedMaxAgeMs >= 0
-            ? requestedMaxAgeMs
-            : this.chainTimeMaxAgeMs;
+    async ensureChainTimeInitialized() {
+        const hasCachedChainTime = this.hasChainTime();
+        const needsBootstrap = !hasCachedChainTime ||
+            this.getChainTimeAgeMs() > this.chainTimeMaxAgeMs;
 
-        if (!this.hasChainTime() || this.getChainTimeAgeMs() > effectiveMaxAgeMs) {
-            await this.syncChainTime();
+        if (needsBootstrap) {
+            const lastFailureAt = this.lastChainTimeBootstrapFailureAtMonotonicMs;
+            if (lastFailureAt !== null) {
+                const msSinceLastFailure = this.getMonotonicNowMs() - lastFailureAt;
+                if (hasCachedChainTime && msSinceLastFailure < this.chainTimeRetryCooldownMs) {
+                    return this.getCurrentTimestamp();
+                }
+            }
+            await this.bootstrapChainTime();
         }
 
         return this.getCurrentTimestamp();
@@ -550,7 +545,7 @@ export class WebSocketService {
                     throw new Error('Failed to connect to any WebSocket URL');
                 }
 
-                await this.syncChainTime();
+                await this.bootstrapChainTime();
 
                 // Initialize contract before fetching constants
                 this.debug('Initializing contract...');
@@ -633,29 +628,9 @@ export class WebSocketService {
         try {
             this.debug('Setting up event listeners for contract:', contract.address);
             
-            // Clean up any existing event listeners first
-            if (this.provider) {
-                this.provider.removeAllListeners("block");
-            }
-
             // Test event subscription
             const filter = contract.filters.OrderCreated();
             this.debug('Created filter:', filter);
-            
-            // Listen for new blocks to ensure connection is alive (throttled logging)
-            this.provider.on("block", async (blockNumber) => {
-                try {
-                    await this.syncChainTime(blockNumber);
-                    const now = Date.now();
-                    if (now - this.lastBlockLogTime >= 5000) { // log at most every 5s
-                        this.lastBlockLogTime = now;
-                        this.debug('New block received:', blockNumber);
-                    }
-                } catch (error) {
-                    this.debug('Error processing block event:', error);
-                    // Don't let block processing errors crash the app
-                }
-            });
 
             // Add error handling for WebSocket connection
             const socket = this.provider?._websocket;
@@ -1027,7 +1002,6 @@ export class WebSocketService {
             
             // Remove provider event listeners
             if (this.provider) {
-                this.provider.removeAllListeners("block");
                 if (this.provider._websocket) {
                     this.provider._websocket.onopen = null;
                     this.provider._websocket.onerror = null;
@@ -1058,9 +1032,9 @@ export class WebSocketService {
             // Clear cache
             this.orderCache.clear();
             this.lastKnownChainTimestamp = null;
-            this.lastKnownChainBlock = null;
             this.chainTimeSyncedAtMonotonicMs = null;
             this.chainTimeSyncPromise = null;
+            this.lastChainTimeBootstrapFailureAtMonotonicMs = null;
             this.orderSyncPromise = null;
             this.hasCompletedOrderSync = false;
             this.isInitialized = false;
@@ -1108,7 +1082,6 @@ export class WebSocketService {
                     throw new Error('Contract not initialized. Call initialize() first.');
                 }
                 this.debug('Starting order sync with contract:', this.contract.address);
-                await this.syncChainTime();
 
                 let nextOrderId = 0;
                 try {
@@ -1572,9 +1545,9 @@ export class WebSocketService {
                 this.contract = null;
                 this.initializationPromise = null;
                 this.lastKnownChainTimestamp = null;
-                this.lastKnownChainBlock = null;
                 this.chainTimeSyncedAtMonotonicMs = null;
                 this.chainTimeSyncPromise = null;
+                this.lastChainTimeBootstrapFailureAtMonotonicMs = null;
                 this.resetContractDisabledStateCache();
 
                 await new Promise(resolve => setTimeout(resolve, delay));

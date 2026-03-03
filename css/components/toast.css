@@ -85,6 +85,171 @@
   margin: 0;
 }
 
+.toast-summary,
+.toast-terminal-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary, #666);
+}
+
+.toast-summary[hidden],
+.toast-terminal-message[hidden],
+.toast-checklist-detail[hidden],
+.toast-transaction-meta[hidden],
+.toast-transaction-link[hidden] {
+  display: none;
+}
+
+.toast-transaction .toast-body {
+  display: grid;
+  gap: 12px;
+}
+
+.toast-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.toast-checklist-item {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.toast-checklist-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  margin-top: 1px;
+  color: var(--text-tertiary, #777);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.toast-checklist-content {
+  min-width: 0;
+}
+
+.toast-checklist-label {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.toast-checklist-detail {
+  margin-top: 2px;
+  color: var(--text-secondary, #666);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.toast-checklist-item.is-pending .toast-checklist-icon {
+  color: var(--text-tertiary, #777);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.toast-checklist-item.is-active .toast-checklist-icon {
+  color: #17a2b8;
+  background: rgba(23, 162, 184, 0.14);
+}
+
+.toast-checklist-item.is-completed .toast-checklist-icon {
+  color: #28a745;
+  background: rgba(40, 167, 69, 0.14);
+}
+
+.toast-checklist-item.is-failed .toast-checklist-icon {
+  color: #dc3545;
+  background: rgba(220, 53, 69, 0.14);
+}
+
+.toast-checklist-item.is-cancelled .toast-checklist-icon {
+  color: #d39e00;
+  background: rgba(255, 193, 7, 0.18);
+}
+
+.toast-checklist-item.is-active .toast-checklist-label {
+  color: #0f6f80;
+}
+
+.toast-checklist-item.is-failed .toast-checklist-label {
+  color: #b02a37;
+}
+
+.toast-checklist-item.is-cancelled .toast-checklist-label {
+  color: #9a6a00;
+}
+
+.toast-transaction-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.toast-transaction-hash {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.toast-transaction-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  opacity: 0.82;
+}
+
+.toast-transaction-link:hover {
+  opacity: 1;
+}
+
+.toast-transaction-link-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.toast-terminal-message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.toast-success .toast-terminal-message {
+  background: rgba(40, 167, 69, 0.1);
+  color: #1f7a35;
+}
+
+.toast-warning .toast-terminal-message {
+  background: rgba(255, 193, 7, 0.16);
+  color: #8a6400;
+}
+
+.toast-error .toast-terminal-message {
+  background: rgba(220, 53, 69, 0.1);
+  color: #a61e31;
+}
+
 /* Toast Close Button */
 .toast-close {
   background: none;
@@ -190,6 +355,34 @@
   background: linear-gradient(135deg, #1b2a2d 0%, var(--bg-secondary) 100%);
 }
 
+[data-theme="dark"] .toast-checklist-icon {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .toast-checklist-item.is-active .toast-checklist-label {
+  color: #6bd5e6;
+}
+
+[data-theme="dark"] .toast-checklist-item.is-failed .toast-checklist-label {
+  color: #ff8894;
+}
+
+[data-theme="dark"] .toast-checklist-item.is-cancelled .toast-checklist-label {
+  color: #ffd36b;
+}
+
+[data-theme="dark"] .toast-transaction-meta {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .toast-transaction-hash {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .toast-terminal-message {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 /* Responsive Design */
 @media (max-width: 480px) {
   .toast-container {
@@ -210,6 +403,22 @@
   .toast-message {
     font-size: 12px;
     max-height: 120px;
+  }
+
+  .toast-summary,
+  .toast-terminal-message,
+  .toast-checklist-label {
+    font-size: 12px;
+  }
+
+  .toast-checklist-detail,
+  .toast-transaction-link,
+  .toast-transaction-hash {
+    font-size: 11px;
+  }
+
+  .toast-transaction-meta {
+    gap: 8px;
   }
 
   .toast-title {

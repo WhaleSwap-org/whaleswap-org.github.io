@@ -5,6 +5,7 @@ import { createDealCellHTML } from '../utils/ui.js';
 import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
+import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
 export class ViewOrders extends BaseComponent {
     constructor(containerId = 'view-orders') {
@@ -117,7 +118,11 @@ export class ViewOrders extends BaseComponent {
             // Get all orders first
             const ws = this.ctx.getWebSocket();
             const wallet = this.ctx.getWallet();
-            await ws.ensureFreshChainTime();
+            this.tokenDisplaySymbolMap = buildTokenDisplaySymbolMap(
+                Array.from(ws.tokenCache.values()),
+                this.ctx?.getWalletChainId?.()
+            );
+            await ws.ensureChainTimeInitialized();
             let ordersToDisplay = Array.from(ws.orderCache.values());
             
             // Apply token filters
@@ -296,6 +301,8 @@ export class ViewOrders extends BaseComponent {
             const ws = this.ctx.getWebSocket();
             const sellTokenInfo = await ws.getTokenInfo(order.sellToken);
             const buyTokenInfo = await ws.getTokenInfo(order.buyToken);
+            const sellDisplaySymbol = getDisplaySymbol(sellTokenInfo, this.tokenDisplaySymbolMap);
+            const buyDisplaySymbol = getDisplaySymbol(buyTokenInfo, this.tokenDisplaySymbolMap);
             const deal = order.dealMetrics?.deal > 0 ? 1 / order.dealMetrics?.deal : undefined; // view as buyer/taker
             // Use pre-formatted values from dealMetrics
             const { 
@@ -348,7 +355,7 @@ export class ViewOrders extends BaseComponent {
                         </div>
                         <div class="token-details">
                             <div class="token-symbol-row">
-                                <span class="token-symbol">${sellTokenInfo.symbol}</span>
+                                <span class="token-symbol">${sellDisplaySymbol}</span>
                                 <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, safeFormattedSellAmount)}</span>
                             </div>
                             <span class="token-amount">${safeFormattedSellAmount}</span>
@@ -362,7 +369,7 @@ export class ViewOrders extends BaseComponent {
                         </div>
                         <div class="token-details">
                             <div class="token-symbol-row">
-                                <span class="token-symbol">${buyTokenInfo.symbol}</span>
+                                <span class="token-symbol">${buyDisplaySymbol}</span>
                                 <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, safeFormattedBuyAmount)}</span>
                             </div>
                             <span class="token-amount">${safeFormattedBuyAmount}</span>
@@ -377,12 +384,18 @@ export class ViewOrders extends BaseComponent {
             // Render token icons asynchronously (target explicit columns)
             const sellTokenIconContainer = tr.querySelector('td:nth-child(2) .token-icon');
             const buyTokenIconContainer = tr.querySelector('td:nth-child(3) .token-icon');
+            const actionCell = tr.querySelector('.action-column');
+            const wallet = this.ctx.getWallet();
             
             if (sellTokenIconContainer) {
                 this.helper.renderTokenIcon(sellTokenInfo, sellTokenIconContainer);
             }
             if (buyTokenIconContainer) {
                 this.helper.renderTokenIcon(buyTokenInfo, buyTokenIconContainer);
+            }
+
+            if (actionCell) {
+                this.updateActionColumn(actionCell, order, wallet);
             }
 
             // Start expiry timer for this row (handled by renderer)
@@ -406,14 +419,16 @@ export class ViewOrders extends BaseComponent {
         const isUserOrder = order.maker?.toLowerCase() === currentAccount;
         const ws = this.ctx.getWebSocket();
 
-        if (isUserOrder) {
+        if (this.helper.isFillProgressActive(order.id)) {
+            actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
+            const fillButton = actionCell.querySelector('.fill-button');
+            this.helper.configureFillButton(fillButton, order.id);
+        } else if (isUserOrder) {
             actionCell.innerHTML = '<span class="mine-label">Mine</span>';
         } else if (!isUserOrder && ws.canFillOrder(order, currentAccount)) {
-            actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}">Fill</button>`;
+            actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
             const fillButton = actionCell.querySelector('.fill-button');
-            if (fillButton) {
-                fillButton.addEventListener('click', () => this.helper.fillOrder(order.id));
-            }
+            this.helper.configureFillButton(fillButton, order.id);
         } else {
             actionCell.innerHTML = '';
         }
