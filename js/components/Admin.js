@@ -23,6 +23,7 @@ export class Admin extends BaseComponent {
         this.currentFeeTokenMetadata = null;
         this.feeTokenLookupTimeout = null;
         this.feeTokenLookupRequestId = 0;
+        this.feeConfigUpdatedHandler = null;
         this.tokenRowLookupTimeouts = new WeakMap();
         this.deleteTokenModal = null;
         this.deleteTokenTargetRow = null;
@@ -55,6 +56,7 @@ export class Admin extends BaseComponent {
             await this.ensureOwnerAccess();
             await this.loadCurrentFeeConfig();
             this.attachListeners();
+            this.subscribeToFeeConfigUpdates();
 
             this.isInitialized = true;
         } catch (error) {
@@ -181,6 +183,25 @@ export class Admin extends BaseComponent {
 
         this.resetFeeAmountHint();
         this.resetTokenRows();
+    }
+
+    subscribeToFeeConfigUpdates() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (this.feeConfigUpdatedHandler && ws.unsubscribe) {
+            ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+        }
+
+        this.feeConfigUpdatedHandler = () => {
+            this.loadCurrentFeeConfig().catch((error) => {
+                this.debug('Failed to refresh fee config after FeeConfigUpdated:', error);
+            });
+        };
+
+        ws.subscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
     }
 
     updateFeeTokenMetadataDisplay(metadata = null) {

@@ -17,6 +17,77 @@ export class ContractParams extends BaseComponent {
         this.cachedParams = null;
         this.lastFetchTime = 0;
         this.CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+        this.REQUEST_TIMEOUT_MS = 7000;
+        this.RECONNECT_TIMEOUT_MS = 45000;
+        this.RECONNECT_RETRY_LIMIT = 1;
+        this.feeConfigUpdatedHandler = null;
+        this.contractDisabledHandler = null;
+    }
+
+    setupFeeConfigSubscription(ws) {
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (!this.feeConfigUpdatedHandler) {
+            this.feeConfigUpdatedHandler = () => {
+                this.debug('FeeConfigUpdated received, invalidating cached contract parameters');
+                this.cachedParams = null;
+                this.lastFetchTime = 0;
+
+                // If this tab is visible, refresh immediately so UI reflects the new fee config.
+                if (this.container?.classList?.contains('active') && !this.isInitializing) {
+                    this.initialize().catch((error) => {
+                        this.debug('Failed to refresh contract parameters after FeeConfigUpdated:', error);
+                    });
+                }
+            };
+        }
+
+        if (ws.unsubscribe) {
+            ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+        }
+        ws.subscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+    }
+
+    setupContractDisabledSubscription(ws) {
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (!this.contractDisabledHandler) {
+            this.contractDisabledHandler = () => {
+                this.debug('ContractDisabled received, updating contract state display');
+                this.applyContractDisabledState();
+            };
+        }
+
+        if (ws.unsubscribe) {
+            ws.unsubscribe('ContractDisabled', this.contractDisabledHandler);
+        }
+        ws.subscribe('ContractDisabled', this.contractDisabledHandler);
+    }
+
+    applyContractDisabledState() {
+        if (!this.cachedParams) {
+            if (this.container?.classList?.contains('active') && !this.isInitializing) {
+                this.initialize().catch((error) => {
+                    this.debug('Failed to refresh contract parameters after ContractDisabled:', error);
+                });
+            }
+            return;
+        }
+
+        this.cachedParams = {
+            ...this.cachedParams,
+            isDisabled: true
+        };
+        this.lastFetchTime = Date.now();
+
+        const paramsContainer = this.container?.querySelector?.('.params-container');
+        if (paramsContainer) {
+            paramsContainer.innerHTML = this.generateParametersHTML(this.cachedParams);
+        }
     }
 
     async initialize(readOnlyMode = true) {
@@ -28,185 +99,313 @@ export class ContractParams extends BaseComponent {
         this.isInitializing = true;
 
         try {
-            // Check if we have valid cached data
+            const ws = this.ctx.getWebSocket();
+            this.setupFeeConfigSubscription(ws);
+            this.setupContractDisabledSubscription(ws);
+
             const now = Date.now();
             if (this.cachedParams && (now - this.lastFetchTime) < this.CACHE_DURATION) {
                 this.debug('Using cached parameters');
                 this.container.innerHTML = this.generateContainerHTML(this.cachedParams);
+                this.isInitialized = true;
                 return;
             }
 
             this.debug('Initializing ContractParams component');
             this.container.innerHTML = this.generateContainerHTML();
 
-            // Wait for WebSocket initialization using WebSocket's promise
-            const ws = this.ctx.getWebSocket();
-            await ws?.waitForInitialization();
+            const params = await this.fetchParametersWithRecovery();
 
-            const contract = ws.contract;
-            if (!contract) {
-                throw new Error('Contract not initialized');
-            }
-
-            // Non-blocking read: only wait if a sync is already in flight.
-            // App.startInitialOrderSync() owns the first triggerIfNeeded:true call.
-            void ws.waitForOrderSync({ triggerIfNeeded: false }).catch((e) => {
-                this.debug('Failed while checking order sync state:', e);
-            });
-
-            this.debug('Contract instance found, fetching parameters...');
-
-            // Fetch all parameters with individual error handling
-            const params = {};
-            const paramMethods = {
-                orderCreationFee: 'orderCreationFeeAmount',
-                firstOrderId: 'firstOrderId',
-                nextOrderId: 'nextOrderId',
-                isDisabled: 'isDisabled',
-                feeToken: 'feeToken',
-                owner: 'owner',
-                gracePeriod: 'GRACE_PERIOD',
-                orderExpiry: 'ORDER_EXPIRY',
-                allowedTokensCount: 'getAllowedTokensCount'
-            };
-
-            // Use WebSocket's queueRequest for rate limiting
-            await Promise.all(
-                Object.entries(paramMethods).map(async ([key, method]) => {
-                    try {
-                        params[key] = await ws.queueRequest(
-                            async () => contract[method]()
-                        );
-                        this.debug(`Fetched ${key}:`, params[key]);
-                    } catch (e) {
-                        this.debug(`Error fetching ${key}:`, e);
-                    }
-                })
-            );
-
-            // Add chain ID and contract address
-            try {
-                params.chainId = (await contract.provider.getNetwork()).chainId;
-                params.contractAddress = contract.address;
-            } catch (e) {
-                this.debug('Error fetching network info:', e);
-            }
-
-            // Use WebSocket's token info cache for fee token details
-            if (params.feeToken) {
-                try {
-                    const tokenInfo = await ws.getTokenInfo(params.feeToken);
-                    params.tokenSymbol = tokenInfo.symbol;
-                    params.tokenDecimals = tokenInfo.decimals;
-                    this.debug('Fetched token details:', tokenInfo);
-                } catch (e) {
-                    this.debug('Error fetching token details:', e);
-                    params.tokenSymbol = 'Unknown';
-                    params.tokenDecimals = 18;
-                }
-            }
-
-            // Build fee-token set from current fee token + loaded orders feeToken snapshots
-            const feeTokenSet = new Set();
-            const normalizeAddress = (value) => {
-                try {
-                    return ethers.utils.getAddress(value);
-                } catch (_) {
-                    return null;
-                }
-            };
-
-            const currentFeeToken = normalizeAddress(params.feeToken);
-            if (currentFeeToken) {
-                feeTokenSet.add(currentFeeToken);
-            }
-
-            try {
-                const orders = typeof ws.getOrders === 'function'
-                    ? ws.getOrders()
-                    : Array.from(ws.orderCache?.values?.() || []);
-
-                for (const order of orders) {
-                    const orderFeeToken = normalizeAddress(order?.feeToken);
-                    if (!orderFeeToken || (currentFeeToken && orderFeeToken === currentFeeToken)) {
-                        continue;
-                    }
-                    feeTokenSet.add(orderFeeToken);
-                }
-            } catch (e) {
-                this.debug('Error collecting fee tokens from loaded orders:', e);
-            }
-
-            params.accumulatedFeeRows = [];
-            if (typeof contract.accumulatedFeesByToken === 'function') {
-                await Promise.all(
-                    Array.from(feeTokenSet).map(async (tokenAddress) => {
-                        try {
-                            const [amount, tokenInfo] = await Promise.all([
-                                ws.queueRequest(async () => contract.accumulatedFeesByToken(tokenAddress)),
-                                ws.getTokenInfo(tokenAddress)
-                            ]);
-                            const keepRow = tokenAddress === currentFeeToken || !amount.isZero();
-                            if (!keepRow) {
-                                return;
-                            }
-                            params.accumulatedFeeRows.push({
-                                tokenAddress,
-                                amount,
-                                symbol: tokenInfo?.symbol || 'Unknown',
-                                decimals: tokenInfo?.decimals ?? 18,
-                                isCurrent: currentFeeToken === tokenAddress
-                            });
-                        } catch (e) {
-                            this.debug(`Error fetching accumulated fee data for ${tokenAddress}:`, e);
-                        }
-                    })
-                );
-            }
-
-            // Keep current token first, then alphabetical by symbol/address
-            params.accumulatedFeeRows.sort((a, b) => {
-                if (a.isCurrent && !b.isCurrent) return -1;
-                if (!a.isCurrent && b.isCurrent) return 1;
-                const left = `${a.symbol || ''}:${a.tokenAddress}`.toLowerCase();
-                const right = `${b.symbol || ''}:${b.tokenAddress}`.toLowerCase();
-                return left.localeCompare(right);
-            });
-
-            // Update UI with available parameters
-            const paramsContainer = this.container.querySelector('.params-container');
-            paramsContainer.innerHTML = this.generateParametersHTML(params);
-
-            // Cache the fetched parameters
             this.cachedParams = params;
-            this.lastFetchTime = now;
+            this.lastFetchTime = Date.now();
+            this.container.innerHTML = this.generateContainerHTML(params);
 
             this.isInitialized = true;
             this.debug('Initialization complete');
 
         } catch (error) {
             this.debug('Initialization error:', error);
-            this.showError(`Failed to load contract parameters: ${error.message}`);
+            const message = this.getLoadErrorMessage(error);
+
+            if (this.cachedParams) {
+                this.container.innerHTML = this.generateContainerHTML(this.cachedParams);
+                this.showWarning(`Unable to refresh contract parameters: ${message}`);
+                this.isInitialized = true;
+            } else {
+                this.container.innerHTML = this.generateContainerHTML(null, {
+                    error: true
+                });
+                this.showError(`Failed to load contract parameters: ${message}`);
+            }
         } finally {
             this.isInitializing = false;
         }
     }
 
-    generateContainerHTML(params = null) {
+    async fetchParametersWithRecovery() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws) {
+            throw new Error('WebSocket not available');
+        }
+
+        let lastError = null;
+
+        for (let attempt = 0; attempt <= this.RECONNECT_RETRY_LIMIT; attempt++) {
+            try {
+                return await this.fetchParameters(ws);
+            } catch (error) {
+                lastError = error;
+                this.debug(`Contract params fetch attempt ${attempt + 1} failed:`, error);
+
+                if (attempt >= this.RECONNECT_RETRY_LIMIT || typeof ws.reconnect !== 'function') {
+                    break;
+                }
+
+                this.warn('Contract params fetch failed, reconnecting WebSocket before retry');
+
+                let reconnected = false;
+                try {
+                    reconnected = await this.waitForWsRecovery(ws);
+                } catch (reconnectError) {
+                    lastError = reconnectError;
+                    this.debug('WebSocket reconnect failed while retrying contract params:', reconnectError);
+                    break;
+                }
+
+                if (!reconnected) {
+                    break;
+                }
+            }
+        }
+
+        throw lastError || new Error('Unable to load contract parameters');
+    }
+
+    async fetchParameters(ws) {
+        const wsReady = await this.readWithTimeout(
+            () => ws.waitForInitialization(),
+            'WebSocket initialization'
+        );
+        if (!wsReady) {
+            throw new Error('WebSocket initialization failed');
+        }
+
+        const contract = ws.contract;
+        if (!contract) {
+            throw new Error('Contract not initialized');
+        }
+
+        // Non-blocking read: only wait if a sync is already in flight.
+        // App.startInitialOrderSync() owns the first triggerIfNeeded:true call.
+        void ws.waitForOrderSync({ triggerIfNeeded: false }).catch((error) => {
+            this.debug('Failed while checking order sync state:', error);
+        });
+
+        this.debug('Contract instance found, fetching parameters...');
+
+        const params = {};
+        const paramMethods = {
+            orderCreationFee: 'orderCreationFeeAmount',
+            firstOrderId: 'firstOrderId',
+            nextOrderId: 'nextOrderId',
+            isDisabled: 'isDisabled',
+            feeToken: 'feeToken',
+            owner: 'owner',
+            gracePeriod: 'GRACE_PERIOD',
+            orderExpiry: 'ORDER_EXPIRY',
+            allowedTokensCount: 'getAllowedTokensCount'
+        };
+        let successCount = 0;
+
+        await Promise.all(
+            Object.entries(paramMethods).map(async ([key, method]) => {
+                try {
+                    params[key] = await this.readWithTimeout(
+                        () => ws.queueRequest(() => contract[method]()),
+                        method
+                    );
+                    successCount++;
+                    this.debug(`Fetched ${key}:`, params[key]);
+                } catch (error) {
+                    this.debug(`Error fetching ${key}:`, error);
+                }
+            })
+        );
+
+        if (successCount === 0) {
+            throw new Error('Timed out loading contract parameters');
+        }
+
+        try {
+            const network = await this.readWithTimeout(
+                () => contract.provider.getNetwork(),
+                'network info'
+            );
+            params.chainId = network?.chainId;
+            params.contractAddress = contract.address;
+        } catch (error) {
+            this.debug('Error fetching network info:', error);
+            params.contractAddress = contract.address || 'N/A';
+        }
+
+        if (params.feeToken) {
+            try {
+                const tokenInfo = await this.readWithTimeout(
+                    () => ws.getTokenInfo(params.feeToken),
+                    `token info for ${params.feeToken}`
+                );
+                params.tokenSymbol = tokenInfo.symbol;
+                params.tokenDecimals = tokenInfo.decimals;
+                this.debug('Fetched token details:', tokenInfo);
+            } catch (error) {
+                this.debug('Error fetching token details:', error);
+                params.tokenSymbol = 'Unknown';
+                params.tokenDecimals = 18;
+            }
+        }
+
+        const currentFeeToken = this.normalizeAddress(params.feeToken);
+        const feeTokenSet = new Set();
+        if (currentFeeToken) {
+            feeTokenSet.add(currentFeeToken);
+        }
+
+        try {
+            const orders = typeof ws.getOrders === 'function'
+                ? ws.getOrders()
+                : Array.from(ws.orderCache?.values?.() || []);
+
+            for (const order of orders) {
+                const orderFeeToken = this.normalizeAddress(order?.feeToken);
+                if (!orderFeeToken || orderFeeToken === currentFeeToken) {
+                    continue;
+                }
+                feeTokenSet.add(orderFeeToken);
+            }
+        } catch (error) {
+            this.debug('Error collecting fee tokens from loaded orders:', error);
+        }
+
+        params.accumulatedFeeRows = [];
+        if (typeof contract.accumulatedFeesByToken === 'function') {
+            await Promise.all(
+                Array.from(feeTokenSet).map(async (tokenAddress) => {
+                    try {
+                        const [amount, tokenInfo] = await Promise.all([
+                            this.readWithTimeout(
+                                () => contract.accumulatedFeesByToken(tokenAddress),
+                                `accumulated fees for ${tokenAddress}`,
+                            ),
+                            this.readWithTimeout(
+                                () => ws.getTokenInfo(tokenAddress),
+                                `token info for ${tokenAddress}`
+                            )
+                        ]);
+
+                        const keepRow = tokenAddress === currentFeeToken || !amount.isZero();
+                        if (!keepRow) {
+                            return;
+                        }
+
+                        params.accumulatedFeeRows.push({
+                            tokenAddress,
+                            amount,
+                            symbol: tokenInfo?.symbol || 'Unknown',
+                            decimals: tokenInfo?.decimals ?? 18,
+                            isCurrent: currentFeeToken === tokenAddress
+                        });
+                    } catch (error) {
+                        this.debug(`Error fetching accumulated fee data for ${tokenAddress}:`, error);
+                    }
+                })
+            );
+        }
+
+        params.accumulatedFeeRows.sort((a, b) => {
+            if (a.isCurrent && !b.isCurrent) return -1;
+            if (!a.isCurrent && b.isCurrent) return 1;
+            const left = `${a.symbol || ''}:${a.tokenAddress}`.toLowerCase();
+            const right = `${b.symbol || ''}:${b.tokenAddress}`.toLowerCase();
+            return left.localeCompare(right);
+        });
+
+        return params;
+    }
+
+    async waitForWsRecovery(ws) {
+        const recoveryPromise = ws.isInitialized
+            ? ws.reconnect()
+            : ws.waitForInitialization();
+
+        return await this.withTimeout(
+            Promise.resolve(recoveryPromise),
+            this.RECONNECT_TIMEOUT_MS,
+            'WebSocket recovery timeout'
+        );
+    }
+
+    async readWithTimeout(callback, label) {
+        return await this.withTimeout(
+            Promise.resolve().then(callback),
+            this.REQUEST_TIMEOUT_MS,
+            `${label} timeout`
+        );
+    }
+
+    normalizeAddress(value) {
+        try {
+            return ethers.utils.getAddress(value);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    getLoadErrorMessage(error) {
+        if (typeof error?.message === 'string' && error.message.trim()) {
+            return error.message;
+        }
+        return 'Unknown error';
+    }
+
+    withTimeout(promise, timeoutMs, message) {
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error(message));
+            }, timeoutMs);
+
+            promise.then(
+                (result) => {
+                    clearTimeout(timeoutId);
+                    resolve(result);
+                },
+                (error) => {
+                    clearTimeout(timeoutId);
+                    reject(error);
+                }
+            );
+        });
+    }
+
+    generateContainerHTML(params = null, options = {}) {
+        const { error = false } = options;
+
         return `
             <div class="tab-content-wrapper">
                 <h2 class="main-heading">Contract Parameters</h2>
                 <div class="params-container">
-                    ${params ? this.generateParametersHTML(params) : `
-                        <div class="loading-spinner"></div>
-                        <div class="loading-text">Loading parameters...</div>
-                    `}
+                    ${params ? this.generateParametersHTML(params) : (
+                        error
+                            ? `<div class="params-error">Unable to load contract parameters right now. Please try again.</div>`
+                            : `
+                                <div class="loading-spinner"></div>
+                                <div class="loading-text">Loading parameters...</div>
+                            `
+                    )}
                 </div>
             </div>`;
     }
 
     generateParametersHTML(params) {
-        // Helper function to safely display values
         const safe = (value, formatter = (v) => v?.toString() || 'N/A') => {
             try {
                 return formatter(value);
@@ -214,6 +413,16 @@ export class ContractParams extends BaseComponent {
                 return 'N/A';
             }
         };
+        const newOrdersStatus = params.isDisabled === true
+            ? 'Disabled'
+            : params.isDisabled === false
+                ? 'Enabled'
+                : 'N/A';
+        const newOrdersClass = params.isDisabled === true
+            ? 'status-disabled'
+            : params.isDisabled === false
+                ? 'status-enabled'
+                : '';
 
         return `
             <div class="param-grid">
@@ -233,8 +442,8 @@ export class ContractParams extends BaseComponent {
                     </div>
                     <div class="param-item">
                         <h4>New Orders</h4>
-                        <p class="${params.isDisabled ? 'status-disabled' : 'status-enabled'}">
-                            ${params.isDisabled ? 'Disabled' : 'Enabled'}
+                        <p class="${newOrdersClass}">
+                            ${newOrdersStatus}
                         </p>
                     </div>
                 </div>
@@ -291,9 +500,14 @@ export class ContractParams extends BaseComponent {
     }
 
     formatTime(seconds) {
-        const days = Math.floor(seconds / (24 * 60 * 60));
-        const hours = Math.floor((seconds % (24 * 60 * 60)) / (60 * 60));
-        const minutes = Math.floor((seconds % (60 * 60)) / 60);
+        const totalSeconds = Number(seconds?.toString?.() ?? seconds);
+        if (!Number.isFinite(totalSeconds)) {
+            return 'N/A';
+        }
+
+        const days = Math.floor(totalSeconds / (24 * 60 * 60));
+        const hours = Math.floor((totalSeconds % (24 * 60 * 60)) / (60 * 60));
+        const minutes = Math.floor((totalSeconds % (60 * 60)) / 60);
         
         return `${days}d ${hours}h ${minutes}m`;
     }
@@ -316,6 +530,13 @@ export class ContractParams extends BaseComponent {
 
     cleanup() {
         this.debug('Cleaning up ContractParams component');
+        const ws = this.ctx.getWebSocket();
+        if (ws?.unsubscribe && this.feeConfigUpdatedHandler) {
+            ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+        }
+        if (ws?.unsubscribe && this.contractDisabledHandler) {
+            ws.unsubscribe('ContractDisabled', this.contractDisabledHandler);
+        }
         // Don't clear the cache on cleanup
         this.isInitialized = false;
         this.isInitializing = false;

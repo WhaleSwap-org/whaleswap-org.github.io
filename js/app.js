@@ -581,6 +581,31 @@ class App {
 		return getNetworkBySlug(selectedSlug) || getDefaultNetwork();
 	}
 
+	alignSelectedNetworkToRestoredWallet() {
+		const requestedSlug = getChainSlugFromUrl();
+		if (requestedSlug) {
+			return false;
+		}
+
+		const walletChainId = this.ctx?.getWalletChainId?.() ?? walletManager.chainId ?? null;
+		if (!walletChainId) {
+			return false;
+		}
+
+		const walletNetwork = getNetworkById(walletChainId);
+		const selectedNetwork = this.getSelectedNetwork();
+		if (!walletNetwork || walletNetwork.slug === selectedNetwork.slug) {
+			return false;
+		}
+
+		this.debug(
+			'No chain requested in URL; aligning selected network to restored wallet chain:',
+			walletNetwork.slug
+		);
+		applySelectedNetwork(walletNetwork, { updateUrl: true });
+		return true;
+	}
+
 	isWalletOnSelectedNetwork(chainId = null) {
 		const walletChainId = chainId ?? this.ctx?.getWalletChainId?.() ?? walletManager.chainId ?? null;
 		const walletNetwork = getNetworkById(walletChainId);
@@ -692,6 +717,7 @@ class App {
 
 			this.updateGlobalLoaderText('Initializing wallet...');
 			await this.initializeWalletManager();
+			this.alignSelectedNetworkToRestoredWallet();
 			this.updateGlobalLoaderText('Initializing pricing...');
 			await this.initializePricingService();
 			this.updateGlobalLoaderText('Connecting to order feed...');
@@ -1501,20 +1527,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 	try {
 		// Check version first, before anything else happens
 		await versionService.initialize();
-
-		// Add global error handler for WebSocket issues
-		window.addEventListener('error', (event) => {
-			if (event.error && event.error.message && event.error.message.includes('callback')) {
-				console.warn('WebSocket callback error detected, attempting to reconnect...');
-				// Access via window.app.ctx since app is now initialized
-				if (window.app?.ctx) {
-					const ws = window.app.ctx.getWebSocket();
-					if (ws && ws.reconnect) {
-						ws.reconnect();
-					}
-				}
-			}
-		});
 
 		await window.app.load();
 

@@ -38,6 +38,33 @@ const localNetworkConfig = {
 };
 
 const primaryNetworkConfig = {
+    "1": {
+        slug: "ethereum",
+        name: "Ethereum",
+        displayName: "Ethereum Mainnet",
+        logo: "img/token-logos/ethereum.svg",
+        isDefault: false,
+        contractAddress: "0x324d9b90A07D587B4FA0D68c22645B9c8D321079",
+        contractABI: CONTRACT_ABI,
+        explorer: "https://etherscan.io",
+        rpcUrl: "https://ethereum-rpc.publicnode.com",
+        fallbackRpcUrls: [
+            "https://cloudflare-eth.com",
+            "https://eth.llamarpc.com"
+        ],
+        chainId: "0x1",
+        nativeCurrency: {
+            name: "Ether",
+            symbol: "ETH",
+            decimals: 18
+        },
+        // Multicall3
+        multicallAddress: "0xca11bde05977b3631167028862be2a173976ca11",
+        wsUrl: "wss://mainnet.gateway.tenderly.co",
+        fallbackWsUrls: [
+            "wss://ethereum-rpc.publicnode.com"
+        ]
+    },
     "56": {
         slug: "bnb",
         name: "BNB Chain",

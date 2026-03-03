@@ -99,11 +99,13 @@ export class PricingService {
             : null;
 
         const slugMap = {
+            ethereum: 'eth',
             bnb: 'bsc',
             polygon: 'polygon_pos'
         };
 
         const chainIdMap = {
+            '1': 'eth',
             '56': 'bsc',
             '137': 'polygon_pos'
         };
@@ -209,11 +211,13 @@ export class PricingService {
             : null;
 
         const slugMap = {
+            ethereum: 'ethereum',
             bnb: 'bsc',
             polygon: 'polygon'
         };
 
         const chainIdMap = {
+            '1': 'ethereum',
             '56': 'bsc',
             '137': 'polygon'
         };

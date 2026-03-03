@@ -29,6 +29,9 @@ export class CreateOrder extends BaseComponent {
         this.tokensLoading = false;
         this.allowedTokensLoadPromise = null;
         this.feeLoadPromise = null;
+        this.feeConfigUpdatedHandler = null;
+        this.contractDisabledHandler = null;
+        this.pendingFeeConfigRefresh = false;
         this.sellToken = null;
         this.buyToken = null;
         this.isContractDisabled = false;
@@ -117,6 +120,7 @@ export class CreateOrder extends BaseComponent {
         this.tokensLoading = false;
         this.allowedTokensLoadPromise = null;
         this.feeLoadPromise = null;
+        this.pendingFeeConfigRefresh = false;
         this.feeToken = null;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
@@ -258,7 +262,9 @@ export class CreateOrder extends BaseComponent {
             
             // Wait for contract to be ready
             await this.waitForContract();
+            this.subscribeToContractDisabledUpdates();
             await this.refreshContractDisabledState();
+            this.subscribeToFeeConfigUpdates();
             
             // Load fee/token data in background so initial tab render is not blocked.
             this.startBackgroundDataLoading();
@@ -285,15 +291,8 @@ export class CreateOrder extends BaseComponent {
     }
 
     startBackgroundDataLoading() {
-        if (!this.feeLoadPromise && !(this.feeToken?.address && this.feeToken?.amount && this.feeToken?.symbol)) {
-            this.feeLoadPromise = this.loadOrderCreationFee()
-                .then(() => this.updateFeeDisplay())
-                .catch((error) => {
-                    this.debug('Background fee load failed:', error);
-                })
-                .finally(() => {
-                    this.feeLoadPromise = null;
-                });
+        if (!(this.feeToken?.address && this.feeToken?.amount && this.feeToken?.symbol)) {
+            this.requestFeeConfigRefresh({ source: 'background' });
         }
 
         const hasAllowedTokens = Array.isArray(this.allowedTokens) && this.allowedTokens.length > 0;
@@ -309,6 +308,74 @@ export class CreateOrder extends BaseComponent {
                     this.allowedTokensLoadPromise = null;
                 });
         }
+    }
+
+    requestFeeConfigRefresh({ forceFresh = false, source = 'unknown' } = {}) {
+        if (forceFresh) {
+            this.feeToken = null;
+        }
+
+        if (this.feeLoadPromise) {
+            if (forceFresh) {
+                this.pendingFeeConfigRefresh = true;
+            }
+            return this.feeLoadPromise;
+        }
+
+        this.feeLoadPromise = this.loadOrderCreationFee()
+            .then(() => this.updateFeeDisplay())
+            .catch((error) => {
+                this.debug(`Fee refresh failed (${source}):`, error);
+            })
+            .finally(() => {
+                this.feeLoadPromise = null;
+
+                // Re-run once after the current in-flight request if a fresh config update arrived meanwhile.
+                if (this.pendingFeeConfigRefresh) {
+                    this.pendingFeeConfigRefresh = false;
+                    this.requestFeeConfigRefresh({ forceFresh: true, source: 'pending-followup' });
+                }
+            });
+
+        return this.feeLoadPromise;
+    }
+
+    subscribeToFeeConfigUpdates() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (this.feeConfigUpdatedHandler && ws.unsubscribe) {
+            ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+        }
+
+        this.feeConfigUpdatedHandler = () => {
+            this.debug('FeeConfigUpdated event received, refreshing fee display');
+            this.requestFeeConfigRefresh({ forceFresh: true, source: 'FeeConfigUpdated' });
+        };
+
+        ws.subscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+    }
+
+    subscribeToContractDisabledUpdates() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (this.contractDisabledHandler && ws.unsubscribe) {
+            ws.unsubscribe('ContractDisabled', this.contractDisabledHandler);
+        }
+
+        this.contractDisabledHandler = () => {
+            this.debug('ContractDisabled event received, disabling new orders');
+            this.contractStateReadError = false;
+            this.isContractDisabled = true;
+            this.updateCreateButtonState();
+        };
+
+        ws.subscribe('ContractDisabled', this.contractDisabledHandler);
     }
 
     async loadOrderCreationFee() {
@@ -1741,6 +1808,17 @@ export class CreateOrder extends BaseComponent {
             document.removeEventListener('click', this.boundTooltipOutsideClickHandler);
             this.boundTooltipOutsideClickHandler = null;
         }
+
+        const ws = this.ctx.getWebSocket();
+        if (ws?.unsubscribe && this.feeConfigUpdatedHandler) {
+            ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+        }
+        if (ws?.unsubscribe && this.contractDisabledHandler) {
+            ws.unsubscribe('ContractDisabled', this.contractDisabledHandler);
+        }
+        this.feeConfigUpdatedHandler = null;
+        this.contractDisabledHandler = null;
+        this.pendingFeeConfigRefresh = false;
     }
 
     // Add this method to the CreateOrder class

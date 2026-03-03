@@ -337,7 +337,7 @@ export class Cleanup extends BaseComponent {
         }
 
         // Subscribe to all relevant events
-        this.webSocket.subscribe('OrderCleaned', () => {
+        this.webSocket.subscribe('OrderCleanedUp', () => {
             this.debug('Order cleaned event received');
             this.checkCleanupOpportunities();
         });
@@ -499,21 +499,11 @@ export class Cleanup extends BaseComponent {
         const userAddress = await signer.getAddress();
         
         // Parse all relevant events
-        const retryEvents = [];
         const feeEvents = [];
         const cleanedEvents = [];
-        const errorEvents = [];
 
         for (const event of events) {
-            if (event.event === 'RetryOrder') {
-                retryEvents.push({
-                    oldOrderId: event.args.oldOrderId.toString(),
-                    newOrderId: event.args.newOrderId.toString(),
-                    maker: event.args.maker,
-                    tries: event.args.tries.toString(),
-                    timestamp: event.args.timestamp.toString()
-                });
-            } else if (event.event === 'CleanupFeesDistributed') {
+            if (event.event === 'CleanupFeesDistributed') {
                 feeEvents.push({
                     recipient: event.args.recipient,
                     feeToken: event.args.feeToken,
@@ -526,48 +516,24 @@ export class Cleanup extends BaseComponent {
                     maker: event.args.maker,
                     timestamp: event.args.timestamp.toString()
                 });
-            } else if (event.event === 'CleanupError') {
-                errorEvents.push({
-                    orderId: event.args.orderId.toString(),
-                    reason: event.args.reason,
-                    timestamp: event.args.timestamp.toString()
-                });
             }
         }
 
         this.debug('Parsed cleanup events:', {
-            retryEvents,
             feeEvents,
-            cleanedEvents,
-            errorEvents
+            cleanedEvents
         });
 
         return {
-            retryEvents,
             feeEvents,
             cleanedEvents,
-            errorEvents,
             userAddress: userAddress.toLowerCase()
         };
     }
 
     // New method to handle cleanup results and show appropriate feedback
     async handleCleanupResult(result) {
-        const { retryEvents, feeEvents, cleanedEvents, errorEvents, userAddress } = result;
-        
-        // Check for errors first
-        if (errorEvents.length > 0) {
-            // Deduplicate error messages to avoid repetition
-            const uniqueErrors = new Map();
-            errorEvents.forEach(e => {
-                const key = `${e.orderId}-${e.reason}`;
-                if (!uniqueErrors.has(key)) {
-                    uniqueErrors.set(key, `Order #${e.orderId}: ${e.reason}`);
-                }
-            });
-            const errorMsg = Array.from(uniqueErrors.values()).join(', ');
-            this.showWarning(`Cleanup completed with errors: ${errorMsg}`);
-        }
+        const { feeEvents, cleanedEvents, userAddress } = result;
 
         // Check if user received fees
         const userFeeEvent = feeEvents.find(f => f.recipient.toLowerCase() === userAddress);
@@ -583,26 +549,17 @@ export class Cleanup extends BaseComponent {
                 this.debug('Error formatting fee amount:', error);
                 this.showSuccess('Cleanup successful! You received a reward. Check your wallet.');
             }
-        } else if (retryEvents.length > 0 && feeEvents.length === 0) {
-            // Order was recycled but no fees were distributed
-            const retryMsg = retryEvents.map(r => 
-                `Order #${r.oldOrderId} → #${r.newOrderId} (tries: ${r.tries})`
-            ).join(', ');
-            this.showInfo(`Order recycled (no fee distribution): ${retryMsg}`);
         } else if (cleanedEvents.length > 0 && feeEvents.length === 0) {
             // Order was cleaned but no fees were distributed
             const cleanedMsg = cleanedEvents.map(c => `#${c.orderId}`).join(', ');
             this.showInfo(`Orders cleaned: ${cleanedMsg} (no fee distribution in this transaction)`);
-        } else if (retryEvents.length === 0 && cleanedEvents.length === 0 && feeEvents.length === 0) {
+        } else if (cleanedEvents.length === 0 && feeEvents.length === 0) {
             this.showInfo('No eligible orders to clean up at this time.');
         } else {
             // Mixed results
             let msg = 'Cleanup completed: ';
             if (cleanedEvents.length > 0) {
                 msg += `${cleanedEvents.length} order(s) cleaned. `;
-            }
-            if (retryEvents.length > 0) {
-                msg += `${retryEvents.length} order(s) recycled. `;
             }
             if (feeEvents.length > 0) {
                 msg += `Fees distributed to ${feeEvents.length} recipient(s).`;
@@ -612,14 +569,9 @@ export class Cleanup extends BaseComponent {
 
         // Update WebSocket cache
         const cleanedOrderIds = cleanedEvents.map(e => e.orderId);
-        const retryOrderIds = new Map(retryEvents.map(r => [r.oldOrderId, r.newOrderId]));
 
         if (cleanedOrderIds.length > 0) {
             this.webSocket.removeOrders(cleanedOrderIds);
-        }
-
-        if (retryOrderIds.size > 0) {
-            await this.webSocket.syncAllOrders(this.webSocket.contract);
         }
     }
 

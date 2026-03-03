@@ -1,3 +1,19 @@
+.params-error {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.24);
+  background: rgba(254, 226, 226, 0.68);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+[data-theme="dark"] .params-error {
+  border-color: rgba(248, 113, 113, 0.24);
+  background: rgba(127, 29, 29, 0.38);
+}
+
 .param-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

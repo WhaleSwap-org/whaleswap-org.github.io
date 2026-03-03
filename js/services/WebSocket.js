@@ -13,6 +13,8 @@ export class WebSocketService {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.reconnectDelay = 1000;
+        this.reconnectPromise = null;
+        this.reconnectTimer = null;
         this.orderCache = new Map();
         this.isInitialized = false;
         this.contractAddress = null;
@@ -36,6 +38,13 @@ export class WebSocketService {
 
         // Throttle state for block logs
         this.lastBlockLogTime = 0;
+
+        // Periodic websocket health checks catch stale-open sockets that never emit close.
+        this.healthCheckIntervalMs = 15000;
+        this.healthCheckTimeoutMs = 5000;
+        this.connectTimeoutMs = 10000;
+        this.healthCheckTimer = null;
+        this.healthCheckPromise = null;
         
         // Chain-time cache (authoritative source for expiry/grace checks)
         this.lastKnownChainTimestamp = null;
@@ -63,6 +72,109 @@ export class WebSocketService {
         this.warn = logger.warn.bind(logger);
         
         this.tokenCache = new Map();  // Add token cache
+        this.pricingUpdateHandler = null;
+    }
+
+    clearReconnectTimer() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+    }
+
+    queueReconnect(reason = 'socket-close', delayMs = 5000) {
+        if (this.reconnectPromise || this.reconnectTimer) {
+            return;
+        }
+
+        this.debug(`Scheduling reconnect in ${delayMs}ms due to ${reason}`);
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            this.reconnect(reason).catch((error) => {
+                this.debug('Scheduled reconnect failed:', error);
+            });
+        }, delayMs);
+    }
+
+    isSocketOpen() {
+        return this.provider?._websocket?.readyState === 1;
+    }
+
+    async socketIsWorking(timeoutMs = this.healthCheckTimeoutMs) {
+        if (!this.provider || !this.isSocketOpen()) {
+            return false;
+        }
+
+        try {
+            const blockNumber = await this.withTimeout(
+                this.provider.getBlockNumber(),
+                timeoutMs,
+                'WebSocket health check timeout'
+            );
+            return Number.isFinite(Number(blockNumber));
+        } catch (_) {
+            return false;
+        }
+    }
+
+    startHealthMonitor() {
+        if (this.healthCheckTimer) {
+            return;
+        }
+
+        this.healthCheckTimer = setInterval(() => {
+            void this.monitorConnectionHealth().catch((error) => {
+                this.debug('WebSocket health monitor failed:', error);
+            });
+        }, this.healthCheckIntervalMs);
+    }
+
+    stopHealthMonitor() {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+            this.healthCheckTimer = null;
+        }
+    }
+
+    async monitorConnectionHealth() {
+        if (this.healthCheckPromise) {
+            return await this.healthCheckPromise;
+        }
+
+        this.healthCheckPromise = (async () => {
+            if (!this.isInitialized || !this.provider || !this.contract) {
+                return true;
+            }
+
+            if (this.initializationPromise || this.reconnectPromise) {
+                return true;
+            }
+
+            const isWorking = await this.socketIsWorking();
+            if (isWorking) {
+                return true;
+            }
+
+            this.warn('WebSocket health check failed; reconnecting');
+            return await this.reconnect('health-check');
+        })().finally(() => {
+            this.healthCheckPromise = null;
+        });
+
+        return await this.healthCheckPromise;
+    }
+
+    async handleInitializationFailure(error, allowReconnect) {
+        this.error('Initialization failed:', {
+            message: error.message,
+            stack: error.stack
+        });
+
+        if (!allowReconnect) {
+            return false;
+        }
+
+        return this.reconnect('initialize-failed');
     }
 
     resetContractDisabledStateCache() {
@@ -380,15 +492,26 @@ export class WebSocketService {
         return await inFlightPromise;
     }
 
-    async initialize() {
+    async initialize(allowReconnect = true) {
         if (this.isInitialized) {
             this.debug('Already initialized, skipping...');
-            return;
+            return true;
         }
+
+        if (this.initializationPromise) {
+            try {
+                return await this.initializationPromise;
+            } catch (error) {
+                return await this.handleInitializationFailure(error, allowReconnect);
+            }
+        }
+
+        let initializationPromise = null;
 
         try {
             this.debug('Starting initialization...');
-            this.initializationPromise = (async () => {
+            this.clearReconnectTimer();
+            initializationPromise = (async () => {
                 // Wait for provider connection
                 const config = getNetworkConfig();
                 
@@ -401,12 +524,25 @@ export class WebSocketService {
                         this.provider = new ethers.providers.WebSocketProvider(url);
                         
                         // Wait for provider to be ready
-                        await this.provider.ready;
+                        await this.withTimeout(
+                            this.provider.ready,
+                            this.connectTimeoutMs,
+                            `WebSocket connect timeout for ${url}`
+                        );
                         this.debug('Connected to WebSocket:', url);
                         connected = true;
                         break;
                     } catch (error) {
                         this.debug('Failed to connect to WebSocket URL:', url, error);
+                        try {
+                            if (this.provider?._websocket) {
+                                this.provider._websocket.onopen = null;
+                                this.provider._websocket.onerror = null;
+                                this.provider._websocket.onclose = null;
+                                this.provider._websocket.close();
+                            }
+                        } catch (_) {}
+                        this.provider = null;
                     }
                 }
                 
@@ -447,11 +583,14 @@ export class WebSocketService {
                 // Subscribe to pricing service after everything else is ready
                 const pricing = this.pricingService;
                 if (pricing) {
-                    this.debug('Subscribing to pricing service...');
-                    pricing.subscribe(() => {
-                        this.debug('Price update received, updating all deals...');
-                        this.updateAllDeals();
-                    });
+                    if (!this.pricingUpdateHandler) {
+                        this.pricingUpdateHandler = () => {
+                            this.debug('Price update received, updating all deals...');
+                            this.updateAllDeals();
+                        };
+                        this.debug('Subscribing to pricing service...');
+                        pricing.subscribe(this.pricingUpdateHandler);
+                    }
                     // Trigger initial allowed token price fetch in background.
                     // Do not block initial UI readiness on pricing API requests.
                     Promise.resolve()
@@ -467,28 +606,26 @@ export class WebSocketService {
                 }
                 
                 this.isInitialized = true;
+                this.startHealthMonitor();
                 this.debug('Initialization complete');
                 this.reconnectAttempts = 0;
                 
                 return true;
             })();
 
-            return await this.initializationPromise;
+            this.initializationPromise = initializationPromise;
+            return await initializationPromise;
         } catch (error) {
-            this.error('Initialization failed:', {
-                message: error.message,
-                stack: error.stack
-            });
-            this.initializationPromise = null;
-            return this.reconnect();
+            return await this.handleInitializationFailure(error, allowReconnect);
+        } finally {
+            if (this.initializationPromise === initializationPromise) {
+                this.initializationPromise = null;
+            }
         }
     }
 
     async waitForInitialization() {
         if (this.isInitialized) return true;
-        if (this.initializationPromise) {
-            return await this.initializationPromise;
-        }
         return this.initialize();
     }
 
@@ -521,24 +658,29 @@ export class WebSocketService {
             });
 
             // Add error handling for WebSocket connection
-            this.provider._websocket.onopen = () => {
-                this.debug('WebSocket connected');
-            };
+            const socket = this.provider?._websocket;
+            if (socket) {
+                socket.onopen = () => {
+                    this.debug('WebSocket connected');
+                };
 
-            this.provider._websocket.onerror = (error) => {
-                this.debug('WebSocket error:', error);
-            };
+                socket.onerror = (error) => {
+                    this.debug('WebSocket error:', error);
+                };
 
-            this.provider._websocket.onclose = (event) => {
-                this.debug('WebSocket closed:', event);
-                // Attempt to reconnect if not manually closed
-                if (event.code !== 1000) {
-                    this.debug('WebSocket closed unexpectedly, attempting to reconnect...');
-                    setTimeout(() => {
-                        this.reconnect();
-                    }, 5000);
-                }
-            };
+                socket.onclose = (event) => {
+                    if (socket !== this.provider?._websocket) {
+                        this.debug('Ignoring close event from stale websocket instance');
+                        return;
+                    }
+
+                    this.debug('WebSocket closed:', event);
+                    if (event.code !== 1000) {
+                        this.debug('WebSocket closed unexpectedly, attempting to reconnect...');
+                        this.queueReconnect('socket-close', 5000);
+                    }
+                };
+            }
 
             contract.on("OrderCreated", async (...args) => {
                 try {
@@ -631,30 +773,19 @@ export class WebSocketService {
             } else {
                 this.debug('ContractDisabled event not found in ABI, skipping listener registration');
             }
-            
-            if (this.hasContractEvent(contract, "RetryOrder")) {
-                contract.on("RetryOrder", (oldOrderId, newOrderId, maker, tries, timestamp) => {
-                    const oldOrderIdNum = oldOrderId.toNumber();
-                    const newOrderIdNum = newOrderId.toNumber();
-                    
-                    const order = this.orderCache.get(oldOrderIdNum);
-                    if (order) {
-                        const createdAt = timestamp.toNumber();
-                        order.id = newOrderIdNum;
-                        order.tries = tries.toNumber();
-                        order.timestamp = createdAt;
-                        order.timings = this.buildOrderTimings(createdAt);
-                        
-                        this.orderCache.delete(oldOrderIdNum);
-                        this.orderCache.set(newOrderIdNum, order);
-                        this.debug('Updated retried order:', {oldId: oldOrderIdNum, newId: newOrderIdNum, tries: tries.toString()});
-                        this.notifySubscribers("RetryOrder", order);
-                    }
+
+            if (this.hasContractEvent(contract, "FeeConfigUpdated")) {
+                contract.on("FeeConfigUpdated", (feeToken, feeAmount, timestamp) => {
+                    this.notifySubscribers("FeeConfigUpdated", {
+                        feeToken,
+                        feeAmount: feeAmount?.toString?.() ?? String(feeAmount ?? '0'),
+                        timestamp: timestamp?.toString?.() ?? String(timestamp ?? '0')
+                    });
                 });
             } else {
-                this.debug('RetryOrder event not found in ABI, skipping listener registration');
+                this.debug('FeeConfigUpdated event not found in ABI, skipping listener registration');
             }
-
+            
             if (this.hasContractEvent(contract, "ClaimCredited")) {
                 contract.on("ClaimCredited", (beneficiary, token, amount, orderId, reason, timestamp) => {
                     const creditedEvent = {
@@ -891,10 +1022,17 @@ export class WebSocketService {
     cleanup() {
         try {
             this.debug('Cleaning up WebSocket service...');
+            this.stopHealthMonitor();
+            this.clearReconnectTimer();
             
             // Remove provider event listeners
             if (this.provider) {
                 this.provider.removeAllListeners("block");
+                if (this.provider._websocket) {
+                    this.provider._websocket.onopen = null;
+                    this.provider._websocket.onerror = null;
+                    this.provider._websocket.onclose = null;
+                }
             }
             
             // Remove contract event listeners
@@ -906,14 +1044,14 @@ export class WebSocketService {
                 if (this.hasContractEvent(this.contract, "ContractDisabled")) {
                     this.contract.removeAllListeners("ContractDisabled");
                 }
+                if (this.hasContractEvent(this.contract, "FeeConfigUpdated")) {
+                    this.contract.removeAllListeners("FeeConfigUpdated");
+                }
                 if (this.hasContractEvent(this.contract, "ClaimCredited")) {
                     this.contract.removeAllListeners("ClaimCredited");
                 }
                 if (this.hasContractEvent(this.contract, "ClaimWithdrawn")) {
                     this.contract.removeAllListeners("ClaimWithdrawn");
-                }
-                if (this.hasContractEvent(this.contract, "RetryOrder")) {
-                    this.contract.removeAllListeners("RetryOrder");
                 }
             }
             
@@ -925,7 +1063,17 @@ export class WebSocketService {
             this.chainTimeSyncPromise = null;
             this.orderSyncPromise = null;
             this.hasCompletedOrderSync = false;
+            this.isInitialized = false;
+            this.provider = null;
+            this.contract = null;
+            this.initializationPromise = null;
+            this.orderExpiry = null;
+            this.gracePeriod = null;
+            this.activeRequests = 0;
+            this.lastRequestTime = 0;
             this.resetContractDisabledStateCache();
+            this.healthCheckPromise = null;
+            this.reconnectPromise = null;
             
             this.debug('WebSocket service cleanup complete');
         } catch (error) {
@@ -1383,40 +1531,71 @@ export class WebSocketService {
     }
 
     // Reconnect method for handling WebSocket disconnections
-    async reconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            this.debug('Max reconnection attempts reached');
-            return false;
+    async reconnect(reason = 'manual') {
+        if (this.reconnectPromise) {
+            return await this.reconnectPromise;
         }
 
-        this.reconnectAttempts++;
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-        this.debug(`Reconnecting in ${delay}ms... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        let retryCycleDelay = null;
 
-        // Clean up existing connection
-        if (this.provider) {
-            try {
-                this.provider.removeAllListeners();
-                if (this.provider._websocket) {
-                    this.provider._websocket.close();
+        this.reconnectPromise = (async () => {
+            this.stopHealthMonitor();
+            this.healthCheckPromise = null;
+            this.clearReconnectTimer();
+
+            while (this.reconnectAttempts < this.maxReconnectAttempts) {
+                this.reconnectAttempts++;
+                const attempt = this.reconnectAttempts;
+                const delay = this.reconnectDelay * Math.pow(2, attempt - 1);
+                this.debug(`Reconnecting in ${delay}ms... (attempt ${attempt}/${this.maxReconnectAttempts}, reason: ${reason})`);
+
+                // Clean up existing connection
+                if (this.provider) {
+                    try {
+                        if (this.provider._websocket) {
+                            this.provider._websocket.onopen = null;
+                            this.provider._websocket.onerror = null;
+                            this.provider._websocket.onclose = null;
+                        }
+                        this.provider.removeAllListeners();
+                        if (this.provider._websocket) {
+                            this.provider._websocket.close();
+                        }
+                    } catch (error) {
+                        this.debug('Error cleaning up old connection:', error);
+                    }
                 }
-            } catch (error) {
-                this.debug('Error cleaning up old connection:', error);
+
+                // Reset state for the next attempt
+                this.isInitialized = false;
+                this.provider = null;
+                this.contract = null;
+                this.initializationPromise = null;
+                this.lastKnownChainTimestamp = null;
+                this.lastKnownChainBlock = null;
+                this.chainTimeSyncedAtMonotonicMs = null;
+                this.chainTimeSyncPromise = null;
+                this.resetContractDisabledStateCache();
+
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+                const initialized = await this.initialize(false);
+                if (initialized) {
+                    return true;
+                }
             }
-        }
 
-        // Reset state
-        this.isInitialized = false;
-        this.provider = null;
-        this.contract = null;
-        this.initializationPromise = null;
-        this.lastKnownChainTimestamp = null;
-        this.lastKnownChainBlock = null;
-        this.chainTimeSyncedAtMonotonicMs = null;
-        this.chainTimeSyncPromise = null;
-        this.resetContractDisabledStateCache();
+            retryCycleDelay = this.reconnectDelay * Math.pow(2, this.maxReconnectAttempts - 1);
+            this.debug(`Max reconnection attempts reached; scheduling another reconnect cycle in ${retryCycleDelay}ms`);
+            this.reconnectAttempts = 0;
+            return false;
+        })().finally(() => {
+            this.reconnectPromise = null;
+            if (retryCycleDelay !== null && !this.isInitialized && !this.reconnectTimer) {
+                this.queueReconnect('retry-cycle', retryCycleDelay);
+            }
+        });
 
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return this.initialize();
+        return await this.reconnectPromise;
     }
 }
