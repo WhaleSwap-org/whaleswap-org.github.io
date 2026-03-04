@@ -5,23 +5,7 @@ import { handleTransactionError, isUserRejection } from '../utils/ui.js';
 import { generateTokenIconHTML } from '../utils/tokenIcons.js';
 import { getClaimableSnapshot } from '../utils/claims.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
-
-function escapeHtml(value) {
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function toBigNumber(value) {
-    try {
-        return ethers.BigNumber.from(value ?? 0);
-    } catch (_) {
-        return ethers.BigNumber.from(0);
-    }
-}
+import { escapeHtml } from '../utils/html.js';
 
 export class Claim extends BaseComponent {
     constructor(containerId = 'claim') {
@@ -290,15 +274,24 @@ export class Claim extends BaseComponent {
         this.renderClaimRows(this.claims);
 
         try {
+            if (!await this.ensureWalletReadyForWrite('claim this token')) {
+                return;
+            }
+
             const signer = await wallet.getSigner();
             if (!signer) {
                 throw new Error('No signer available');
             }
 
             const beneficiary = await signer.getAddress();
-            const latestAmount = toBigNumber(
-                await this.contract.claimable(beneficiary, normalizedToken)
-            );
+            let latestAmount;
+            try {
+                latestAmount = ethers.BigNumber.from(
+                    await this.contract.claimable(beneficiary, normalizedToken)
+                );
+            } catch (_) {
+                latestAmount = ethers.BigNumber.from(0);
+            }
 
             if (latestAmount.isZero()) {
                 this.showInfo('Nothing to claim for this token.');

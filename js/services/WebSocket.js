@@ -760,6 +760,38 @@ export class WebSocketService {
             } else {
                 this.debug('FeeConfigUpdated event not found in ABI, skipping listener registration');
             }
+
+            if (this.hasContractEvent(contract, "AllowedTokensUpdated")) {
+                contract.on("AllowedTokensUpdated", (tokens, allowed, timestamp) => {
+                    const normalizedTokens = Array.isArray(tokens)
+                        ? tokens.map((token) => String(token || '').toLowerCase())
+                        : [];
+                    const normalizedAllowed = Array.isArray(allowed)
+                        ? allowed.map((flag) => Boolean(flag))
+                        : [];
+                    const eventPayload = {
+                        tokens: normalizedTokens,
+                        allowed: normalizedAllowed,
+                        timestamp: timestamp?.toString?.() ?? String(timestamp ?? '0')
+                    };
+
+                    this.notifySubscribers("AllowedTokensUpdated", eventPayload);
+
+                    const pricing = this.pricingService;
+                    if (pricing?.getAllowedTokens && pricing?.fetchAllowedTokensPrices) {
+                        Promise.resolve()
+                            .then(async () => {
+                                await pricing.getAllowedTokens();
+                                await pricing.fetchAllowedTokensPrices();
+                            })
+                            .catch((error) => {
+                                this.debug('Failed to refresh pricing after AllowedTokensUpdated:', error);
+                            });
+                    }
+                });
+            } else {
+                this.debug('AllowedTokensUpdated event not found in ABI, skipping listener registration');
+            }
             
             if (this.hasContractEvent(contract, "ClaimCredited")) {
                 contract.on("ClaimCredited", (beneficiary, token, amount, orderId, reason, timestamp) => {
@@ -1020,6 +1052,9 @@ export class WebSocketService {
                 }
                 if (this.hasContractEvent(this.contract, "FeeConfigUpdated")) {
                     this.contract.removeAllListeners("FeeConfigUpdated");
+                }
+                if (this.hasContractEvent(this.contract, "AllowedTokensUpdated")) {
+                    this.contract.removeAllListeners("AllowedTokensUpdated");
                 }
                 if (this.hasContractEvent(this.contract, "ClaimCredited")) {
                     this.contract.removeAllListeners("ClaimCredited");

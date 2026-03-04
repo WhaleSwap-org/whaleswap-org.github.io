@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { safeBigNumberFrom, safeFormatUnits, safeGetAddress } from './ethersSafe.js';
 
 const CLAIMABLE_CHECK_CONCURRENCY = 4;
 
@@ -9,27 +9,7 @@ function hasClaimAbi(contract) {
 }
 
 function normalizeAddress(address) {
-    try {
-        return ethers.utils.getAddress(address);
-    } catch (_) {
-        return null;
-    }
-}
-
-function toBigNumber(value) {
-    try {
-        return ethers.BigNumber.from(value ?? 0);
-    } catch (_) {
-        return ethers.BigNumber.from(0);
-    }
-}
-
-function formatUnits(value, decimals = 18) {
-    try {
-        return ethers.utils.formatUnits(value, decimals);
-    } catch (_) {
-        return '0';
-    }
+    return safeGetAddress(address, null);
 }
 
 async function getTokenMetadata(ws, tokenAddress) {
@@ -85,7 +65,9 @@ export async function getClaimableSnapshot({
             .map(normalizeAddress)
             .filter(Boolean)
             .map((address) => address.toLowerCase())
-    )].map((address) => ethers.utils.getAddress(address));
+    )]
+        .map((address) => safeGetAddress(address, null))
+        .filter(Boolean);
     if (normalizedTokens.length === 0) {
         throw new Error('No valid claimable token addresses found');
     }
@@ -96,7 +78,7 @@ export async function getClaimableSnapshot({
     const rows = await Promise.all(normalizedTokens.map(async (token) => {
         let rawAmount;
         try {
-            rawAmount = toBigNumber(await contract.claimable(normalizedUser, token));
+            rawAmount = safeBigNumberFrom(await contract.claimable(normalizedUser, token));
             hasSuccessfulRead = true;
         } catch (error) {
             lastReadError = error;
@@ -113,7 +95,7 @@ export async function getClaimableSnapshot({
                 tokenLower: token.toLowerCase(),
                 rawAmount,
                 amount: rawAmount.toString(),
-                formattedAmount: formatUnits(rawAmount, 18),
+                formattedAmount: safeFormatUnits(rawAmount, 18),
                 symbol: `${token.slice(0, 6)}...${token.slice(-4)}`,
                 name: token,
                 decimals: 18,
@@ -127,7 +109,7 @@ export async function getClaimableSnapshot({
             tokenLower: token.toLowerCase(),
             rawAmount,
             amount: rawAmount.toString(),
-            formattedAmount: formatUnits(rawAmount, metadata.decimals),
+            formattedAmount: safeFormatUnits(rawAmount, metadata.decimals),
             symbol: metadata.symbol,
             name: metadata.name,
             decimals: metadata.decimals,
@@ -161,7 +143,9 @@ export async function hasAnyClaimables({ contract, userAddress }) {
             .map(normalizeAddress)
             .filter(Boolean)
             .map((address) => address.toLowerCase())
-    )].map((address) => ethers.utils.getAddress(address));
+    )]
+        .map((address) => safeGetAddress(address, null))
+        .filter(Boolean);
     if (normalizedTokens.length === 0) {
         return false;
     }
@@ -175,7 +159,7 @@ export async function hasAnyClaimables({ contract, userAddress }) {
         while (nextIndex < normalizedTokens.length && !foundClaimable) {
             const token = normalizedTokens[nextIndex++];
             try {
-                const amount = toBigNumber(await contract.claimable(normalizedUser, token));
+                const amount = safeBigNumberFrom(await contract.claimable(normalizedUser, token));
                 hasSuccessfulRead = true;
                 if (!amount.isZero()) {
                     foundClaimable = true;

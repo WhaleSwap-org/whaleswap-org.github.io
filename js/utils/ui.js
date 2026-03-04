@@ -1,3 +1,5 @@
+import { escapeHtmlAttribute, escapeHtmlText } from './html.js';
+
 export function setVisibility(element, isVisible) {
     if (!element) return;
     element.classList.toggle('is-hidden', !isVisible);
@@ -15,22 +17,6 @@ export const DEAL_TOOLTIP_TEXT = `Deal = Buy Value / Sell Value
 • Higher deal number is better
 • Deal > 1: better deal based on market prices
 • Deal < 1: worse deal based on market prices`;
-
-function escapeHtmlAttribute(value) {
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/\r?\n/g, '&#10;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-function escapeHtmlText(value) {
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
 
 function getOrderTooltipElement() {
     let tooltip = document.getElementById(ORDER_TOOLTIP_ELEMENT_ID);
@@ -202,6 +188,11 @@ export function isUserRejection(error) {
 export function extractTransactionErrorMessage(error) {
     if (!error) {
         return 'Unknown error occurred';
+    }
+
+    const errorText = String(error.reason || error.message || '').toLowerCase();
+    if (error.code === 'NETWORK_ERROR' && errorText.includes('underlying network changed')) {
+        return 'Wallet network changed. Switch back to the selected network and try again.';
     }
 
     if (error.code === 'UNPREDICTABLE_GAS_LIMIT' && error.error?.data?.message) {

@@ -22,6 +22,7 @@ export class ContractParams extends BaseComponent {
         this.RECONNECT_RETRY_LIMIT = 1;
         this.feeConfigUpdatedHandler = null;
         this.contractDisabledHandler = null;
+        this.allowedTokensUpdatedHandler = null;
     }
 
     setupFeeConfigSubscription(ws) {
@@ -68,6 +69,31 @@ export class ContractParams extends BaseComponent {
         ws.subscribe('ContractDisabled', this.contractDisabledHandler);
     }
 
+    setupAllowedTokensSubscription(ws) {
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (!this.allowedTokensUpdatedHandler) {
+            this.allowedTokensUpdatedHandler = () => {
+                this.debug('AllowedTokensUpdated received, invalidating cached contract parameters');
+                this.cachedParams = null;
+                this.lastFetchTime = 0;
+
+                if (this.container?.classList?.contains('active') && !this.isInitializing) {
+                    this.initialize().catch((error) => {
+                        this.debug('Failed to refresh contract parameters after AllowedTokensUpdated:', error);
+                    });
+                }
+            };
+        }
+
+        if (ws.unsubscribe) {
+            ws.unsubscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
+        }
+        ws.subscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
+    }
+
     applyContractDisabledState() {
         if (!this.cachedParams) {
             if (this.container?.classList?.contains('active') && !this.isInitializing) {
@@ -102,6 +128,7 @@ export class ContractParams extends BaseComponent {
             const ws = this.ctx.getWebSocket();
             this.setupFeeConfigSubscription(ws);
             this.setupContractDisabledSubscription(ws);
+            this.setupAllowedTokensSubscription(ws);
 
             const now = Date.now();
             if (this.cachedParams && (now - this.lastFetchTime) < this.CACHE_DURATION) {
@@ -536,6 +563,9 @@ export class ContractParams extends BaseComponent {
         }
         if (ws?.unsubscribe && this.contractDisabledHandler) {
             ws.unsubscribe('ContractDisabled', this.contractDisabledHandler);
+        }
+        if (ws?.unsubscribe && this.allowedTokensUpdatedHandler) {
+            ws.unsubscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
         }
         // Don't clear the cache on cleanup
         this.isInitialized = false;

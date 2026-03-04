@@ -1,4 +1,5 @@
 import { BaseComponent } from './BaseComponent.js';
+import { escapeHtmlText } from '../utils/html.js';
 
 export class Footer extends BaseComponent {
     constructor(containerId = 'app-footer') {
@@ -97,15 +98,8 @@ export class Footer extends BaseComponent {
         let tosCache = null;
         let privacyCache = null;
 
-        const escapeHtml = (value) => {
-            return value
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-        };
-
         const formatInlineMarkdown = (value) => {
-            let text = escapeHtml(value);
+            let text = escapeHtmlText(value);
             text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
             text = text.replace(/_(.+?)_/g, '<em>$1</em>');
             return text;

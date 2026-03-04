@@ -1713,14 +1713,16 @@
   }
 }
 
-/* Token picker modal (sell/buy): match app glass system with denser surfaces */
+/* Token picker modal surfaces (sell/buy/admin delete): match app glass system with denser surfaces */
 #sellTokenModal,
-#buyTokenModal {
+#buyTokenModal,
+#admin-delete-token-modal {
   background: rgba(12, 18, 28, 0.58);
 }
 
 #sellTokenModal .token-modal-content,
-#buyTokenModal .token-modal-content {
+#buyTokenModal .token-modal-content,
+#admin-delete-token-modal .token-modal-content {
   width: min(520px, calc(100vw - 28px));
   max-width: 520px;
   max-height: min(84vh, 860px);
@@ -1733,7 +1735,8 @@
 }
 
 #sellTokenModal .token-modal-header,
-#buyTokenModal .token-modal-header {
+#buyTokenModal .token-modal-header,
+#admin-delete-token-modal .token-modal-header {
   margin: 0;
   padding: 16px 18px;
   border-bottom: 1px solid var(--border-color);
@@ -1741,12 +1744,14 @@
 }
 
 #sellTokenModal .token-modal-header h3,
-#buyTokenModal .token-modal-header h3 {
+#buyTokenModal .token-modal-header h3,
+#admin-delete-token-modal .token-modal-header h3 {
   color: var(--text-primary);
 }
 
 #sellTokenModal .token-modal-close,
-#buyTokenModal .token-modal-close {
+#buyTokenModal .token-modal-close,
+#admin-delete-token-modal .token-modal-close {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -1756,14 +1761,16 @@
 }
 
 #sellTokenModal .token-modal-search,
-#buyTokenModal .token-modal-search {
+#buyTokenModal .token-modal-search,
+#admin-delete-token-modal .token-modal-search {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-color);
   background: rgba(255, 255, 255, 0.74);
 }
 
 #sellTokenModal .token-search-input,
-#buyTokenModal .token-search-input {
+#buyTokenModal .token-search-input,
+#admin-delete-token-modal .token-search-input {
   background: rgba(255, 255, 255, 0.92);
   border-color: var(--input-border);
 }
@@ -1844,37 +1851,43 @@
 }
 
 [data-theme="dark"] #sellTokenModal,
-[data-theme="dark"] #buyTokenModal {
+[data-theme="dark"] #buyTokenModal,
+[data-theme="dark"] #admin-delete-token-modal {
   background: rgba(3, 6, 11, 0.68);
 }
 
 [data-theme="dark"] #sellTokenModal .token-modal-content,
-[data-theme="dark"] #buyTokenModal .token-modal-content {
+[data-theme="dark"] #buyTokenModal .token-modal-content,
+[data-theme="dark"] #admin-delete-token-modal .token-modal-content {
   background: rgba(17, 24, 39, 0.96);
   border-color: rgba(148, 163, 184, 0.28);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
 [data-theme="dark"] #sellTokenModal .token-modal-header,
-[data-theme="dark"] #buyTokenModal .token-modal-header {
+[data-theme="dark"] #buyTokenModal .token-modal-header,
+[data-theme="dark"] #admin-delete-token-modal .token-modal-header {
   background: rgba(30, 41, 59, 0.84);
   border-bottom-color: rgba(148, 163, 184, 0.28);
 }
 
 [data-theme="dark"] #sellTokenModal .token-modal-close,
-[data-theme="dark"] #buyTokenModal .token-modal-close {
+[data-theme="dark"] #buyTokenModal .token-modal-close,
+[data-theme="dark"] #admin-delete-token-modal .token-modal-close {
   background: rgba(30, 41, 59, 0.74);
   border-color: rgba(148, 163, 184, 0.28);
 }
 
 [data-theme="dark"] #sellTokenModal .token-modal-search,
-[data-theme="dark"] #buyTokenModal .token-modal-search {
+[data-theme="dark"] #buyTokenModal .token-modal-search,
+[data-theme="dark"] #admin-delete-token-modal .token-modal-search {
   background: rgba(30, 41, 59, 0.8);
   border-bottom-color: rgba(148, 163, 184, 0.28);
 }
 
 [data-theme="dark"] #sellTokenModal .token-search-input,
-[data-theme="dark"] #buyTokenModal .token-search-input {
+[data-theme="dark"] #buyTokenModal .token-search-input,
+[data-theme="dark"] #admin-delete-token-modal .token-search-input {
   background: rgba(30, 41, 59, 0.92);
   border-color: rgba(148, 163, 184, 0.34);
 }

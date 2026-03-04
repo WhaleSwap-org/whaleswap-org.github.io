@@ -396,6 +396,10 @@ export class Cleanup extends BaseComponent {
                 throw new Error('Contract not initialized');
             }
 
+            if (!await this.ensureWalletReadyForWrite('clean expired orders')) {
+                return;
+            }
+
             const signer = await wallet.getSigner();
             if (!signer) {
                 throw new Error('No signer available');
@@ -614,6 +618,10 @@ export class Cleanup extends BaseComponent {
                 throw new Error('Contract not initialized');
             }
 
+            if (!await this.ensureWalletReadyForWrite('disable the contract')) {
+                return;
+            }
+
             // Get signer from wallet manager
             const wallet = this.ctx.getWallet();
             const signer = await wallet.getSigner();
@@ -666,6 +674,10 @@ export class Cleanup extends BaseComponent {
             const contract = this.webSocket?.contract;
             if (!contract) {
                 throw new Error('Contract not initialized');
+            }
+
+            if (!await this.ensureWalletReadyForWrite('update the fee configuration')) {
+                return;
             }
 
             const wallet = this.ctx.getWallet();

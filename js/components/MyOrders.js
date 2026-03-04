@@ -731,6 +731,10 @@ export class MyOrders extends BaseComponent {
                             throw new Error('MetaMask is not installed. Please install MetaMask to cancel orders.');
                         }
 
+                        if (!await this.ensureWalletReadyForWrite(`cancel order ${order.id}`)) {
+                            return;
+                        }
+
                         cancelButton.disabled = true;
                         cancelButton.textContent = 'Cancelling...';
                         cancelButton.classList.add('disabled');
@@ -837,6 +841,10 @@ export class MyOrders extends BaseComponent {
                     try {
                         if (!this.provider) {
                             throw new Error('MetaMask is not installed. Please install MetaMask to cancel orders.');
+                        }
+
+                        if (!await this.ensureWalletReadyForWrite(`cancel order ${order.id}`)) {
+                            return;
                         }
 
                         cancelButton.disabled = true;

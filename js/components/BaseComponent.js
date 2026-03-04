@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { erc20Abi } from '../abi/erc20.js';
 import { createLogger } from '../services/LogService.js';
 import { getAppContext } from '../services/AppContext.js';
+import { getNetworkConfig, getNetworkById } from '../config/networks.js';
 
 /**
  * BaseComponent - Base class for all UI components
@@ -174,6 +175,38 @@ export class BaseComponent {
     showInfo(message, duration = 5000) {
         this.debug('Showing info toast:', message);
         this.ctx.showInfo(message, duration);
+    }
+
+    isWalletOnSelectedNetwork() {
+        const selectedNetwork = getNetworkConfig();
+        const walletNetwork = getNetworkById(
+            this.ctx?.getWalletChainId?.() ?? walletManager.chainId ?? null
+        );
+
+        return Boolean(selectedNetwork?.slug && walletNetwork?.slug && selectedNetwork.slug === walletNetwork.slug);
+    }
+
+    async ensureWalletReadyForWrite(actionLabel = 'submit this transaction') {
+        if (this.isWalletOnSelectedNetwork()) {
+            return true;
+        }
+
+        const targetNetwork = getNetworkConfig();
+        const targetLabel = targetNetwork?.displayName || targetNetwork?.name || 'the selected network';
+        const switchWallet = window.app?.switchWalletToNetworkWithReload;
+
+        if (typeof switchWallet !== 'function') {
+            this.showWarning(`Switch your wallet to ${targetLabel} before trying to ${actionLabel}.`);
+            return false;
+        }
+
+        this.showWarning(`Switching wallet to ${targetLabel} before trying to ${actionLabel}...`);
+        const switched = await switchWallet.call(window.app, targetNetwork);
+        if (switched) {
+            this.showInfo(`Wallet switched to ${targetLabel}. Retry ${actionLabel} once the app is ready.`);
+        }
+
+        return false;
     }
 
     /**

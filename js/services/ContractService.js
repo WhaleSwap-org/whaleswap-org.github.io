@@ -58,59 +58,64 @@ class ContractService {
     }
 
     /**
-     * Get all allowed tokens from the contract
+     * Run a read-only contract call via HTTP RPC (tries primary rpcUrl then fallbackRpcUrls).
+     * Used for allowed-token reads to avoid WebSocket timeout on startup.
+     * @param {function(ethers.Contract): Promise<any>} readFn - Function that receives the HTTP-backed contract and returns the read result
+     * @returns {Promise<any>} Result of readFn(contract)
+     * @private
+     */
+    async _readViaHttpRpc(readFn) {
+        if (!this.initialized) {
+            throw new Error('Contract service not initialized');
+        }
+        const net = getNetworkConfig();
+        const rpcUrls = [net?.rpcUrl, ...(net?.fallbackRpcUrls || [])].filter(Boolean);
+        if (rpcUrls.length === 0) {
+            throw new Error('No HTTP RPC URL configured for current network');
+        }
+        let lastErr;
+        for (const url of rpcUrls) {
+            try {
+                this.debug(`Trying HTTP RPC: ${url}`);
+                const httpProvider = new ethers.providers.JsonRpcProvider(url);
+                const httpContract = new ethers.Contract(net.contractAddress, net.contractABI, httpProvider);
+                const result = await readFn(httpContract);
+                this.debug(`HTTP RPC succeeded: ${url}`);
+                return result;
+            } catch (e) {
+                lastErr = e;
+                this.warn(`HTTP RPC failed (${url}):`, e?.message || e);
+                continue;
+            }
+        }
+        throw lastErr || new Error('All HTTP RPC URLs failed');
+    }
+
+    /**
+     * Get all allowed tokens from the contract (via HTTP RPC to avoid WS timeout on startup).
      * @returns {Promise<string[]>} Array of allowed token addresses
      */
     async getAllowedTokens() {
         try {
-            const contract = this.getContract();
-            this.debug('Fetching allowed tokens from contract...');
-            const allowedTokens = await contract.getAllowedTokens();
+            this.debug('Fetching allowed tokens from contract via HTTP RPC...');
+            const allowedTokens = await this._readViaHttpRpc((contract) => contract.getAllowedTokens());
             this.debug(`Found ${allowedTokens.length} allowed tokens`);
-            
             return allowedTokens;
         } catch (error) {
-            // If WS provider is rate limited, try read-only HTTP fallbacks
-            const isRateLimit = error?.code === -32005 || /rate limit/i.test(error?.message || '');
-            if (isRateLimit) {
-                this.warn('WS rate limited while fetching allowed tokens, retrying via HTTP provider...');
-                try {
-                    const net = getNetworkConfig();
-                    const rpcUrls = [net.rpcUrl, ...(net.fallbackRpcUrls || [])].filter(Boolean);
-                    for (const url of rpcUrls) {
-                        try {
-                            this.debug(`Trying HTTP provider: ${url}`);
-                            const httpProvider = new ethers.providers.JsonRpcProvider(url);
-                            const httpContract = new ethers.Contract(net.contractAddress, net.contractABI, httpProvider);
-                            const allowedTokens = await httpContract.getAllowedTokens();
-                            this.debug(`HTTP provider succeeded. Found ${allowedTokens.length} allowed tokens`);
-                            return allowedTokens;
-                        } catch (e) {
-                            const isRl = e?.code === -32005 || /rate limit/i.test(e?.message || '');
-                            this.warn(`HTTP provider failed (${url})${isRl ? ' due to rate limit' : ''}`);
-                            continue;
-                        }
-                    }
-                } catch (fallbackErr) {
-                    this.warn('HTTP fallback attempt failed:', fallbackErr);
-                }
-            }
             this.error('Failed to get allowed tokens:', error);
             throw new Error(`Failed to get allowed tokens: ${error.message}`);
         }
     }
 
     /**
-     * Get the count of allowed tokens
+     * Get the count of allowed tokens (via HTTP RPC to avoid WS timeout on startup).
      * @returns {Promise<number>} Number of allowed tokens
      */
     async getAllowedTokensCount() {
         try {
-            const contract = this.getContract();
-            this.debug('Fetching allowed tokens count...');
-            const count = await contract.getAllowedTokensCount();
+            this.debug('Fetching allowed tokens count via HTTP RPC...');
+            const count = await this._readViaHttpRpc((contract) => contract.getAllowedTokensCount());
             this.debug(`Allowed tokens count: ${count}`);
-            
             return count.toNumber();
         } catch (error) {
             this.error('Failed to get allowed tokens count:', error);

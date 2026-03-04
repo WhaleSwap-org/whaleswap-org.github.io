@@ -19,6 +19,9 @@ import {
 import { getExplorerUrl } from '../utils/orderUtils.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
+const CREATE_ORDER_RELOAD_STATE_KEY = 'whaleswap:create-order:reload-state:v1';
+const CREATE_ORDER_RELOAD_STATE_MAX_AGE_MS = 5 * 60 * 1000;
+
 export class CreateOrder extends BaseComponent {
     constructor() {
         super('create-order');
@@ -36,8 +39,10 @@ export class CreateOrder extends BaseComponent {
         this.allowedTokensLoadPromise = null;
         this.feeLoadPromise = null;
         this.feeConfigUpdatedHandler = null;
+        this.allowedTokensUpdatedHandler = null;
         this.contractDisabledHandler = null;
         this.pendingFeeConfigRefresh = false;
+        this.pendingAllowedTokensRefresh = false;
         this.sellToken = null;
         this.buyToken = null;
         this.isContractDisabled = false;
@@ -129,6 +134,7 @@ export class CreateOrder extends BaseComponent {
         this.allowedTokensLoadPromise = null;
         this.feeLoadPromise = null;
         this.pendingFeeConfigRefresh = false;
+        this.pendingAllowedTokensRefresh = false;
         this.feeToken = null;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
@@ -138,6 +144,195 @@ export class CreateOrder extends BaseComponent {
         }
         // Token cache is centralized in WebSocket - no local cache to clear
         this.resetBalanceDisplays();
+    }
+
+    getCreateOrderFormStateForReload() {
+        const sellAmount = document.getElementById('sellAmount')?.value?.trim() || '';
+        const buyAmount = document.getElementById('buyAmount')?.value?.trim() || '';
+        const takerAddress = document.getElementById('takerAddress')?.value?.trim() || '';
+        const takerToggle = this.container?.querySelector('.taker-toggle');
+        const isTakerExpanded = Boolean(takerToggle?.classList.contains('active'));
+        const selectedChainSlug = this.ctx?.getSelectedChainSlug?.() || getNetworkConfig()?.slug || null;
+
+        const snapshot = {
+            savedAt: Date.now(),
+            selectedChainSlug,
+            sellTokenAddress: this.sellToken?.address || '',
+            buyTokenAddress: this.buyToken?.address || '',
+            sellAmount,
+            buyAmount,
+            takerAddress,
+            isTakerExpanded: isTakerExpanded || Boolean(takerAddress),
+        };
+
+        const hasFormState = Boolean(
+            snapshot.sellTokenAddress
+            || snapshot.buyTokenAddress
+            || snapshot.sellAmount
+            || snapshot.buyAmount
+            || snapshot.takerAddress
+        );
+
+        return hasFormState ? snapshot : null;
+    }
+
+    persistFormStateForReload() {
+        try {
+            if (typeof window === 'undefined' || !window.sessionStorage) {
+                return false;
+            }
+
+            const snapshot = this.getCreateOrderFormStateForReload();
+            if (!snapshot) {
+                window.sessionStorage.removeItem(CREATE_ORDER_RELOAD_STATE_KEY);
+                return false;
+            }
+
+            window.sessionStorage.setItem(CREATE_ORDER_RELOAD_STATE_KEY, JSON.stringify(snapshot));
+            this.debug('Persisted create-order form state for reload');
+            return true;
+        } catch (error) {
+            this.debug('Unable to persist create-order form state for reload:', error);
+            return false;
+        }
+    }
+
+    readPendingReloadFormState() {
+        try {
+            if (typeof window === 'undefined' || !window.sessionStorage) {
+                return null;
+            }
+
+            const raw = window.sessionStorage.getItem(CREATE_ORDER_RELOAD_STATE_KEY);
+            if (!raw) {
+                return null;
+            }
+
+            const parsed = JSON.parse(raw);
+            const savedAt = Number(parsed?.savedAt || 0);
+            if (!savedAt || (Date.now() - savedAt) > CREATE_ORDER_RELOAD_STATE_MAX_AGE_MS) {
+                window.sessionStorage.removeItem(CREATE_ORDER_RELOAD_STATE_KEY);
+                return null;
+            }
+
+            return parsed;
+        } catch (error) {
+            this.debug('Unable to read pending create-order reload state:', error);
+            try {
+                window.sessionStorage?.removeItem?.(CREATE_ORDER_RELOAD_STATE_KEY);
+            } catch (_) {}
+            return null;
+        }
+    }
+
+    clearPendingReloadFormState() {
+        try {
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                window.sessionStorage.removeItem(CREATE_ORDER_RELOAD_STATE_KEY);
+            }
+        } catch (error) {
+            this.debug('Unable to clear pending create-order reload state:', error);
+        }
+    }
+
+    setTakerExpanded(isExpanded) {
+        const takerToggle = this.container?.querySelector('.taker-toggle');
+        const takerInputContent = this.container?.querySelector('.taker-input-content');
+        const chevron = takerToggle?.querySelector('.chevron-down');
+
+        if (takerToggle) {
+            takerToggle.classList.toggle('active', Boolean(isExpanded));
+            takerToggle.setAttribute('aria-expanded', String(Boolean(isExpanded)));
+        }
+
+        if (takerInputContent) {
+            takerInputContent.classList.toggle('hidden', !isExpanded);
+        }
+
+        if (chevron) {
+            chevron.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+    }
+
+    async applyReloadFormState(snapshot) {
+        if (!snapshot) {
+            return { clearSnapshot: false, restored: false };
+        }
+
+        const currentSelectedChainSlug = this.ctx?.getSelectedChainSlug?.() || getNetworkConfig()?.slug || null;
+        if (snapshot.selectedChainSlug && currentSelectedChainSlug && snapshot.selectedChainSlug !== currentSelectedChainSlug) {
+            this.debug('Skipping create-order form restore on different selected chain');
+            return { clearSnapshot: true, restored: false };
+        }
+
+        if ((!Array.isArray(this.tokens) || this.tokens.length === 0) && this.allowedTokensLoadPromise) {
+            await this.allowedTokensLoadPromise;
+        } else if (!Array.isArray(this.tokens) || this.tokens.length === 0) {
+            await this.loadContractTokens();
+        }
+
+        const sellToken = snapshot.sellTokenAddress
+            ? this.tokens.find(token => token.address?.toLowerCase() === snapshot.sellTokenAddress.toLowerCase())
+            : null;
+        if (sellToken) {
+            await this.handleTokenSelect('sell', sellToken);
+        }
+
+        const buyToken = snapshot.buyTokenAddress
+            ? this.tokens.find(token => token.address?.toLowerCase() === snapshot.buyTokenAddress.toLowerCase())
+            : null;
+        if (buyToken) {
+            await this.handleTokenSelect('buy', buyToken);
+        }
+
+        const sellAmountInput = document.getElementById('sellAmount');
+        if (sellAmountInput && snapshot.sellAmount) {
+            sellAmountInput.value = snapshot.sellAmount;
+            sellAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        const buyAmountInput = document.getElementById('buyAmount');
+        if (buyAmountInput && snapshot.buyAmount) {
+            buyAmountInput.value = snapshot.buyAmount;
+            buyAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        this.setTakerExpanded(Boolean(snapshot.isTakerExpanded));
+        const takerAddressInput = document.getElementById('takerAddress');
+        if (takerAddressInput) {
+            takerAddressInput.value = snapshot.takerAddress || '';
+        }
+
+        const restoredSellToken = !snapshot.sellTokenAddress
+            || this.sellToken?.address?.toLowerCase() === snapshot.sellTokenAddress.toLowerCase();
+        const restoredBuyToken = !snapshot.buyTokenAddress
+            || this.buyToken?.address?.toLowerCase() === snapshot.buyTokenAddress.toLowerCase();
+        const restored = restoredSellToken && restoredBuyToken;
+
+        if (!restored) {
+            this.debug('Create-order form restore deferred until token data is available');
+            return { clearSnapshot: false, restored: false };
+        }
+
+        this.updateCreateButtonState();
+        this.debug('Restored create-order form state after reload');
+        return { clearSnapshot: true, restored: true };
+    }
+
+    async restorePendingReloadFormState() {
+        const snapshot = this.readPendingReloadFormState();
+        if (!snapshot) {
+            return;
+        }
+
+        try {
+            const result = await this.applyReloadFormState(snapshot);
+            if (result?.clearSnapshot) {
+                this.clearPendingReloadFormState();
+            }
+        } catch (error) {
+            this.debug('Failed to restore create-order form state after reload:', error);
+        }
     }
 
     applyDisconnectedState() {
@@ -274,6 +469,7 @@ export class CreateOrder extends BaseComponent {
             this.subscribeToContractDisabledUpdates();
             await this.refreshContractDisabledState();
             this.subscribeToFeeConfigUpdates();
+            this.subscribeToAllowedTokensUpdates();
             
             // Load fee/token data in background so initial tab render is not blocked.
             this.startBackgroundDataLoading();
@@ -284,6 +480,8 @@ export class CreateOrder extends BaseComponent {
             
             // Initialize amount input listeners
             this.initializeAmountInputs();
+
+            await this.restorePendingReloadFormState();
             
             this.initialized = true;
             this.debug('Initialization complete');
@@ -304,19 +502,44 @@ export class CreateOrder extends BaseComponent {
             this.requestFeeConfigRefresh({ source: 'background' });
         }
 
+        this.requestAllowedTokensRefresh({ source: 'background' });
+    }
+
+    requestAllowedTokensRefresh({ forceFresh = false, source = 'unknown' } = {}) {
         const hasAllowedTokens = Array.isArray(this.allowedTokens) && this.allowedTokens.length > 0;
-        if (!this.allowedTokensLoadPromise && !hasAllowedTokens) {
-            this.tokensLoading = true;
-            this.setAllowedTokenListsLoadingState('Loading allowed tokens...');
-            this.allowedTokensLoadPromise = this.loadContractTokens()
-                .catch((error) => {
-                    this.debug('Background token load failed:', error);
-                })
-                .finally(() => {
-                    this.tokensLoading = false;
-                    this.allowedTokensLoadPromise = null;
-                });
+        if (forceFresh) {
+            this.tokens = [];
+            this.allowedTokens = [];
         }
+
+        if (this.allowedTokensLoadPromise) {
+            if (forceFresh) {
+                this.pendingAllowedTokensRefresh = true;
+            }
+            return this.allowedTokensLoadPromise;
+        }
+
+        if (!forceFresh && hasAllowedTokens) {
+            return Promise.resolve(this.allowedTokens);
+        }
+
+        this.tokensLoading = true;
+        this.setAllowedTokenListsLoadingState('Loading allowed tokens...');
+        this.allowedTokensLoadPromise = this.loadContractTokens()
+            .catch((error) => {
+                this.debug(`Allowed token refresh failed (${source}):`, error);
+            })
+            .finally(() => {
+                this.tokensLoading = false;
+                this.allowedTokensLoadPromise = null;
+
+                if (this.pendingAllowedTokensRefresh) {
+                    this.pendingAllowedTokensRefresh = false;
+                    this.requestAllowedTokensRefresh({ forceFresh: true, source: 'pending-followup' });
+                }
+            });
+
+        return this.allowedTokensLoadPromise;
     }
 
     requestFeeConfigRefresh({ forceFresh = false, source = 'unknown' } = {}) {
@@ -365,6 +588,24 @@ export class CreateOrder extends BaseComponent {
         };
 
         ws.subscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+    }
+
+    subscribeToAllowedTokensUpdates() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (this.allowedTokensUpdatedHandler && ws.unsubscribe) {
+            ws.unsubscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
+        }
+
+        this.allowedTokensUpdatedHandler = () => {
+            this.debug('AllowedTokensUpdated event received, refreshing allowed token lists');
+            this.requestAllowedTokensRefresh({ forceFresh: true, source: 'AllowedTokensUpdated' });
+        };
+
+        ws.subscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
     }
 
     subscribeToContractDisabledUpdates() {
@@ -845,6 +1086,10 @@ export class CreateOrder extends BaseComponent {
                 return;
             }
 
+            if (!await this.ensureWalletReadyForWrite('create the order')) {
+                return;
+            }
+
             // Get fresh signer and reinitialize contract
             const signer = walletManager.getSigner();
             if (!signer) {
@@ -1206,6 +1451,7 @@ export class CreateOrder extends BaseComponent {
             this.allowedTokens = normalizedAllowed;
             
             this.debug('Loaded allowed tokens:', normalizedAllowed);
+            await this.reconcileSelectedTokensWithAllowedList();
             
             // Trigger price fetching for allowed tokens
             const pricing = this.ctx.getPricing();
@@ -1243,6 +1489,30 @@ export class CreateOrder extends BaseComponent {
             this.debug('Error loading wallet tokens:', error);
             this.setAllowedTokenListsErrorState('Failed to load allowed tokens. Please retry shortly.');
             this.showError('Failed to load tokens. Please try again.');
+        }
+    }
+
+    async reconcileSelectedTokensWithAllowedList() {
+        const allowedAddressSet = new Set(
+            (Array.isArray(this.allowedTokens) ? this.allowedTokens : [])
+                .map((token) => String(token?.address || '').toLowerCase())
+                .filter(Boolean)
+        );
+
+        const removedSelections = [];
+        for (const type of ['sell', 'buy']) {
+            const selectedToken = this[`${type}Token`];
+            const selectedAddress = String(selectedToken?.address || '').toLowerCase();
+            if (!selectedAddress || allowedAddressSet.has(selectedAddress)) {
+                continue;
+            }
+
+            await this.handleTokenSelect(type, null);
+            removedSelections.push(type);
+        }
+
+        if (removedSelections.length > 0) {
+            this.showWarning('A selected token is no longer in the allowed list. Please choose a new token.');
         }
     }
 
@@ -1899,12 +2169,17 @@ export class CreateOrder extends BaseComponent {
         if (ws?.unsubscribe && this.feeConfigUpdatedHandler) {
             ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
         }
+        if (ws?.unsubscribe && this.allowedTokensUpdatedHandler) {
+            ws.unsubscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
+        }
         if (ws?.unsubscribe && this.contractDisabledHandler) {
             ws.unsubscribe('ContractDisabled', this.contractDisabledHandler);
         }
         this.feeConfigUpdatedHandler = null;
+        this.allowedTokensUpdatedHandler = null;
         this.contractDisabledHandler = null;
         this.pendingFeeConfigRefresh = false;
+        this.pendingAllowedTokensRefresh = false;
     }
 
     // Add this method to the CreateOrder class
@@ -2084,12 +2359,21 @@ export class CreateOrder extends BaseComponent {
             // Hide USD display if no token is selected (preserve layout)
             if (!token) {
                 this[`${type}Token`] = null;
+                const tokenInput = document.getElementById(`${type}Token`);
+                if (tokenInput) {
+                    tokenInput.value = '';
+                }
+                const selector = document.getElementById(`${type}TokenSelector`);
+                if (selector) {
+                    selector.innerHTML = this.getDefaultTokenSelectorMarkup();
+                }
                 const usdDisplay = document.getElementById(`${type}AmountUSD`);
                 if (usdDisplay) {
                     setVisibility(usdDisplay, false);
                 }
                 // Hide balance display when no token is selected
                 this.hideBalanceDisplay(type);
+                this.updateCreateButtonState();
                 return;
             }
             
@@ -2141,6 +2425,11 @@ export class CreateOrder extends BaseComponent {
                 balance: token.balance || '0',
                 usdPrice: usdPrice
             };
+
+            const tokenInput = document.getElementById(`${type}Token`);
+            if (tokenInput) {
+                tokenInput.value = token.address || '';
+            }
 
             // Generate background color for fallback icon
             const colors = [
@@ -2393,7 +2682,10 @@ export class CreateOrder extends BaseComponent {
     }
 
     initializeTokenSelectors() {
-        ['sell', 'buy'].forEach(type => {
+        const tokenSelectorTypes = ['sell', 'buy'];
+        const createOrderModalIds = new Set(tokenSelectorTypes.map((type) => `${type}TokenModal`));
+
+        tokenSelectorTypes.forEach(type => {
             const selector = document.getElementById(`${type}TokenSelector`);
             const modal = document.getElementById(`${type}TokenModal`);
             const closeButton = modal?.querySelector('.token-modal-close');
@@ -2435,9 +2727,10 @@ export class CreateOrder extends BaseComponent {
                 // Close modal when clicking outside (register once)
                 if (!this.boundWindowClickHandler) {
                     this.boundWindowClickHandler = (event) => {
-                        if (event.target.classList?.contains('token-modal')) {
-                            event.target.style.display = 'none';
-                        }
+                        const modalTarget = event.target;
+                        if (!(modalTarget instanceof HTMLElement)) return;
+                        if (!createOrderModalIds.has(modalTarget.id)) return;
+                        modalTarget.style.display = 'none';
                     };
                     window.addEventListener('click', this.boundWindowClickHandler);
                 }

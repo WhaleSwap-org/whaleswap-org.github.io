@@ -39,6 +39,8 @@
   /* Opaque network dropdown status surfaces (light theme) */
   --network-connected-bg: #e7f6f1;
   --network-connected-border: #6cc7a9;
+  --network-mismatch-bg: #eef2f6;
+  --network-mismatch-border: #c5d0dd;
   --network-wrong-bg: #fdeced;
   --network-wrong-border: #f3a0a8;
   --network-disconnected-bg: #e6e6e6;
@@ -48,6 +50,10 @@
   --network-button-connected-border: #64c1a2;
   --network-button-connected-hover: #d2efe5;
   --network-button-connected-text: #155c48;
+  --network-button-mismatch-bg: #edf2f7;
+  --network-button-mismatch-border: #c7d2de;
+  --network-button-mismatch-hover: #e5ebf2;
+  --network-button-mismatch-text: #435468;
   --network-button-wrong-bg: #fbe8ea;
   --network-button-wrong-border: #ef96a0;
   --network-button-wrong-hover: #f8dde0;
@@ -89,6 +95,8 @@
   /* Opaque network dropdown status surfaces (dark theme) */
   --network-connected-bg: #13362f;
   --network-connected-border: #1d7d63;
+  --network-mismatch-bg: #24303b;
+  --network-mismatch-border: #637387;
   --network-wrong-bg: #3b2227;
   --network-wrong-border: #b84a55;
   --network-disconnected-bg: #3f3f3f;
@@ -98,6 +106,10 @@
   --network-button-connected-border: #1f8469;
   --network-button-connected-hover: #194339;
   --network-button-connected-text: #9fe5cf;
+  --network-button-mismatch-bg: #273440;
+  --network-button-mismatch-border: #64788d;
+  --network-button-mismatch-hover: #2d3c49;
+  --network-button-mismatch-text: #d3deea;
   --network-button-wrong-bg: #40252b;
   --network-button-wrong-border: #be4f5b;
   --network-button-wrong-hover: #4a2a31;
@@ -195,7 +207,7 @@ h6 {
   color: #10b981;
 }
 
-.network-badge.wrong-network {
+.network-badge.setup-needed {
   background-color: transparent;
   color: #ef4444;
 }

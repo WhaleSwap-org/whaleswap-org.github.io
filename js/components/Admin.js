@@ -24,6 +24,7 @@ export class Admin extends BaseComponent {
         this.feeTokenLookupTimeout = null;
         this.feeTokenLookupRequestId = 0;
         this.feeConfigUpdatedHandler = null;
+        this.allowedTokensUpdatedHandler = null;
         this.tokenRowLookupTimeouts = new WeakMap();
         this.deleteTokenModal = null;
         this.deleteTokenTargetRow = null;
@@ -57,6 +58,7 @@ export class Admin extends BaseComponent {
             await this.loadCurrentFeeConfig();
             this.attachListeners();
             this.subscribeToFeeConfigUpdates();
+            this.subscribeToAllowedTokensUpdates();
 
             this.isInitialized = true;
         } catch (error) {
@@ -202,6 +204,27 @@ export class Admin extends BaseComponent {
         };
 
         ws.subscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+    }
+
+    subscribeToAllowedTokensUpdates() {
+        const ws = this.ctx.getWebSocket();
+        if (!ws?.subscribe) {
+            return;
+        }
+
+        if (this.allowedTokensUpdatedHandler && ws.unsubscribe) {
+            ws.unsubscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
+        }
+
+        this.allowedTokensUpdatedHandler = () => {
+            this.debug('AllowedTokensUpdated received, invalidating delete-token picker cache');
+            this.invalidateDeleteAllowedTokensCache();
+            this.refreshDeleteTokenPickerIfOpen().catch((error) => {
+                this.debug('Failed to refresh delete-token picker after AllowedTokensUpdated:', error);
+            });
+        };
+
+        ws.subscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
     }
 
     updateFeeTokenMetadataDisplay(metadata = null) {
@@ -594,10 +617,14 @@ export class Admin extends BaseComponent {
                 .sort((a, b) => a.symbol.localeCompare(b.symbol));
             this.deleteAllowedTokensLoadedAt = Date.now();
         } catch (error) {
-            this.deleteAllowedTokens = [];
-            this.deleteAllowedTokensLoadedAt = 0;
+            this.invalidateDeleteAllowedTokensCache();
             this.showError(`Failed to load allowed tokens: ${error.message}`);
         }
+    }
+
+    invalidateDeleteAllowedTokensCache() {
+        this.deleteAllowedTokens = [];
+        this.deleteAllowedTokensLoadedAt = 0;
     }
 
     renderDeleteTokenList(searchTerm = '') {
@@ -662,6 +689,26 @@ export class Admin extends BaseComponent {
 
         await this.loadAllowedTokensForDeletePicker();
         if (requestId !== this.deleteTokenPickerRequestId || this.deleteTokenTargetRow !== row) return;
+        this.renderDeleteTokenList(searchInput?.value || '');
+    }
+
+    async refreshDeleteTokenPickerIfOpen() {
+        if (!this.deleteTokenModal?.classList.contains('show')) {
+            return;
+        }
+
+        const requestId = ++this.deleteTokenPickerRequestId;
+        const searchInput = this.deleteTokenModal.querySelector('#admin-delete-token-search');
+        const listElement = this.deleteTokenModal.querySelector('#admin-delete-token-list');
+        if (listElement) {
+            listElement.innerHTML = '<div class="token-list-empty">Loading allowed tokens...</div>';
+        }
+
+        await this.loadAllowedTokensForDeletePicker();
+        if (requestId !== this.deleteTokenPickerRequestId || !this.deleteTokenModal?.classList.contains('show')) {
+            return;
+        }
+
         this.renderDeleteTokenList(searchInput?.value || '');
     }
 
@@ -789,6 +836,10 @@ export class Admin extends BaseComponent {
             this.updateFeeButton.disabled = true;
             this.updateFeeButton.textContent = 'Updating...';
 
+            if (!await this.ensureWalletReadyForWrite('update the fee configuration')) {
+                return;
+            }
+
             const wallet = this.ctx.getWallet();
             const signer = await wallet.getSigner();
             const metadata = await this.getTokenMetadata(feeToken);
@@ -895,6 +946,10 @@ export class Admin extends BaseComponent {
             this.updateTokensButton.disabled = true;
             this.updateTokensButton.textContent = 'Updating...';
 
+            if (!await this.ensureWalletReadyForWrite('update allowed tokens')) {
+                return;
+            }
+
             const wallet = this.ctx.getWallet();
             const signer = await wallet.getSigner();
             const tx = await this.contract.connect(signer).updateAllowedTokens(tokens, flags);
@@ -905,8 +960,7 @@ export class Admin extends BaseComponent {
             }
 
             this.resetTokenRows();
-            this.deleteAllowedTokens = [];
-            this.deleteAllowedTokensLoadedAt = 0;
+            this.invalidateDeleteAllowedTokensCache();
             this.showSuccess('Allowed tokens updated.');
         } catch (error) {
             this.error('Failed to update allowed tokens:', error);
@@ -927,6 +981,10 @@ export class Admin extends BaseComponent {
             this.disableButton.disabled = true;
             this.disableButton.textContent = 'Disabling...';
 
+            if (!await this.ensureWalletReadyForWrite('disable the contract')) {
+                return;
+            }
+
             const wallet = this.ctx.getWallet();
             const signer = await wallet.getSigner();
             const tx = await this.contract.connect(signer).disableContract();
@@ -940,5 +998,26 @@ export class Admin extends BaseComponent {
             this.disableButton.disabled = false;
             this.disableButton.textContent = 'Disable New Orders Permanently';
         }
+    }
+
+    cleanup() {
+        const ws = this.ctx.getWebSocket();
+        if (ws?.unsubscribe && this.feeConfigUpdatedHandler) {
+            ws.unsubscribe('FeeConfigUpdated', this.feeConfigUpdatedHandler);
+        }
+        if (ws?.unsubscribe && this.allowedTokensUpdatedHandler) {
+            ws.unsubscribe('AllowedTokensUpdated', this.allowedTokensUpdatedHandler);
+        }
+
+        if (this.feeTokenLookupTimeout) {
+            clearTimeout(this.feeTokenLookupTimeout);
+            this.feeTokenLookupTimeout = null;
+        }
+
+        this.closeDeleteTokenPicker();
+        this.feeConfigUpdatedHandler = null;
+        this.allowedTokensUpdatedHandler = null;
+        this.isInitialized = false;
+        this.isInitializing = false;
     }
 }

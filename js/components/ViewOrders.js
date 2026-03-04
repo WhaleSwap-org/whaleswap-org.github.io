@@ -1,11 +1,11 @@
 import { BaseComponent } from './BaseComponent.js';
-import { ethers } from 'ethers';
 import { createLogger } from '../services/LogService.js';
 import { createDealCellHTML } from '../utils/ui.js';
-import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
+import { calculateTotalValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
-import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
+import { buildTokenDisplaySymbolMap } from '../utils/tokenDisplay.js';
+import { buildOrderRowContext } from '../utils/ordersComponentHelpers.js';
 
 export class ViewOrders extends BaseComponent {
     constructor(containerId = 'view-orders') {
@@ -297,54 +297,29 @@ export class ViewOrders extends BaseComponent {
             tr.dataset.orderId = order.id.toString();
             tr.dataset.timestamp = order.timings?.createdAt?.toString() || '0';
 
-            // Get token info from WebSocket cache
             const ws = this.ctx.getWebSocket();
-            const sellTokenInfo = await ws.getTokenInfo(order.sellToken);
-            const buyTokenInfo = await ws.getTokenInfo(order.buyToken);
-            const sellDisplaySymbol = getDisplaySymbol(sellTokenInfo, this.tokenDisplaySymbolMap);
-            const buyDisplaySymbol = getDisplaySymbol(buyTokenInfo, this.tokenDisplaySymbolMap);
-            const deal = order.dealMetrics?.deal > 0 ? 1 / order.dealMetrics?.deal : undefined; // view as buyer/taker
-            // Use pre-formatted values from dealMetrics
-            const { 
+            const pricing = this.ctx.getPricing();
+            const {
+                sellTokenInfo,
+                buyTokenInfo,
+                sellDisplaySymbol,
+                buyDisplaySymbol,
                 formattedSellAmount,
                 formattedBuyAmount,
-                sellTokenUsdPrice,
-                buyTokenUsdPrice 
-            } = order.dealMetrics || {};
-
-            // Fallback amount formatting if dealMetrics not yet populated
-            const safeFormattedSellAmount = typeof formattedSellAmount !== 'undefined'
-                ? formattedSellAmount
-                : (order?.sellAmount && sellTokenInfo?.decimals != null
-                    ? ethers.utils.formatUnits(order.sellAmount, sellTokenInfo.decimals)
-                    : '0');
-            const safeFormattedBuyAmount = typeof formattedBuyAmount !== 'undefined'
-                ? formattedBuyAmount
-                : (order?.buyAmount && buyTokenInfo?.decimals != null
-                    ? ethers.utils.formatUnits(order.buyAmount, buyTokenInfo.decimals)
-                    : '0');
-
-            // Determine prices with fallback to current pricing service map
-            const pricing = this.ctx.getPricing();
-            const resolvedSellPrice = typeof sellTokenUsdPrice !== 'undefined' 
-                ? sellTokenUsdPrice 
-                : (pricing ? pricing.getPrice(order.sellToken) : undefined);
-            const resolvedBuyPrice = typeof buyTokenUsdPrice !== 'undefined' 
-                ? buyTokenUsdPrice 
-                : (pricing ? pricing.getPrice(order.buyToken) : undefined);
-
-            // Mark as estimate if not explicitly present in pricing map
-            const sellPriceClass = (pricing && pricing.isPriceEstimated(order.sellToken)) ? 'price-estimate' : '';
-            const buyPriceClass = (pricing && pricing.isPriceEstimated(order.buyToken)) ? 'price-estimate' : '';
-
-            const orderStatus = ws.getOrderStatus(order);
-            const expiryEpoch = order?.timings?.expiresAt;
-            const currentTime = ws.getCurrentTimestamp();
-            const expiryText = orderStatus === 'Active' && typeof expiryEpoch === 'number' 
-                && Number.isFinite(currentTime)
-                ? formatTimeDiff(expiryEpoch - currentTime) 
-                : '';
-            const dealText = deal !== undefined ? (deal || 0).toFixed(6) : 'N/A';
+                resolvedSellPrice,
+                resolvedBuyPrice,
+                sellPriceClass,
+                buyPriceClass,
+                orderStatus,
+                expiryText,
+                buyerDealRatio
+            } = await buildOrderRowContext({
+                order,
+                ws,
+                pricing,
+                tokenDisplaySymbolMap: this.tokenDisplaySymbolMap
+            });
+            const dealText = buyerDealRatio !== undefined ? (buyerDealRatio || 0).toFixed(6) : 'N/A';
 
             tr.innerHTML = `
                 <td>${order.id}</td>
@@ -356,9 +331,9 @@ export class ViewOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${sellDisplaySymbol}</span>
-                                <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, safeFormattedSellAmount)}</span>
+                                <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, formattedSellAmount)}</span>
                             </div>
-                            <span class="token-amount">${safeFormattedSellAmount}</span>
+                            <span class="token-amount">${formattedSellAmount}</span>
                         </div>
                     </div>
                 </td>
@@ -370,9 +345,9 @@ export class ViewOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${buyDisplaySymbol}</span>
-                                <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, safeFormattedBuyAmount)}</span>
+                                <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, formattedBuyAmount)}</span>
                             </div>
-                            <span class="token-amount">${safeFormattedBuyAmount}</span>
+                            <span class="token-amount">${formattedBuyAmount}</span>
                         </div>
                     </div>
                 </td>
