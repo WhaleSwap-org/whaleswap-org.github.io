@@ -23,6 +23,7 @@
 # WHAT IT DOES:
 # - Copies all files from WhaleSwap-UI/* to whaleswap.github.io/
 # - Excludes node_modules, .git, .vscode, .env, artifacts, cache, docs, etc.
+# - Excludes test files/config from WhaleSwap-UI (tests/, *.test.*, *.spec.*, vitest config)
 # - Increments patch version in index.html (e.g., v1.0.25 -> v1.0.26)
 # - Updates version.html with current timestamp
 #
@@ -94,6 +95,11 @@ rsync -av \
   --exclude='deprecated' \
   --exclude='.playwright-mcp' \
   --exclude='docs' \
+  --exclude='tests' \
+  --exclude='__tests__' \
+  --exclude='*.test.*' \
+  --exclude='*.spec.*' \
+  --exclude='vitest.config.*' \
   --exclude='update-from-whaleswap-ui.sh' \
   --exclude='update-dev-client.sh' \
   --exclude='CNAME' \
