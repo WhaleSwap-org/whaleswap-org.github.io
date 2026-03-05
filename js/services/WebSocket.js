@@ -846,13 +846,27 @@ export class WebSocketService {
     /**
      * Build Interface for decoding the orders(uint256) response
      */
-    static getOrdersInterface() {
+    static getOrdersInterface(contract = null) {
+        // Prefer the active contract ABI so decode shape always matches deployment.
+        if (contract?.interface) {
+            return contract.interface;
+        }
+
+        // Fallback for cases where contract isn't ready yet.
         if (!this._ordersInterface) {
             this._ordersInterface = new ethers.utils.Interface([
-                'function orders(uint256) view returns (address maker, address taker, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmount, uint256 timestamp, uint8 status, address feeToken, uint256 orderCreationFee, uint256 tries)'
+                'function orders(uint256) view returns (address maker, address taker, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmount, uint256 timestamp, uint8 status, address feeToken, uint256 orderCreationFee)'
             ]);
         }
         return this._ordersInterface;
+    }
+
+    static normalizeOrderTries(rawTries) {
+        if (rawTries && typeof rawTries.toNumber === 'function') {
+            return rawTries.toNumber();
+        }
+        const parsed = Number(rawTries);
+        return Number.isFinite(parsed) ? parsed : 0;
     }
 
     /**
@@ -867,7 +881,7 @@ export class WebSocketService {
                 return null;
             }
 
-            const iface = WebSocketService.getOrdersInterface();
+            const iface = WebSocketService.getOrdersInterface(this.contract);
             const calls = [];
             for (let i = startIndex; i < endIndex; i++) {
                 calls.push({
@@ -909,7 +923,7 @@ export class WebSocketService {
                 }
                 try {
                     const decoded = iface.decodeFunctionResult('orders', result.returnData);
-                    const [maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, status, feeToken, orderCreationFee, tries] = decoded;
+                    const [maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, status, feeToken, orderCreationFee, rawTries] = decoded;
                     if (maker === ethers.constants.AddressZero) {
                         continue;
                     }
@@ -925,7 +939,7 @@ export class WebSocketService {
                         status: ORDER_CONSTANTS.STATUS_MAP[Number(status)],
                         feeToken,
                         orderCreationFee,
-                        tries: (tries && tries.toNumber) ? tries.toNumber() : Number(tries)
+                        tries: WebSocketService.normalizeOrderTries(rawTries)
                     });
                 } catch (e) {
                     this.debug(`Failed to decode order ${orderId} from multicall`, e);
@@ -948,7 +962,6 @@ export class WebSocketService {
 
         let cursor = 0;
         const worker = async () => {
-            const iface = WebSocketService.getOrdersInterface();
             while (true) {
                 const idx = cursor++;
                 if (idx >= indices.length) break;
@@ -970,7 +983,7 @@ export class WebSocketService {
                         status: ORDER_CONSTANTS.STATUS_MAP[Number(order.status)],
                         feeToken: order.feeToken,
                         orderCreationFee: order.orderCreationFee,
-                        tries: (order.tries && order.tries.toNumber) ? order.tries.toNumber() : Number(order.tries)
+                        tries: WebSocketService.normalizeOrderTries(order.tries)
                     });
                 } catch (e) {
                     this.debug(`Failed to read order ${orderId} via fallback`, e);
