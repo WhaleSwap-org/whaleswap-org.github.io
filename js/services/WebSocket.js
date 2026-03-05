@@ -844,12 +844,17 @@ export class WebSocketService {
     }
 
     /**
-     * Build Interface for decoding the orders(uint256) response
+     * Build Interface for decoding the orders(uint256) response.
+     * Prefers the live contract ABI so the decode shape always matches
+     * the deployed contract (avoids CALL_EXCEPTION when fields change).
      */
-    static getOrdersInterface() {
+    static getOrdersInterface(contract = null) {
+        if (contract?.interface) {
+            return contract.interface;
+        }
         if (!this._ordersInterface) {
             this._ordersInterface = new ethers.utils.Interface([
-                'function orders(uint256) view returns (address maker, address taker, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmount, uint256 timestamp, uint8 status, address feeToken, uint256 orderCreationFee, uint256 tries)'
+                'function orders(uint256) view returns (address maker, address taker, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmount, uint256 timestamp, uint8 status, address feeToken, uint256 orderCreationFee)'
             ]);
         }
         return this._ordersInterface;
@@ -867,7 +872,7 @@ export class WebSocketService {
                 return null;
             }
 
-            const iface = WebSocketService.getOrdersInterface();
+            const iface = WebSocketService.getOrdersInterface(this.contract);
             const calls = [];
             for (let i = startIndex; i < endIndex; i++) {
                 calls.push({
@@ -909,7 +914,7 @@ export class WebSocketService {
                 }
                 try {
                     const decoded = iface.decodeFunctionResult('orders', result.returnData);
-                    const [maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, status, feeToken, orderCreationFee, tries] = decoded;
+                    const [maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, status, feeToken, orderCreationFee] = decoded;
                     if (maker === ethers.constants.AddressZero) {
                         continue;
                     }
@@ -921,11 +926,12 @@ export class WebSocketService {
                         sellAmount,
                         buyToken,
                         buyAmount,
-                        timestamp: timestamp.toNumber(),
+                        timestamp: (timestamp && typeof timestamp.toNumber === 'function')
+                            ? timestamp.toNumber()
+                            : Number(timestamp),
                         status: ORDER_CONSTANTS.STATUS_MAP[Number(status)],
                         feeToken,
-                        orderCreationFee,
-                        tries: (tries && tries.toNumber) ? tries.toNumber() : Number(tries)
+                        orderCreationFee
                     });
                 } catch (e) {
                     this.debug(`Failed to decode order ${orderId} from multicall`, e);
@@ -948,7 +954,6 @@ export class WebSocketService {
 
         let cursor = 0;
         const worker = async () => {
-            const iface = WebSocketService.getOrdersInterface();
             while (true) {
                 const idx = cursor++;
                 if (idx >= indices.length) break;
@@ -966,11 +971,12 @@ export class WebSocketService {
                         sellAmount: order.sellAmount,
                         buyToken: order.buyToken,
                         buyAmount: order.buyAmount,
-                        timestamp: order.timestamp.toNumber(),
+                        timestamp: (order.timestamp && typeof order.timestamp.toNumber === 'function')
+                            ? order.timestamp.toNumber()
+                            : Number(order.timestamp),
                         status: ORDER_CONSTANTS.STATUS_MAP[Number(order.status)],
                         feeToken: order.feeToken,
-                        orderCreationFee: order.orderCreationFee,
-                        tries: (order.tries && order.tries.toNumber) ? order.tries.toNumber() : Number(order.tries)
+                        orderCreationFee: order.orderCreationFee
                     });
                 } catch (e) {
                     this.debug(`Failed to read order ${orderId} via fallback`, e);
