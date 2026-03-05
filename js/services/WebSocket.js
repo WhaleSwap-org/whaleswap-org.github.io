@@ -844,26 +844,10 @@ export class WebSocketService {
     }
 
     /**
-     * Build Interface for decoding the orders(uint256) response.
-     * Prefers the live contract ABI so the decode shape always matches
-     * the deployed contract (avoids CALL_EXCEPTION when fields change).
-     */
-    static getOrdersInterface(contract = null) {
-        if (contract?.interface) {
-            return contract.interface;
-        }
-        if (!this._ordersInterface) {
-            this._ordersInterface = new ethers.utils.Interface([
-                'function orders(uint256) view returns (address maker, address taker, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmount, uint256 timestamp, uint8 status, address feeToken, uint256 orderCreationFee)'
-            ]);
-        }
-        return this._ordersInterface;
-    }
-
-    /**
      * Fetch a contiguous range of orders via Multicall2.
      * Returns an array of decoded order objects (filtered for non-zero maker).
      * If multicall is unavailable, returns null to signal fallback.
+     * Uses this.contract.interface so decode shape always matches the deployment ABI.
      */
     async fetchOrdersViaMulticall(startIndex, endIndex) {
         try {
@@ -872,7 +856,7 @@ export class WebSocketService {
                 return null;
             }
 
-            const iface = WebSocketService.getOrdersInterface(this.contract);
+            const iface = this.contract.interface;
             const calls = [];
             for (let i = startIndex; i < endIndex; i++) {
                 calls.push({
@@ -926,9 +910,7 @@ export class WebSocketService {
                         sellAmount,
                         buyToken,
                         buyAmount,
-                        timestamp: (timestamp && typeof timestamp.toNumber === 'function')
-                            ? timestamp.toNumber()
-                            : Number(timestamp),
+                        timestamp: timestamp.toNumber(),
                         status: ORDER_CONSTANTS.STATUS_MAP[Number(status)],
                         feeToken,
                         orderCreationFee
@@ -971,9 +953,7 @@ export class WebSocketService {
                         sellAmount: order.sellAmount,
                         buyToken: order.buyToken,
                         buyAmount: order.buyAmount,
-                        timestamp: (order.timestamp && typeof order.timestamp.toNumber === 'function')
-                            ? order.timestamp.toNumber()
-                            : Number(order.timestamp),
+                        timestamp: order.timestamp.toNumber(),
                         status: ORDER_CONSTANTS.STATUS_MAP[Number(order.status)],
                         feeToken: order.feeToken,
                         orderCreationFee: order.orderCreationFee
