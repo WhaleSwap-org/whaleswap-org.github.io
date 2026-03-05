@@ -659,11 +659,12 @@ export class WebSocketService {
 
             contract.on("OrderCreated", async (...args) => {
                 try {
-                    if (!args || args.length < 9) {
-                        this.debug('Invalid OrderCreated event args:', args);
+                    const event = args[args.length - 1];
+                    if (!event || !event.args) {
+                        this.debug('Invalid OrderCreated event, missing event.args:', event);
                         return;
                     }
-                    const [orderId, maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, fee, event] = args;
+                    const { orderId, maker, taker, sellToken, sellAmount, buyToken, buyAmount, timestamp, feeToken, orderCreationFee } = event.args;
                     const createdAt = timestamp.toNumber();
                     
                     let orderData = {
@@ -677,8 +678,8 @@ export class WebSocketService {
                         timestamp: createdAt,
                         timings: this.buildOrderTimings(createdAt),
                         status: 'Active',
-                        orderCreationFee: fee,
-                        tries: 0
+                        feeToken,
+                        orderCreationFee
                     };
 
                     // Calculate and add deal metrics

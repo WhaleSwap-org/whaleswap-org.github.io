@@ -155,8 +155,6 @@ export class VersionService {
 			'js/services/WebSocket.js',
 			'js/services/PricingService.js',
 			'js/services/LogService.js',
-			'js/services/OrderManager.js',
-			'js/services/EventSync.js',
 			'js/services/TokenIconService.js',
 			// Components
 			'js/components/BaseComponent.js',
@@ -174,7 +172,6 @@ export class VersionService {
 			// Utilities
 			'js/utils/balanceValidation.js',
 			'js/utils/contractTokens.js',
-			'js/utils/ethereum.js',
 			'js/utils/tokenIcons.js',
 			'js/utils/ui.js',
 			// CSS files

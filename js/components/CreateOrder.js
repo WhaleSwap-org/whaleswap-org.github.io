@@ -651,10 +651,7 @@ export class CreateOrder extends BaseComponent {
                     // Get token details
                     const tokenContract = new ethers.Contract(
                         feeTokenAddress,
-                        [
-                            'function symbol() view returns (string)',
-                            'function decimals() view returns (uint8)'
-                        ],
+                        erc20Abi,
                         this.provider
                     );
 
@@ -2222,7 +2219,7 @@ export class CreateOrder extends BaseComponent {
             this.debug(`Fetching decimals directly for: ${tokenAddress}`);
             const tokenContract = new ethers.Contract(
                 tokenAddress,
-                ['function decimals() view returns (uint8)'],
+                erc20Abi,
                 this.provider
             );
             
@@ -2288,10 +2285,7 @@ export class CreateOrder extends BaseComponent {
     async getTokenApprovalRequirement({ signer, owner, stepId, label, tokenAddress, requiredAmount }) {
         const tokenContract = new ethers.Contract(
             tokenAddress,
-            [
-                'function allowance(address owner, address spender) view returns (uint256)',
-                'function approve(address spender, uint256 amount) returns (bool)'
-            ],
+            erc20Abi,
             signer
         );
         const currentAllowance = await tokenContract.allowance(owner, this.contract.address);

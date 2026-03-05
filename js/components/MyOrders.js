@@ -11,7 +11,7 @@ import {
     setupClickToCopy,
     setupOrderTooltips
 } from '../utils/ui.js';
-import { formatTimeDiff, calculateTotalValue } from '../utils/orderUtils.js';
+import { formatTimeDiff, calculateTotalValue, formatDealValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
@@ -682,7 +682,7 @@ export class MyOrders extends BaseComponent {
             const wallet = this.ctx.getWallet();
             const userAddress = wallet?.getAccount()?.toLowerCase();
             const { counterpartyAddress, isZeroAddr, formattedAddress } = processOrderAddress(order, userAddress);
-            const dealText = deal !== undefined ? (deal || 0).toFixed(6) : 'N/A';
+            const dealText = formatDealValue(deal);
             tr.innerHTML = `
                 <td>${order.id}</td>
                 <td>

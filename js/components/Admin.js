@@ -122,7 +122,12 @@ export class Admin extends BaseComponent {
                 <section class="admin-section">
                     <h3>Update Allowed Tokens</h3>
                     <p>Choose add/delete for each token, then submit all rows together.</p>
-                    <label>Action, token address, and symbol</label>
+                    <div class="admin-token-row-labels" aria-hidden="true">
+                        <span class="admin-token-row-label-action">Action</span>
+                        <span class="admin-token-row-label-address">Token address</span>
+                        <span class="admin-token-row-label-symbol">Symbol</span>
+                        <span class="admin-token-row-label-remove">Remove</span>
+                    </div>
                     <div id="admin-token-rows" class="admin-token-rows"></div>
                     <button id="admin-add-token" type="button" class="admin-secondary-button">+ Add Token</button>
                     <button id="admin-update-tokens" class="action-button">Update Allowed Tokens</button>
@@ -348,12 +353,16 @@ export class Admin extends BaseComponent {
         const row = document.createElement('div');
         row.className = 'admin-token-row';
         row.innerHTML = `
+            <span class="admin-token-mobile-label" aria-hidden="true">Action</span>
             <select class="admin-select admin-token-action">
                 <option value="add">Add</option>
                 <option value="delete">Delete</option>
             </select>
+            <span class="admin-token-mobile-label" aria-hidden="true">Token address</span>
             <input class="admin-input admin-token-address" type="text" placeholder="0x..." value="${value}" />
+            <span class="admin-token-mobile-label" aria-hidden="true">Symbol</span>
             <input class="admin-input admin-token-symbol" type="text" placeholder="Symbol" readonly />
+            <span class="admin-token-mobile-label" aria-hidden="true">Remove</span>
             <button type="button" class="admin-token-remove">Remove</button>
         `;
 

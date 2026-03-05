@@ -1,7 +1,7 @@
 import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { createDealCellHTML } from '../utils/ui.js';
-import { calculateTotalValue } from '../utils/orderUtils.js';
+import { calculateTotalValue, formatDealValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 import { buildTokenDisplaySymbolMap } from '../utils/tokenDisplay.js';
@@ -319,7 +319,7 @@ export class ViewOrders extends BaseComponent {
                 pricing,
                 tokenDisplaySymbolMap: this.tokenDisplaySymbolMap
             });
-            const dealText = buyerDealRatio !== undefined ? (buyerDealRatio || 0).toFixed(6) : 'N/A';
+            const dealText = formatDealValue(buyerDealRatio);
 
             tr.innerHTML = `
                 <td>${order.id}</td>
