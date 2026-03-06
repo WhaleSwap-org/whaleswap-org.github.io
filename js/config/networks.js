@@ -102,10 +102,9 @@ const primaryNetworkConfig = {
         contractAddress: "0x733f58ec14a3273c4c100ef605254ae8a7d4ced7",
         contractABI: CONTRACT_ABI,
         explorer: "https://polygonscan.com",
-        rpcUrl: "https://polygon-rpc.com",
+        rpcUrl: "https://polygon-bor.publicnode.com",
         fallbackRpcUrls: [
             "https://rpc-mainnet.matic.network",
-            "https://polygon-bor.publicnode.com",
             "https://polygon.api.onfinality.io/public"
         ],
         chainId: "0x89",

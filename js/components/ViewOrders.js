@@ -185,6 +185,7 @@ export class ViewOrders extends BaseComponent {
             const paginatedOrders = pageSize === -1 ? 
                 ordersToDisplay : 
                 ordersToDisplay.slice(startIndex, endIndex);
+            const hasCompletedOrderSync = Boolean(ws.hasCompletedOrderSync);
 
             // Render orders using renderer
             if (paginatedOrders.length === 0) {
@@ -195,9 +196,9 @@ export class ViewOrders extends BaseComponent {
                         <tr class="empty-message">
                             <td colspan="7" class="no-orders-message">
                                 <div class="placeholder-text">
-                                    ${showOnlyActive ? 
-                                        'No fillable orders found' : 
-                                        'No orders found'}
+                                    ${hasCompletedOrderSync
+                                        ? (showOnlyActive ? 'No fillable orders found' : 'No orders found')
+                                        : 'Loading orders...'}
                                 </div>
                             </td>
                         </tr>`;
@@ -308,6 +309,9 @@ export class ViewOrders extends BaseComponent {
                 formattedBuyAmount,
                 resolvedSellPrice,
                 resolvedBuyPrice,
+                sellPriceLoading,
+                buyPriceLoading,
+                dealLoading,
                 sellPriceClass,
                 buyPriceClass,
                 orderStatus,
@@ -319,7 +323,15 @@ export class ViewOrders extends BaseComponent {
                 pricing,
                 tokenDisplaySymbolMap: this.tokenDisplaySymbolMap
             });
-            const dealText = formatDealValue(buyerDealRatio);
+            const sellPriceText = sellPriceLoading
+                ? 'loading...'
+                : calculateTotalValue(resolvedSellPrice, formattedSellAmount);
+            const buyPriceText = buyPriceLoading
+                ? 'loading...'
+                : calculateTotalValue(resolvedBuyPrice, formattedBuyAmount);
+            const dealText = dealLoading
+                ? 'loading...'
+                : formatDealValue(buyerDealRatio);
 
             tr.innerHTML = `
                 <td>${order.id}</td>
@@ -331,7 +343,7 @@ export class ViewOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${sellDisplaySymbol}</span>
-                                <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, formattedSellAmount)}</span>
+                                <span class="token-price ${sellPriceClass}">${sellPriceText}</span>
                             </div>
                             <span class="token-amount">${formattedSellAmount}</span>
                         </div>
@@ -345,7 +357,7 @@ export class ViewOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${buyDisplaySymbol}</span>
-                                <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, formattedBuyAmount)}</span>
+                                <span class="token-price ${buyPriceClass}">${buyPriceText}</span>
                             </div>
                             <span class="token-amount">${formattedBuyAmount}</span>
                         </div>

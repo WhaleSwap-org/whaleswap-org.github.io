@@ -205,6 +205,7 @@ export class MyOrders extends BaseComponent {
                 const endIndex = startIndex + pageSize;
                 ordersToDisplay = ordersToDisplay.slice(startIndex, endIndex);
             }
+            const hasCompletedOrderSync = Boolean(ws.hasCompletedOrderSync);
 
             // Render orders using renderer
             if (ordersToDisplay.length === 0) {
@@ -215,9 +216,9 @@ export class MyOrders extends BaseComponent {
                         <tr class="empty-message">
                             <td colspan="7" class="no-orders-message">
                                 <div class="placeholder-text">
-                                    ${showOnlyCancellable ? 
-                                        'No cancellable orders found' : 
-                                        'No orders found'}
+                                    ${hasCompletedOrderSync
+                                        ? (showOnlyCancellable ? 'No cancellable orders found' : 'No orders found')
+                                        : 'Loading orders...'}
                                 </div>
                             </td>
                         </tr>`;
@@ -661,6 +662,9 @@ export class MyOrders extends BaseComponent {
             const resolvedBuyPrice = typeof buyTokenUsdPrice !== 'undefined' 
                 ? buyTokenUsdPrice 
                 : (pricing ? pricing.getPrice(order.buyToken) : undefined);
+            const sellPriceLoading = Boolean(pricing?.shouldShowPriceLoading?.(order.sellToken));
+            const buyPriceLoading = Boolean(pricing?.shouldShowPriceLoading?.(order.buyToken));
+            const dealLoading = !Number.isFinite(Number(deal)) && (sellPriceLoading || buyPriceLoading);
 
             // Mark as estimate if not explicitly present in pricing map
             const sellPriceClass = (pricing && pricing.isPriceEstimated(order.sellToken)) ? 'price-estimate' : '';
@@ -682,7 +686,13 @@ export class MyOrders extends BaseComponent {
             const wallet = this.ctx.getWallet();
             const userAddress = wallet?.getAccount()?.toLowerCase();
             const { counterpartyAddress, isZeroAddr, formattedAddress } = processOrderAddress(order, userAddress);
-            const dealText = formatDealValue(deal);
+            const dealText = dealLoading ? 'loading...' : formatDealValue(deal);
+            const sellPriceText = sellPriceLoading
+                ? 'loading...'
+                : calculateTotalValue(resolvedSellPrice, safeFormattedSellAmount);
+            const buyPriceText = buyPriceLoading
+                ? 'loading...'
+                : calculateTotalValue(resolvedBuyPrice, safeFormattedBuyAmount);
             tr.innerHTML = `
                 <td>${order.id}</td>
                 <td>
@@ -691,7 +701,7 @@ export class MyOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${sellDisplaySymbol}</span>
-                                <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, safeFormattedSellAmount)}</span>
+                                <span class="token-price ${sellPriceClass}">${sellPriceText}</span>
                             </div>
                             <span class="token-amount">${safeFormattedSellAmount}</span>
                         </div>
@@ -703,7 +713,7 @@ export class MyOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${buyDisplaySymbol}</span>
-                                <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, safeFormattedBuyAmount)}</span>
+                                <span class="token-price ${buyPriceClass}">${buyPriceText}</span>
                             </div>
                             <span class="token-amount">${safeFormattedBuyAmount}</span>
                         </div>

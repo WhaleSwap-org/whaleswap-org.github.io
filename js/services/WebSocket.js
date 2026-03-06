@@ -579,9 +579,14 @@ export class WebSocketService {
                 const pricing = this.pricingService;
                 if (pricing) {
                     if (!this.pricingUpdateHandler) {
-                        this.pricingUpdateHandler = () => {
+                        this.pricingUpdateHandler = (event) => {
+                            if (event !== 'priceUpdates') {
+                                return;
+                            }
                             this.debug('Price update received, updating all deals...');
-                            this.updateAllDeals();
+                            this.updateAllDeals().catch((error) => {
+                                this.debug('Failed to update deals after price update:', error);
+                            });
                         };
                         this.debug('Subscribing to pricing service...');
                         pricing.subscribe(this.pricingUpdateHandler);

@@ -254,6 +254,13 @@ export class OrdersTableRenderer {
             <div class="filter-row">
                 ${refreshSection}
                 <div class="pagination-controls">
+                    <select class="page-size-select">
+                        <option value="10">10 per page</option>
+                        <option value="25" selected>25 per page</option>
+                        <option value="50">50 per page</option>
+                        <option value="100">100 per page</option>
+                        <option value="-1">View all</option>
+                    </select>
                     <div class="pagination-buttons">
                         <button class="pagination-button prev-page" title="Previous page">←</button>
                         <span class="page-info">Page 1 of 1</span>
@@ -286,7 +293,7 @@ export class OrdersTableRenderer {
         const buyTokenFilter = filterControls.querySelector('#buy-token-filter');
         const orderSort = filterControls.querySelector('#order-sort');
         const toggle = filterControls.querySelector('#fillable-orders-toggle');
-        const pageSizeSelect = filterControls.querySelector('#page-size-select');
+        const pageSizeSelects = Array.from(this.component.container.querySelectorAll('.page-size-select'));
         
         if (sellTokenFilter) {
             sellTokenFilter.addEventListener('change', () => {
@@ -311,12 +318,17 @@ export class OrdersTableRenderer {
                 if (onRefresh) onRefresh();
             });
         }
-        if (pageSizeSelect) {
-            pageSizeSelect.addEventListener('change', () => {
+        pageSizeSelects.forEach((pageSizeSelect) => {
+            pageSizeSelect.addEventListener('change', (event) => {
+                pageSizeSelects.forEach((otherSelect) => {
+                    if (otherSelect !== event.target) {
+                        otherSelect.value = event.target.value;
+                    }
+                });
                 this.component.currentPage = 1;
                 if (onRefresh) onRefresh();
             });
-        }
+        });
         
         // Pagination listeners
         this._setupPaginationListeners(onRefresh);

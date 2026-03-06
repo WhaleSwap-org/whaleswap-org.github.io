@@ -101,6 +101,22 @@ Notes:
 2. Ensure your wallet has supported tokens for the selected chain.
 3. Ensure your wallet has sufficient native token for gas on selected chain.
 
+### Unit Tests
+
+Run the unit suite:
+
+```bash
+npm test
+```
+
+Generate coverage reports (`text`, `html`, `lcov`, `json-summary`):
+
+```bash
+npm run test:coverage
+```
+
+Coverage artifacts are written to `coverage/`. The PR unit-test workflow prints the Vitest coverage report in the check log and uploads the full `coverage/` directory as an artifact.
+
 ## Security Notes
 - Always verify token addresses
 - Check order details carefully before swapping

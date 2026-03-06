@@ -99,12 +99,19 @@ export class OrdersComponentHelper {
         
         // Subscribe to pricing updates
         if (this.component.pricingService && !this.component._boundPricingHandler) {
-            this.component._boundPricingHandler = (event) => {
+            this.component._boundPricingHandler = (event, eventData) => {
                 if (event === 'refreshComplete') {
                     this.debug('Prices updated, refreshing orders view');
                     if (onRefresh) {
                         onRefresh().catch(error => {
                             this.component.error('Error refreshing orders after price update:', error);
+                        });
+                    }
+                } else if (event === 'priceLoadStateChanged' && eventData?.updatedCount === 0) {
+                    this.debug('Price load settled without updates, refreshing orders view');
+                    if (onRefresh) {
+                        onRefresh().catch(error => {
+                            this.component.error('Error refreshing orders after empty price load:', error);
                         });
                     }
                 }

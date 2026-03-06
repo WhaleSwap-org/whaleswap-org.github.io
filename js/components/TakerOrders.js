@@ -167,6 +167,7 @@ export class TakerOrders extends BaseComponent {
             const paginatedOrders = pageSize === -1 ? 
                 ordersToDisplay : 
                 ordersToDisplay.slice(startIndex, endIndex);
+            const hasCompletedOrderSync = Boolean(ws.hasCompletedOrderSync);
 
             // Render orders using renderer
             if (paginatedOrders.length === 0) {
@@ -177,9 +178,11 @@ export class TakerOrders extends BaseComponent {
                         <tr class="empty-message">
                             <td colspan="7" class="no-orders-message">
                                 <div class="placeholder-text">
-                                    ${showOnlyActive ? 
-                                        'No active orders where you are the taker' : 
-                                        'No orders found where you are the taker'}
+                                    ${hasCompletedOrderSync
+                                        ? (showOnlyActive
+                                            ? 'No active orders where you are the taker'
+                                            : 'No orders found where you are the taker')
+                                        : 'Loading orders...'}
                                 </div>
                             </td>
                         </tr>`;
@@ -283,6 +286,9 @@ export class TakerOrders extends BaseComponent {
                 formattedBuyAmount,
                 resolvedSellPrice,
                 resolvedBuyPrice,
+                sellPriceLoading,
+                buyPriceLoading,
+                dealLoading,
                 sellPriceClass,
                 buyPriceClass,
                 orderStatus,
@@ -299,6 +305,15 @@ export class TakerOrders extends BaseComponent {
             const wallet = this.ctx.getWallet();
             const userAddress = wallet?.getAccount()?.toLowerCase();
             const { counterpartyAddress, isZeroAddr, formattedAddress } = processOrderAddress(order, userAddress);
+            const sellPriceText = sellPriceLoading
+                ? 'loading...'
+                : calculateTotalValue(resolvedSellPrice, formattedSellAmount);
+            const buyPriceText = buyPriceLoading
+                ? 'loading...'
+                : calculateTotalValue(resolvedBuyPrice, formattedBuyAmount);
+            const dealText = dealLoading
+                ? 'loading...'
+                : formatDealValue(buyerDealRatio);
 
             tr.innerHTML = `
                 <td>${order.id}</td>
@@ -310,7 +325,7 @@ export class TakerOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${sellDisplaySymbol}</span>
-                                <span class="token-price ${sellPriceClass}">${calculateTotalValue(resolvedSellPrice, formattedSellAmount)}</span>
+                                <span class="token-price ${sellPriceClass}">${sellPriceText}</span>
                             </div>
                             <span class="token-amount">${formattedSellAmount}</span>
                         </div>
@@ -324,13 +339,13 @@ export class TakerOrders extends BaseComponent {
                         <div class="token-details">
                             <div class="token-symbol-row">
                                 <span class="token-symbol">${buyDisplaySymbol}</span>
-                                <span class="token-price ${buyPriceClass}">${calculateTotalValue(resolvedBuyPrice, formattedBuyAmount)}</span>
+                                <span class="token-price ${buyPriceClass}">${buyPriceText}</span>
                             </div>
                             <span class="token-amount">${formattedBuyAmount}</span>
                         </div>
                     </div>
                 </td>
-                <td class="deal-cell">${createDealCellHTML(formatDealValue(buyerDealRatio))}</td>
+                <td class="deal-cell">${createDealCellHTML(dealText)}</td>
                 <td>${expiryText}</td>
                 <td class="order-status">
                     ${generateStatusCellHTML(orderStatus, counterpartyAddress, isZeroAddr, formattedAddress)}

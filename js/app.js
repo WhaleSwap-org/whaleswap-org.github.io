@@ -1281,6 +1281,18 @@ class App {
 				pricingService: pricingService
 			});
 
+			// Wire shared services before WebSocket initialization kicks off any pricing reads.
+			this.ctx.ws = webSocketService;
+			if (pricingService) {
+				pricingService.webSocket = webSocketService;
+			}
+			try {
+				contractService.initialize({ webSocket: webSocketService });
+				this.ctx.contractService = contractService;
+			} catch (e) {
+				this.debug('ContractService initialize skipped/failed:', e);
+			}
+
 			// Subscribe to orderSyncComplete event before initialization
 			webSocketService.subscribe('orderSyncComplete', () => {
 				this.wsInitialized = true;
@@ -1301,22 +1313,6 @@ class App {
 			const wsInitialized = await webSocketService.initialize();
 			if (!wsInitialized) {
 				this.debug('WebSocket initialization failed, falling back to HTTP');
-			}
-
-			// Add to context and update pricing service with webSocket reference
-			this.ctx.ws = webSocketService;
-
-			// Update PricingService with WebSocket reference for deal updates
-			if (pricingService) {
-				pricingService.webSocket = webSocketService;
-			}
-
-			// Update ContractService with WebSocket reference
-			try {
-				contractService.initialize({ webSocket: webSocketService });
-				this.ctx.contractService = contractService;
-			} catch (e) {
-				this.debug('ContractService initialize skipped/failed:', e);
 			}
 
 			this.debug('WebSocket initialized');

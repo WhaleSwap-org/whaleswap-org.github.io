@@ -189,8 +189,9 @@ async function mapWithConcurrency(items, mapper, concurrency = CONCURRENCY_LIMIT
  * Get allowed tokens from contract with metadata and balances
  * @returns {Promise<Array>} Array of token objects with metadata and balances
  */
-export async function getContractAllowedTokens() {
+export async function getContractAllowedTokens(options = {}) {
     try {
+        const { includeBalances = true } = options;
         debug('Getting contract allowed tokens...');
         
         // Get allowed tokens from contract
@@ -202,9 +203,11 @@ export async function getContractAllowedTokens() {
             return [];
         }
 
-        // Fetch all balances in a single multicall
-        const userAddress = await contractService.getUserAddress();
-        const balanceMap = await getBatchTokenBalances(allowedTokenAddresses, userAddress);
+        let balanceMap = new Map();
+        if (includeBalances) {
+            const userAddress = await contractService.getUserAddress();
+            balanceMap = await getBatchTokenBalances(allowedTokenAddresses, userAddress);
+        }
 
         // Process metadata and icons with concurrency limits
         const tokensWithData = await mapWithConcurrency(allowedTokenAddresses, async (address) => {
@@ -212,7 +215,7 @@ export async function getContractAllowedTokens() {
                 const metadata = await getTokenMetadata(address);
                 const lc = address.toLowerCase();
                 const balanceEntry = balanceMap.get(lc);
-                const balance = balanceEntry?.formatted || '0';
+                const balance = includeBalances ? (balanceEntry?.formatted || '0') : null;
 
                 // Get icon URL from local map/cache.
                 let iconUrl = null;
@@ -228,6 +231,7 @@ export async function getContractAllowedTokens() {
                     address,
                     ...metadata,
                     balance,
+                    balanceLoading: !includeBalances,
                     iconUrl
                 };
             } catch (err) {
@@ -237,7 +241,8 @@ export async function getContractAllowedTokens() {
                     symbol: 'UNKNOWN',
                     name: 'Unknown Token',
                     decimals: 18,
-                    balance: '0'
+                    balance: includeBalances ? '0' : null,
+                    balanceLoading: !includeBalances
                 };
             }
         });

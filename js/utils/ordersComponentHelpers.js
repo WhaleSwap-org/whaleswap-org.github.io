@@ -37,6 +37,11 @@ export async function buildOrderRowContext({
     const resolvedBuyPrice = typeof buyTokenUsdPrice !== 'undefined'
         ? buyTokenUsdPrice
         : (pricing ? pricing.getPrice(order.buyToken) : undefined);
+    const sellPriceLoading = Boolean(pricing?.shouldShowPriceLoading?.(order.sellToken));
+    const buyPriceLoading = Boolean(pricing?.shouldShowPriceLoading?.(order.buyToken));
+    const dealValue = Number(order.dealMetrics?.deal);
+    const buyerDealRatio = dealValue > 0 ? 1 / dealValue : undefined;
+    const dealLoading = !Number.isFinite(buyerDealRatio) && (sellPriceLoading || buyPriceLoading);
 
     const sellPriceClass = (pricing && pricing.isPriceEstimated(order.sellToken)) ? 'price-estimate' : '';
     const buyPriceClass = (pricing && pricing.isPriceEstimated(order.buyToken)) ? 'price-estimate' : '';
@@ -58,10 +63,13 @@ export async function buildOrderRowContext({
         formattedBuyAmount: safeFormattedBuyAmount,
         resolvedSellPrice,
         resolvedBuyPrice,
+        sellPriceLoading,
+        buyPriceLoading,
+        dealLoading,
         sellPriceClass,
         buyPriceClass,
         orderStatus,
         expiryText,
-        buyerDealRatio: order.dealMetrics?.deal > 0 ? 1 / order.dealMetrics?.deal : undefined
+        buyerDealRatio
     };
 }
