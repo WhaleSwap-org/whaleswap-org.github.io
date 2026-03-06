@@ -8,14 +8,13 @@ import { getAllWalletTokens, getContractAllowedTokens, clearTokenCaches } from '
 import { contractService } from '../services/ContractService.js';
 import { createLogger } from '../services/LogService.js';
 import { validateSellBalance } from '../utils/balanceValidation.js';
-import { tokenIconService } from '../services/TokenIconService.js';
-import { generateTokenIconHTML, getFallbackIconData } from '../utils/tokenIcons.js';
 import { createTransactionProgressSession } from '../utils/transactionProgress.js';
 import {
     extractTransactionErrorMessage,
     handleTransactionError,
     isUserRejection,
 } from '../utils/ui.js';
+import { escapeHtmlText } from '../utils/html.js';
 import { getExplorerUrl } from '../utils/orderUtils.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
@@ -1614,7 +1613,7 @@ export class CreateOrder extends BaseComponent {
                 // Display allowed tokens
                 const allowedTokensList = modal.querySelector(`#${type}AllowedTokenList`);
                 if (allowedTokensList) {
-                    this.displayTokens(normalizedAllowed, allowedTokensList, type);
+                    this.renderAllowedTokenList(type);
                 }
             });
         } catch (error) {
@@ -1773,13 +1772,16 @@ export class CreateOrder extends BaseComponent {
                 <div class="token-modal-search">
                     <input type="text" 
                            class="token-search-input" 
-                           placeholder="Search by name or paste address"
+                           placeholder="Search by name, symbol, or address"
                            id="${type}TokenSearch">
                 </div>
                 <div class="token-sections">
-                    <div id="${type}ContractResult"></div>
+                    <div id="${type}TokenResultsSection" class="token-section hidden" aria-hidden="true">
+                        <h4>Results</h4>
+                        <div class="token-list" id="${type}TokenResultsList"></div>
+                    </div>
                     <div class="token-section">
-                        <h4>Allowed tokens</h4>
+                        <h4 id="${type}TokenListHeading">Allowed tokens</h4>
                         <div class="token-list" id="${type}AllowedTokenList">
                             <div class="token-list-loading">
                                 <div class="spinner"></div>
@@ -1825,234 +1827,67 @@ export class CreateOrder extends BaseComponent {
         });
     }
 
-    async handleTokenSearch(searchTerm, type) {
+    renderAllowedTokenList(type, rawSearchTerm = null) {
+        const modal = document.getElementById(`${type}TokenModal`);
+        const allowedList = modal?.querySelector(`#${type}AllowedTokenList`);
+        const resultsSection = modal?.querySelector(`#${type}TokenResultsSection`);
+        const resultsList = modal?.querySelector(`#${type}TokenResultsList`);
+        if (!allowedList) return;
+
+        const searchInput = modal.querySelector(`#${type}TokenSearch`);
+        const searchValue = typeof rawSearchTerm === 'string'
+            ? rawSearchTerm
+            : (searchInput?.value || '');
+        const normalizedSearchTerm = searchValue.trim().toLowerCase();
+        const searchSource = Array.isArray(this.allowedTokens) ? this.allowedTokens : [];
+        this.displayTokens(searchSource, allowedList, type);
+
+        if (!normalizedSearchTerm) {
+            if (resultsSection) {
+                resultsSection.classList.add('hidden');
+                resultsSection.setAttribute('aria-hidden', 'true');
+            }
+            if (resultsList) {
+                resultsList.innerHTML = '';
+            }
+            return;
+        }
+
+        const searchResults = searchSource.filter((token) => {
+            const tokenName = (token?.name || '').toLowerCase();
+            const tokenSymbol = (token?.symbol || '').toLowerCase();
+            const displaySymbol = (token?.displaySymbol || '').toLowerCase();
+            const tokenAddress = (token?.address || '').toLowerCase();
+
+            return tokenName.includes(normalizedSearchTerm)
+                || tokenSymbol.includes(normalizedSearchTerm)
+                || displaySymbol.includes(normalizedSearchTerm)
+                || tokenAddress.includes(normalizedSearchTerm);
+        });
+
+        const emptyMessage = `No tokens found matching "${normalizedSearchTerm}"`;
+        if (resultsSection) {
+            resultsSection.classList.remove('hidden');
+            resultsSection.setAttribute('aria-hidden', 'false');
+        }
+        if (resultsList) {
+            this.displayTokens(searchResults, resultsList, type, { emptyMessage });
+        }
+    }
+
+    handleTokenSearch(searchTerm, type) {
         try {
-            const contractResult = document.getElementById(`${type}ContractResult`);
-            
-            searchTerm = searchTerm.trim().toLowerCase();
-            
-            // Clear previous contract result only
-            contractResult.innerHTML = '';
-
-            // If search is empty, just clear the contract result
-            if (!searchTerm) {
-                return;
-            }
-
-            // Check if input is an address
-            if (ethers.utils.isAddress(searchTerm)) {
-                // Show loading state for contract result
-                contractResult.innerHTML = `
-                    <div class="token-section">
-                        <h4>Token Contract</h4>
-                        <div class="contract-loading">
-                            <div class="spinner"></div>
-                            <span>Loading token info...</span>
-                        </div>
-                    </div>
-                `;
-
-                try {
-                    const tokenContract = new ethers.Contract(
-                        searchTerm,
-                        erc20Abi,
-                        this.provider
-                    );
-
-                    const [name, symbol, decimals, balance] = await Promise.all([
-                        tokenContract.name().catch(() => null),
-                        tokenContract.symbol().catch(() => null),
-                        tokenContract.decimals().catch(() => null),
-                        tokenContract.balanceOf(await walletManager.getCurrentAddress()).catch(() => null)
-                    ]);
-
-                    if (name && symbol && decimals !== null) {
-                        // Check if token is allowed in the contract
-                        const isAllowed = await contractService.isTokenAllowed(searchTerm);
-                        if (!isAllowed) {
-                            contractResult.innerHTML = `
-                                <div class="token-section">
-                                    <h4>Token Contract</h4>
-                                    <div class="contract-error">
-                                        Token is not allowed for trading on this platform
-                                    </div>
-                                </div>
-                            `;
-                            return;
-                        }
-                        
-                        const token = this.normalizeTokenDisplay({
-                            address: searchTerm,
-                            name,
-                            symbol,
-                            decimals,
-                            balance: balance ? ethers.utils.formatUnits(balance, decimals) : '0'
-                        });
-
-                        // Get USD price and calculate USD value
-                        const formattedUsdValue = this.formatTokenListUsdValue(token.address, token.balance);
-
-                        // Format balance
-                        const formattedBalance = Number(token.balance).toLocaleString(undefined, { 
-                            minimumFractionDigits: 2, 
-                            maximumFractionDigits: 4,
-                            useGrouping: true
-                        });
-
-                        contractResult.innerHTML = `
-                            <div class="token-section">
-                                <h4>Token Contract</h4>
-                                <div class="token-list">
-                                    <div class="token-item token-allowed" data-address="${token.address}">
-                                        <div class="token-item-left">
-                                            <div class="token-icon">
-                                                <div class="loading-spinner"></div>
-                                            </div>
-                                            <div class="token-item-info">
-                                                <div class="token-item-symbol">
-                                                    ${token.displaySymbol || token.symbol}
-                                                </div>
-                                                <div class="token-item-name">
-                                                    ${token.name}
-                                                    <a href="${getExplorerUrl(token.address)}" 
-                                                       target="_blank"
-                                                       class="token-explorer-link"
-                                                       onclick="event.stopPropagation();">
-                                                        <svg class="token-explorer-icon" viewBox="0 0 24 24">
-                                                            <path fill="currentColor" d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
-                                                        </svg>
-                                                    </a>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="token-item-right">
-                                            <div class="token-balance-with-usd">
-                                                <div class="token-balance-amount">${formattedBalance}</div>
-                                                <div class="token-balance-usd">${formattedUsdValue}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-
-                        // Add click handler
-                        const tokenItem = contractResult.querySelector('.token-item');
-                        tokenItem.addEventListener('click', () => this.handleTokenItemClick(type, tokenItem));
-
-                        // Render token icon asynchronously
-                        const iconContainer = tokenItem.querySelector('.token-icon');
-                        this.renderTokenIcon(token, iconContainer);
-                    }
-                } catch (error) {
-                    contractResult.innerHTML = `
-                        <div class="token-section">
-                            <h4>Token Contract</h4>
-                            <div class="contract-error">
-                                Invalid or unsupported token contract
-                            </div>
-                        </div>
-                    `;
-                }
-            } else {
-                // Search in allowed tokens by name/symbol
-                const searchSource = Array.isArray(this.tokens) ? this.tokens : [];
-                if (this.tokensLoading && searchSource.length === 0) {
-                    contractResult.innerHTML = `
-                        <div class="token-section">
-                            <h4>Search Results</h4>
-                            <div class="token-list-loading">
-                                <div class="spinner"></div>
-                                <div>Loading allowed tokens...</div>
-                            </div>
-                        </div>
-                    `;
-                    return;
-                }
-
-                const searchResults = searchSource.filter(token => 
-                    token.name.toLowerCase().includes(searchTerm) ||
-                    token.symbol.toLowerCase().includes(searchTerm) ||
-                    (token.displaySymbol || '').toLowerCase().includes(searchTerm)
-                );
-
-                if (searchResults.length > 0) {
-                    contractResult.innerHTML = `
-                        <div class="token-section">
-                            <h4>Search Results</h4>
-                            <div class="token-list">
-                                ${searchResults.map(token => {
-                                    const isBalanceLoading = this.isTokenBalanceLoading(token);
-                                    const balance = Number(token.balance) || 0;
-                                    const formattedBalance = this.formatTokenListBalanceValue(token);
-                                    const formattedUsdValue = this.formatTokenListUsdValue(token.address, balance, {
-                                        isBalanceLoading
-                                    });
-
-                                    return `
-                                        <div class="token-item token-allowed" data-address="${token.address}">
-                                            <div class="token-item-left">
-                                                <div class="token-icon">
-                                                    <div class="loading-spinner"></div>
-                                                </div>
-                                                <div class="token-item-info">
-                                                    <div class="token-item-symbol">
-                                                        ${token.displaySymbol || token.symbol}
-                                                    </div>
-                                                    <div class="token-item-name">
-                                                        ${token.name}
-                                                        <a href="${getExplorerUrl(token.address)}" 
-                                                           target="_blank"
-                                                           class="token-explorer-link"
-                                                           onclick="event.stopPropagation();">
-                                                            <svg class="token-explorer-icon" viewBox="0 0 24 24">
-                                                                <path fill="currentColor" d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
-                                                            </svg>
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="token-item-right">
-                                                <div class="token-balance-with-usd">
-                                                    <div class="token-balance-amount">${formattedBalance}</div>
-                                                    <div class="token-balance-usd">${formattedUsdValue}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        </div>
-                    `;
-
-                    // Add click handlers for search results
-                    const tokenItems = contractResult.querySelectorAll('.token-item');
-                    tokenItems.forEach((item, index) => {
-                        item.addEventListener('click', () => this.handleTokenItemClick(type, item));
-                        
-                        // Render token icon asynchronously
-                        const iconContainer = item.querySelector('.token-icon');
-                        this.renderTokenIcon(searchResults[index], iconContainer);
-                    });
-                } else {
-                    contractResult.innerHTML = `
-                        <div class="token-section">
-                            <h4>Search Results</h4>
-                            <div class="token-list-empty">
-                                No tokens found matching "${searchTerm}"
-                            </div>
-                        </div>
-                    `;
-                }
-            }
+            this.renderAllowedTokenList(type, searchTerm);
         } catch (error) {
             this.debug('Search error:', error);
             this.showError('Error searching for token');
         }
     }
 
-    displayTokens(tokens, container, type) {
+    displayTokens(tokens, container, type, options = {}) {
         if (!container) return;
+
+        const { emptyMessage = null } = options;
 
         if (!tokens || tokens.length === 0) {
             if (this.tokensLoading || this.allowedTokensLoadPromise) {
@@ -2061,6 +1896,13 @@ export class CreateOrder extends BaseComponent {
                         <div class="spinner"></div>
                         <div>Loading allowed tokens...</div>
                     </div>
+                `;
+                return;
+            }
+
+            if (emptyMessage) {
+                container.innerHTML = `
+                    <div class="token-list-empty">${escapeHtmlText(emptyMessage)}</div>
                 `;
                 return;
             }
@@ -2215,58 +2057,6 @@ export class CreateOrder extends BaseComponent {
             ...token,
             displaySymbol: getDisplaySymbol(token, this.tokenDisplaySymbolMap)
         };
-    }
-
-    // Add helper method for token icons
-    async getTokenIcon(token) {
-        try {
-            this.debug(`Getting icon for token ${token.symbol} (${token.address})`);
-            this.debug(`Token object:`, token);
-            
-            // If token already has an iconUrl, use it
-            if (token.iconUrl) {
-                this.debug('Using existing iconUrl for token:', token.symbol, token.iconUrl);
-                return generateTokenIconHTML(token.iconUrl, token.symbol, token.address);
-            }
-            
-            // Otherwise, get icon URL from token icon service
-            const fallbackChainId = Number.parseInt(getNetworkConfig().chainId, 16) || 137;
-            const chainId = walletManager.chainId ? parseInt(walletManager.chainId, 16) : fallbackChainId;
-            const iconUrl = await tokenIconService.getIconUrl(token.address, chainId);
-            
-            // Generate HTML using the utility function
-            return generateTokenIconHTML(iconUrl, token.symbol, token.address);
-        } catch (error) {
-            this.debug('Error getting token icon:', error);
-            // Fallback to basic fallback icon
-            const fallbackData = getFallbackIconData(token.address, token.symbol);
-            return `
-                <div class="token-icon">
-                    <div class="token-icon-fallback" style="background: ${fallbackData.backgroundColor}">
-                        ${fallbackData.text}
-                    </div>
-                </div>
-            `;
-        }
-    }
-
-    // Helper method to render token icon asynchronously
-    async renderTokenIcon(token, container) {
-        try {
-            const iconHtml = await this.getTokenIcon(token);
-            container.innerHTML = iconHtml;
-        } catch (error) {
-            this.debug('Error rendering token icon:', error);
-            // Fallback to basic icon
-            const fallbackData = getFallbackIconData(token.address, token.symbol);
-            container.innerHTML = `
-                <div class="token-icon">
-                    <div class="token-icon-fallback" style="background: ${fallbackData.backgroundColor}">
-                        ${fallbackData.text}
-                    </div>
-                </div>
-            `;
-        }
     }
 
     cleanup() {
@@ -2838,7 +2628,7 @@ export class CreateOrder extends BaseComponent {
                     }
                     const allowedTokensList = modal.querySelector(`#${type}AllowedTokenList`);
                     if (allowedTokensList && Array.isArray(this.allowedTokens)) {
-                        this.displayTokens(this.allowedTokens, allowedTokensList, type);
+                        this.renderAllowedTokenList(type);
                     }
                     modal.style.display = 'block';
 
@@ -3157,7 +2947,7 @@ export class CreateOrder extends BaseComponent {
                 if (isOpen) {
                     const allowedTokensList = modal.querySelector(`#${type}AllowedTokenList`);
                     if (allowedTokensList && Array.isArray(this.allowedTokens)) {
-                        this.displayTokens(this.allowedTokens, allowedTokensList, type);
+                        this.renderAllowedTokenList(type);
                     }
                 }
             });
@@ -3172,7 +2962,7 @@ export class CreateOrder extends BaseComponent {
                 const modal = document.getElementById(`${type}TokenModal`);
                 const allowedTokensList = modal?.querySelector(`#${type}AllowedTokenList`);
                 if (allowedTokensList && Array.isArray(this.allowedTokens)) {
-                    this.displayTokens(this.allowedTokens, allowedTokensList, type);
+                    this.renderAllowedTokenList(type);
                 }
             });
         } catch (error) {

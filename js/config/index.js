@@ -29,9 +29,9 @@ export const TOKEN_ICON_CONFIG = {
     },
     
     // Local token logo management
-    // Runtime icon lookup probes `img/token-logos/{token-address}.{ext}`.
+    // Runtime icon lookup uses normalized `img/token-logos/{token-address}.png` assets.
     // Bump LOCAL_ICON_VERSION when replacing existing logo files to invalidate browser cache.
-    LOCAL_ICON_VERSION: '2026-02-19',
+    LOCAL_ICON_VERSION: '2026-03-06-5',
     
     // Icon validation configuration
     VALIDATION_TIMEOUT: 5000, // 5 seconds timeout for icon validation

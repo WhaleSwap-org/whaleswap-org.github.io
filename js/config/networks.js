@@ -42,7 +42,7 @@ const primaryNetworkConfig = {
         slug: "ethereum",
         name: "Ethereum",
         displayName: "Ethereum Mainnet",
-        logo: "img/token-logos/ethereum.svg",
+        logo: "img/token-logos/ethereum.png",
         isDefault: false,
         contractAddress: "0x324d9b90A07D587B4FA0D68c22645B9c8D321079",
         contractABI: CONTRACT_ABI,

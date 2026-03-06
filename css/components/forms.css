@@ -858,6 +858,8 @@
   font-style: italic;
   background: #f8f9fe;
   border-radius: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Token section header styling */

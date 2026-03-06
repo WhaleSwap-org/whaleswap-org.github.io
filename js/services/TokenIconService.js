@@ -26,11 +26,10 @@ const ICON_CACHE_KEY_PREFIX = 'tokenIconCache';
 
 // Local icon configuration
 const LOCAL_ICON_VERSION = TOKEN_ICON_CONFIG.LOCAL_ICON_VERSION || '';
-const LOCAL_ICON_EXTENSIONS = ['png', 'webp', 'jpg', 'jpeg', 'svg'];
 
 /**
  * Token Icon Service for managing token icons.
- * Local logos are resolved by probing flat address-based file paths.
+ * Local logos are resolved by probing normalized flat PNG file paths.
  */
 export class TokenIconService {
     constructor() {
@@ -78,12 +77,7 @@ export class TokenIconService {
             return [];
         }
 
-        const candidates = [];
-        for (const ext of LOCAL_ICON_EXTENSIONS) {
-            candidates.push(`img/token-logos/${normalizedAddress}.${ext}`);
-        }
-
-        return candidates;
+        return [`img/token-logos/${normalizedAddress}.png`];
     }
 
     async doesLocalIconExist(iconUrl) {
