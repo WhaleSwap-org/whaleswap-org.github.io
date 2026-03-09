@@ -262,7 +262,7 @@ export class WalletUI extends BaseComponent {
             this.debug('Checking initial connection state...');
             
             if (!walletManager.hasInjectedProvider()) {
-                this.debug('No supported MetaMask provider found, initializing in read-only mode');
+                this.debug('No injected wallet provider found, initializing in read-only mode');
                 return;
             }
             
@@ -347,7 +347,7 @@ export class WalletUI extends BaseComponent {
             // Add a small delay to ensure any previous pending requests are cleared
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            const result = await walletManager.connect();
+            const result = await walletManager.connect({ userInitiated: true });
             return result;
         } catch (error) {
             this.error('Failed to connect wallet:', error);

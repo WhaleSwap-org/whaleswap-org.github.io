@@ -403,7 +403,7 @@ export class OrdersComponentHelper {
             // Validate wallet/signer readiness before any contract calls.
             const provider = this.component.provider;
             if (!provider) {
-                throw new Error('MetaMask is not installed. Please install MetaMask to take orders.');
+                throw new Error('No injected wallet detected. Please install or unlock a wallet to take orders.');
             }
 
             const wallet = this.component.ctx.getWallet();

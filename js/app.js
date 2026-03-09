@@ -1,6 +1,6 @@
 import { BaseComponent } from './components/BaseComponent.js';
 import { CreateOrder } from './components/CreateOrder.js';
-import { APP_BRAND, APP_LOGO } from './config/index.js';
+import { APP_BRAND, APP_LOGO, WALLET_COMPATIBILITY_NOTICE } from './config/index.js';
 import { DEBUG_CONFIG } from './config/debug.js';
 import {
 	getNetworkConfig,
@@ -33,6 +33,8 @@ import { createAppContext, setGlobalContext } from './services/AppContext.js';
 import { hasAnyClaimables } from './utils/claims.js';
 import { isUserRejection } from './utils/ui.js';
 import { escapeHtml } from './utils/html.js';
+
+const WALLET_COMPATIBILITY_NOTICE_STORAGE_KEY = 'wallet_compatibility_notice_pending';
 
 class App {
 	constructor() {
@@ -70,6 +72,66 @@ class App {
 		this.warn = logger.warn.bind(logger);
 
 		this.debug('App constructor called');
+	}
+
+	queueWalletCompatibilityNotice() {
+		try {
+			sessionStorage.setItem(WALLET_COMPATIBILITY_NOTICE_STORAGE_KEY, '1');
+		} catch (error) {
+			this.debug('Failed to persist wallet compatibility notice flag:', error);
+		}
+	}
+
+	flushPendingWalletCompatibilityNotice() {
+		try {
+			if (sessionStorage.getItem(WALLET_COMPATIBILITY_NOTICE_STORAGE_KEY) !== '1') {
+				return false;
+			}
+
+			sessionStorage.removeItem(WALLET_COMPATIBILITY_NOTICE_STORAGE_KEY);
+			this.showWarning(WALLET_COMPATIBILITY_NOTICE);
+			return true;
+		} catch (error) {
+			this.debug('Failed to flush pending wallet compatibility notice:', error);
+			return false;
+		}
+	}
+
+	async handleWalletConnectEvent(data = {}) {
+		const walletChainId = data?.chainId || walletManager.chainId || null;
+		const selectedNetwork = this.getSelectedNetwork();
+		const walletNetwork = getNetworkById(walletChainId);
+		const shouldAttemptSwitch = !walletNetwork || walletNetwork.slug !== selectedNetwork.slug;
+		const shouldShowCompatibilityNotice = data?.userInitiated === true;
+
+		clearNetworkSetupRequired();
+		this.ctx.setWalletChainId(walletChainId);
+		syncNetworkBadgeFromState();
+
+		if (shouldAttemptSwitch) {
+			if (shouldShowCompatibilityNotice) {
+				this.queueWalletCompatibilityNotice();
+			}
+
+			this.updateTabVisibility(false);
+			await this.refreshAdminTabVisibility();
+			await this.refreshClaimTabVisibility();
+			await this.refreshOrderTabVisibility();
+			await this.switchWalletToNetworkWithReload(selectedNetwork);
+			return;
+		}
+
+		if (shouldShowCompatibilityNotice) {
+			this.showWarning(WALLET_COMPATIBILITY_NOTICE);
+		}
+
+		this.debug('Wallet connected on selected chain, reinitializing components...');
+		this.updateTabVisibility(true);
+		await this.refreshAdminTabVisibility();
+		await this.refreshClaimTabVisibility();
+		await this.refreshOrderTabVisibility();
+		// Preserve WebSocket order cache to avoid clearing orders on connect
+		await this.reinitializeComponents(true);
 	}
 
 	isOrdersTab(tabId = this.currentTab) {
@@ -863,11 +925,6 @@ class App {
 				this.warn('Footer failed to initialize', e);
 			}
 
-			this.handleConnectWallet = async (e) => {
-				e && e.preventDefault();
-				await this.connectWallet();
-			};
-
 			// Fallback for rendering components that are not CreateOrder, ViewOrders, TakerOrders, WalletUI, or Cleanup
 			Object.entries(this.components).forEach(([id, component]) => {
 				if (component instanceof BaseComponent &&
@@ -905,39 +962,11 @@ class App {
 			const hasInitialConnectedContext = isInitiallyConnected && isInitialNetworkMatch;
 			this.currentTab = hasInitialConnectedContext ? 'create-order' : 'view-orders';
 
-			// Add wallet connect button handler
-			const walletConnectBtn = document.getElementById('walletConnect');
-			if (walletConnectBtn) {
-				walletConnectBtn.addEventListener('click', this.handleConnectWallet);
-			}
-
 				// Add wallet connection state handler
 				walletManager.addListener(async (event, data) => {
 					switch (event) {
 						case 'connect': {
-							const walletChainId = data?.chainId || walletManager.chainId || null;
-							const selectedNetwork = this.getSelectedNetwork();
-							const walletNetwork = getNetworkById(walletChainId);
-							const shouldAttemptSwitch = !walletNetwork || walletNetwork.slug !== selectedNetwork.slug;
-							clearNetworkSetupRequired();
-							this.ctx.setWalletChainId(walletChainId);
-							syncNetworkBadgeFromState();
-								if (shouldAttemptSwitch) {
-									this.updateTabVisibility(false);
-									await this.refreshAdminTabVisibility();
-									await this.refreshClaimTabVisibility();
-									await this.refreshOrderTabVisibility();
-									await this.switchWalletToNetworkWithReload(selectedNetwork);
-									break;
-								}
-
-							this.debug('Wallet connected on selected chain, reinitializing components...');
-							this.updateTabVisibility(true);
-							await this.refreshAdminTabVisibility();
-							await this.refreshClaimTabVisibility();
-							await this.refreshOrderTabVisibility();
-							// Preserve WebSocket order cache to avoid clearing orders on connect
-							await this.reinitializeComponents(true);
+							await this.handleWalletConnectEvent(data);
 							break;
 						}
 					case 'disconnect': {
@@ -1329,20 +1358,6 @@ class App {
 		}
 	}
 
-	async connectWallet() {
-		const loader = this.showLoader();
-		try {
-			await walletManager.connect();
-		} catch (error) {
-			// Don't show toast here - WalletUI component handles the error display
-			this.error('Wallet connection failed:', error);
-		} finally {
-			if (loader && loader.parentElement) {
-				loader.parentElement.removeChild(loader);
-			}
-		}
-	}
-
 	handleWalletConnect = async (account) => {
 		console.log('[App] Wallet connected:', account);
 		try {
@@ -1672,6 +1687,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		console.error('[App] App initialization error:', error);
 	} finally {
 		window.app.hideGlobalLoader();
+		window.app.flushPendingWalletCompatibilityNotice();
 	}
 });
 
@@ -1963,7 +1979,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const selectedNetwork = getNetworkBySlug(selectedSlug) || getDefaultNetwork();
 
 			if (!walletManager.hasInjectedProvider()) {
-				window.app?.showWarning?.('MetaMask is required. Phantom is not supported.');
+				window.app?.showWarning?.('No injected wallet detected.');
 				return;
 			}
 

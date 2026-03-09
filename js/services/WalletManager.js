@@ -74,9 +74,8 @@ export class WalletManager {
         };
     }
 
-    isSupportedInjectedProvider(provider) {
-        // Product requirement: only MetaMask is supported right now.
-        return !!provider?.isMetaMask && !provider?.isPhantom;
+    isRequestCapableInjectedProvider(provider) {
+        return typeof provider?.request === 'function';
     }
 
     resolveInjectedProvider() {
@@ -94,25 +93,27 @@ export class WalletManager {
             : [];
 
         if (providers.length === 0) {
-            if (this.isSupportedInjectedProvider(ethereum)) {
+            if (this.isRequestCapableInjectedProvider(ethereum)) {
                 return ethereum;
             }
 
-            this.warn('Unsupported injected provider detected. MetaMask is required.', {
+            this.warn('Injected provider is missing an EIP-1193 request method.', {
                 provider: this.describeProvider(ethereum)
             });
             return null;
         }
 
-        const selectedProvider = providers.find((provider) => this.isSupportedInjectedProvider(provider)) || null;
+        const selectedProvider = providers.find((provider) => !!provider?.isMetaMask)
+            || providers.find((provider) => this.isRequestCapableInjectedProvider(provider))
+            || null;
         if (!selectedProvider) {
-            this.warn('No supported MetaMask provider found among injected wallets.', {
+            this.warn('No injected wallet provider with request support was found.', {
                 providers: providers.map((provider, index) => this.describeProvider(provider, index))
             });
             return null;
         }
 
-        this.debug('Multiple wallet providers detected; selected MetaMask provider:', {
+        this.debug('Multiple wallet providers detected; selected injected provider:', {
             selected: this.describeProvider(selectedProvider),
             providers: providers.map((provider, index) => this.describeProvider(provider, index))
         });
@@ -134,7 +135,7 @@ export class WalletManager {
     async request(method, params = undefined) {
         const injectedProvider = this.getInjectedProvider();
         if (!injectedProvider?.request) {
-            throw new Error('MetaMask is required. Phantom is not supported.');
+            throw new Error('No injected wallet provider detected.');
         }
 
         const payload = params === undefined
@@ -179,7 +180,7 @@ export class WalletManager {
 
             const injectedProvider = this.getInjectedProvider();
             if (!injectedProvider) {
-                this.debug('No supported MetaMask provider found, initializing in read-only mode');
+                this.debug('No injected wallet provider found, initializing in read-only mode');
                 this.provider = null;
                 this.isInitialized = true;
                 return;
@@ -298,14 +299,16 @@ export class WalletManager {
         }
     }
 
-    async connect() {
+    async connect(options = {}) {
+        const { userInitiated = false } = options;
+
         if (this.isConnecting) {
             console.log('[WalletManager] Connection already in progress');
             return null;
         }
 
         if (!this.provider) {
-            throw new Error('MetaMask is required. Phantom is not supported.');
+            throw new Error('No injected wallet provider detected.');
         }
 
         this.isConnecting = true;
@@ -334,12 +337,14 @@ export class WalletManager {
             this.debug('Notifying listeners of connection');
             this.notifyListeners('connect', {
                 account: this.account,
-                chainId: this.chainId
+                chainId: this.chainId,
+                userInitiated
             });
 
             return {
                 account: this.account,
-                chainId: this.chainId
+                chainId: this.chainId,
+                userInitiated
             };
         } catch (error) {
             this.debug('Connection error:', error);
@@ -351,7 +356,7 @@ export class WalletManager {
 
     async switchToNetwork(targetNetworkRef) {
         if (!this.hasInjectedProvider()) {
-            throw new Error('MetaMask is required. Phantom is not supported.');
+            throw new Error('No injected wallet provider detected.');
         }
 
         const targetNetwork =
@@ -596,10 +601,10 @@ export class WalletManager {
         const disconnected = localStorage.getItem(this.STORAGE_KEY);
         if (disconnected === 'true') {
             this.userDisconnected = true;
-            this.debug('User has manually disconnected from MetaMask.');
+            this.debug('User has manually disconnected from the wallet.');
         } else {
             this.userDisconnected = false;
-            this.debug('User has not manually disconnected from MetaMask.');
+            this.debug('User has not manually disconnected from the wallet.');
         }
     }
 

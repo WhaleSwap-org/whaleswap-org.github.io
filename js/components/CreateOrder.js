@@ -88,6 +88,10 @@ export class CreateOrder extends BaseComponent {
         `;
     }
 
+    getTokenActionLabel(type) {
+        return type === 'sell' ? 'You Sell' : 'You Buy';
+    }
+
     clearSelectedTokens() {
         this.sellToken = null;
         this.buyToken = null;
@@ -1663,7 +1667,7 @@ export class CreateOrder extends BaseComponent {
             // Add the label
             const label = document.createElement('span');
             label.className = 'token-input-label';
-            label.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+            label.textContent = this.getTokenActionLabel(type);
             
             // Create amount input
             const amountInput = document.createElement('input');

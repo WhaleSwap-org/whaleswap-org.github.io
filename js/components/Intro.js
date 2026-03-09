@@ -1,5 +1,6 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ethers } from 'ethers';
+import { WALLET_COMPATIBILITY_NOTICE } from '../config/index.js';
 
 export class Intro extends BaseComponent {
 	constructor() {
@@ -216,6 +217,18 @@ export class Intro extends BaseComponent {
 							</svg>
 						</button>
 						<div class="faq-content">
+							<div class="faq-item">
+								<h4>
+									<svg class="intro-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+										<path d="M3 7a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v2"></path>
+										<path d="M3 9h17a1 1 0 0 1 1 1v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+										<path d="M16 13h5"></path>
+									</svg>
+									<span>Wallet Compatibility</span>
+								</h4>
+								<p>${WALLET_COMPATIBILITY_NOTICE}</p>
+							</div>
+
 							<div class="faq-item">
 									<h4>
 									<svg class="intro-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

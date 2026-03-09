@@ -356,7 +356,7 @@ export class MyOrders extends BaseComponent {
                 cancelButton.addEventListener('click', async () => {
                     try {
                         if (!this.provider) {
-                            throw new Error('MetaMask is not installed. Please install MetaMask to cancel orders.');
+                            throw new Error('No injected wallet detected. Please install or unlock a wallet to cancel orders.');
                         }
 
                         if (!await this.ensureWalletReadyForWrite(`cancel order ${order.id}`)) {
@@ -468,7 +468,7 @@ export class MyOrders extends BaseComponent {
                 cancelButton.addEventListener('click', async () => {
                     try {
                         if (!this.provider) {
-                            throw new Error('MetaMask is not installed. Please install MetaMask to cancel orders.');
+                            throw new Error('No injected wallet detected. Please install or unlock a wallet to cancel orders.');
                         }
 
                         if (!await this.ensureWalletReadyForWrite(`cancel order ${order.id}`)) {
