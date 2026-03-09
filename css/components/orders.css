@@ -991,6 +991,27 @@ button.info-icon.order-tooltip-icon {
   position: relative;
 }
 
+.refresh-container--top {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.refresh-container--top .refresh-status {
+  position: static;
+  transform: none;
+  margin-left: 0;
+  order: 1;
+}
+
+.refresh-container--top .last-updated {
+  margin-left: 0;
+  order: 2;
+}
+
+.refresh-container--top .refresh-prices-button {
+  order: 3;
+}
+
 .refresh-prices-button {
   border-radius: 4px;
   padding: 6px 16px;
@@ -1219,28 +1240,59 @@ button.info-icon.order-tooltip-icon {
   opacity: 1;
 }
 
-/* Remove sorting styles */
+/* Sortable order-table headers */
 th[data-sort] {
-  cursor: default;
+  cursor: pointer;
   user-select: none;
   position: relative;
 }
 
 th[data-sort]:hover {
-  background-color: transparent;
+  background-color: var(--bg-secondary);
+}
+
+th[data-sort]:focus-visible {
+  outline: 2px solid var(--accent-color, #3b82f6);
+  outline-offset: -2px;
 }
 
 .sort-icon {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  opacity: 0.55;
+  transition: transform 0.18s ease, opacity 0.18s ease, color 0.18s ease;
 }
 
-/* Remove active sort state */
 th[data-sort].active-sort {
-  background-color: transparent;
+  background-color: var(--bg-secondary);
 }
 
 th[data-sort].active-sort .sort-icon {
-  display: none;
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+th[data-sort][data-sort-direction="asc"] .sort-icon {
+  transform: rotate(180deg);
+}
+
+.sort-header-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.sort-header-label {
+  min-width: 0;
+}
+
+.sort-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .filters-group {
@@ -1288,7 +1340,11 @@ th[data-sort].active-sort .sort-icon {
 /* Mobile card mode */
 @media (max-width: 768px) {
   .filter-controls.bottom-controls {
-    display: none;
+    display: flex;
+  }
+
+  .filter-controls.bottom-controls > .filter-row {
+    display: flex;
   }
 
   .filter-controls {
@@ -1421,7 +1477,7 @@ th[data-sort].active-sort .sort-icon {
     min-height: 40px;
   }
 
-  .refresh-container--mobile {
+  .refresh-container--top {
     display: flex;
     order: 3;
     width: 100%;
@@ -1435,24 +1491,21 @@ th[data-sort].active-sort .sort-icon {
     border-top: 1px solid var(--border-color);
   }
 
-  .refresh-container--mobile .refresh-prices-button {
+  .refresh-container--top .refresh-prices-button {
     width: 100%;
     min-height: 42px;
     font-size: 0.875rem;
   }
 
-  .refresh-container--mobile .refresh-status {
+  .refresh-container--top .refresh-status {
     position: static;
     transform: none;
     margin-left: 0;
     white-space: normal;
   }
 
-  .refresh-container--mobile .last-updated {
-    margin-left: 0;
-    white-space: normal;
-    font-size: 0.75rem;
-    line-height: 1.3;
+  .refresh-container--top .last-updated {
+    display: none !important;
   }
 
   .table-container {

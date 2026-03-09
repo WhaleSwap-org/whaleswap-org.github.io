@@ -2,6 +2,16 @@ import { ethers } from 'ethers';
 import { formatTimeDiff } from './orderUtils.js';
 import { getDisplaySymbol } from './tokenDisplay.js';
 
+export function getBuyerDealRatio(order) {
+    const dealValue = Number(order?.dealMetrics?.deal);
+    return dealValue > 0 ? 1 / dealValue : undefined;
+}
+
+export function getMakerDealRatio(order) {
+    const dealValue = Number(order?.dealMetrics?.deal);
+    return Number.isFinite(dealValue) && dealValue > 0 ? dealValue : undefined;
+}
+
 export async function buildOrderRowContext({
     order,
     ws,
@@ -39,8 +49,7 @@ export async function buildOrderRowContext({
         : (pricing ? pricing.getPrice(order.buyToken) : undefined);
     const sellPriceLoading = Boolean(pricing?.shouldShowPriceLoading?.(order.sellToken));
     const buyPriceLoading = Boolean(pricing?.shouldShowPriceLoading?.(order.buyToken));
-    const dealValue = Number(order.dealMetrics?.deal);
-    const buyerDealRatio = dealValue > 0 ? 1 / dealValue : undefined;
+    const buyerDealRatio = getBuyerDealRatio(order);
     const dealLoading = !Number.isFinite(buyerDealRatio) && (sellPriceLoading || buyPriceLoading);
 
     const sellPriceClass = (pricing && pricing.isPriceEstimated(order.sellToken)) ? 'price-estimate' : '';

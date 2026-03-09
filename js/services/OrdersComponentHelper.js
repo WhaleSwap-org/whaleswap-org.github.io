@@ -357,8 +357,8 @@ export class OrdersComponentHelper {
             element.textContent = `Last updated: ${lastUpdateTime}`;
             element.style.display = 'inline';
         } else {
-            element.textContent = 'No prices loaded yet';
-            element.style.display = 'inline';
+            element.textContent = '';
+            element.style.display = 'none';
         }
     }
 

@@ -129,7 +129,7 @@ export class Intro extends BaseComponent {
 								<li>Browse "View Orders", all orders </li>
 								<li>"My Orders", orders you created</li>
 								<li>"Invited Orders", orders made to you</li>
-								<li>Filter by token pairs and newest/best deal</li>
+									<li>Filter by token pairs and sort by deal or expiry</li>
 							</ul>
 						</div>
 

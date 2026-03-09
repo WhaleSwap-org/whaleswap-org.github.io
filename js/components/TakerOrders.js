@@ -3,9 +3,10 @@ import { createLogger } from '../services/LogService.js';
 import { createDealCellHTML, processOrderAddress, generateStatusCellHTML, setupClickToCopy } from '../utils/ui.js';
 import { calculateTotalValue, formatDealValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
-import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
+import { OrdersTableRenderer, ORDER_TABLE_PERSPECTIVES } from '../services/OrdersTableRenderer.js';
 import { buildTokenDisplaySymbolMap } from '../utils/tokenDisplay.js';
-import { buildOrderRowContext } from '../utils/ordersComponentHelpers.js';
+import { buildOrderRowContext, getBuyerDealRatio } from '../utils/ordersComponentHelpers.js';
+import { DEFAULT_ORDER_SORT, normalizeOrderSort, sortOrdersByCurrentSort } from '../utils/orderSort.js';
 
 export class TakerOrders extends BaseComponent {
     constructor() {
@@ -32,7 +33,8 @@ export class TakerOrders extends BaseComponent {
         this.helper = new OrdersComponentHelper(this);
         this.renderer = new OrdersTableRenderer(this, {
             rowRenderer: (order) => this.createOrderRow(order),
-            showRefreshButton: false
+            perspective: ORDER_TABLE_PERSPECTIVES.BUYER,
+            showRefreshButton: true
         });
     }
 
@@ -110,9 +112,11 @@ export class TakerOrders extends BaseComponent {
             // Get filter states
             const sellTokenFilter = this.container.querySelector('#sell-token-filter')?.value;
             const buyTokenFilter = this.container.querySelector('#buy-token-filter')?.value;
-            const orderSort = this.container.querySelector('#order-sort')?.value;
+            const orderSort = normalizeOrderSort(
+                this.container.querySelector('#order-sort')?.value || DEFAULT_ORDER_SORT
+            );
             const showOnlyActive = this.container.querySelector('#fillable-orders-toggle')?.checked ?? true;
-            const pageSize = parseInt(this.container.querySelector('#page-size-select')?.value || '25');
+            const pageSize = parseInt(this.container.querySelector('#page-size-select')?.value || '10');
 
             // Reset to page 1 when filters change
             if (this._lastFilters?.sellToken !== sellTokenFilter ||
@@ -151,15 +155,10 @@ export class TakerOrders extends BaseComponent {
             this.totalOrders = ordersToDisplay.length;
 
             // Apply sorting
-            if (orderSort === 'newest') {
-                ordersToDisplay.sort((a, b) => b.id - a.id);
-            } else if (orderSort === 'best-deal') {
-                ordersToDisplay.sort((a, b) => {
-                    const dealA = a.dealMetrics?.deal > 0 ? 1 / a.dealMetrics.deal : Infinity;
-                    const dealB = b.dealMetrics?.deal > 0 ? 1 / b.dealMetrics.deal : Infinity;
-                    return dealB - dealA; // Higher deal is better for buyer perspective
-                });
-            }
+            ordersToDisplay = sortOrdersByCurrentSort(ordersToDisplay, {
+                sortValue: orderSort,
+                getDealSortValue: (order) => getBuyerDealRatio(order)
+            });
 
             // Apply pagination
             const startIndex = (this.currentPage - 1) * pageSize;
@@ -314,7 +313,6 @@ export class TakerOrders extends BaseComponent {
             const dealText = dealLoading
                 ? 'loading...'
                 : formatDealValue(buyerDealRatio);
-
             tr.innerHTML = `
                 <td>${order.id}</td>
                 <td>

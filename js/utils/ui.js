@@ -117,12 +117,23 @@ export function createInlineTooltipIcon(
     tooltipText,
     {
         className = 'info-icon order-tooltip-icon',
-        ariaLabel = 'More information'
+        ariaLabel = 'More information',
+        attributes = {}
     } = {}
 ) {
     const safeTooltip = escapeHtmlAttribute(tooltipText);
     const safeAriaLabel = escapeHtmlAttribute(ariaLabel);
-    return `<button type="button" class="${className}" data-order-tooltip="${safeTooltip}" aria-label="${safeAriaLabel}">ⓘ</button>`;
+    const additionalAttributes = Object.entries(attributes)
+        .filter(([, value]) => value !== undefined && value !== null && value !== false)
+        .map(([name, value]) => {
+            if (value === true) {
+                return ` ${name}`;
+            }
+            return ` ${name}="${escapeHtmlAttribute(value)}"`;
+        })
+        .join('');
+
+    return `<button type="button" class="${className}" data-order-tooltip="${safeTooltip}" aria-label="${safeAriaLabel}"${additionalAttributes}>ⓘ</button>`;
 }
 
 export function createDealCellHTML(dealText) {
@@ -161,8 +172,10 @@ export function setupOrderTooltips(container = document) {
         });
         trigger.addEventListener('click', (event) => {
             event.preventDefault();
-            event.stopPropagation();
             showOrderTooltip(trigger);
+            if (trigger.dataset.sortClick !== 'true') {
+                event.stopPropagation();
+            }
         });
     });
 }

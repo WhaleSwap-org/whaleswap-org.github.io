@@ -17,8 +17,9 @@ export class Footer extends BaseComponent {
         if (!this.container) return;
         this.container.innerHTML = `
             <div class="footer-wrapper">
-                <span class="footer-text">Powered by</span>
-                <a href="https://github.com/WhaleSwap-org" target="_blank" rel="noopener noreferrer" class="footer-link">WhaleSwap</a>
+                <a href="https://github.com/WhaleSwap-org" target="_blank" rel="noopener noreferrer" class="footer-link">Built</a>
+                <span class="footer-text">by</span>
+                <a href="https://liberdus.com/site/" target="_blank" rel="noopener noreferrer" class="footer-link">Liberdus</a>
             </div>
             <div class="legal-help-inline" id="legal-help-inline" aria-label="Legal links">
                 <button

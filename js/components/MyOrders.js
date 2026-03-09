@@ -2,19 +2,22 @@ import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { ethers } from 'ethers';
 import {
-    DEAL_TOOLTIP_TEXT,
     createDealCellHTML,
-    createInlineTooltipIcon,
     handleTransactionError,
     processOrderAddress,
     generateStatusCellHTML,
-    setupClickToCopy,
-    setupOrderTooltips
+    setupClickToCopy
 } from '../utils/ui.js';
 import { formatTimeDiff, calculateTotalValue, formatDealValue } from '../utils/orderUtils.js';
 import { OrdersComponentHelper } from '../services/OrdersComponentHelper.js';
 import { OrdersTableRenderer } from '../services/OrdersTableRenderer.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
+import {
+    DEFAULT_ORDER_SORT,
+    normalizeOrderSort,
+    sortOrdersByCurrentSort
+} from '../utils/orderSort.js';
+import { getMakerDealRatio } from '../utils/ordersComponentHelpers.js';
 
 export class MyOrders extends BaseComponent {
     constructor() {
@@ -47,19 +50,12 @@ export class MyOrders extends BaseComponent {
             }, 100);
         };
         
-        // Initialize sort config with id as default sort, descending
-        this.sortConfig = {
-            column: 'id',
-            direction: 'desc',
-            isColumnClick: false
-        };
-        
         // Initialize helper and renderer
         this.helper = new OrdersComponentHelper(this);
         this.renderer = new OrdersTableRenderer(this, {
             rowRenderer: (order) => this.createOrderRow(order),
             filterToggleLabel: 'Show only cancellable',
-            showRefreshButton: false
+            showRefreshButton: true
         });
     }
 
@@ -102,7 +98,6 @@ export class MyOrders extends BaseComponent {
                 this.helper.setupServices({
                     onRefresh: () => this.refreshOrdersView()
                 });
-                // Use MyOrders custom table setup (not renderer's generic one)
                 await this.setupTable();
                 await this.helper.setupWebSocket(() => this.refreshOrdersView());
             } else {
@@ -169,7 +164,9 @@ export class MyOrders extends BaseComponent {
             // Get filter states
             const sellTokenFilter = this.container.querySelector('#sell-token-filter')?.value;
             const buyTokenFilter = this.container.querySelector('#buy-token-filter')?.value;
-            const orderSort = this.container.querySelector('#order-sort')?.value;
+            const orderSort = normalizeOrderSort(
+                this.container.querySelector('#order-sort')?.value || DEFAULT_ORDER_SORT
+            );
 
             // Apply filters
             ordersToDisplay = ordersToDisplay.filter(order => {
@@ -189,17 +186,13 @@ export class MyOrders extends BaseComponent {
             this.totalOrders = ordersToDisplay.length;
 
             // Apply sorting
-            if (orderSort === 'newest') {
-                ordersToDisplay.sort((a, b) => b.id - a.id);
-            } else if (orderSort === 'best-deal') {
-                ordersToDisplay.sort((a, b) => 
-                    Number(b.dealMetrics?.deal || 0) - 
-                    Number(a.dealMetrics?.deal || 0)
-                );
-            }
+            ordersToDisplay = sortOrdersByCurrentSort(ordersToDisplay, {
+                sortValue: orderSort,
+                getDealSortValue: (order) => getMakerDealRatio(order)
+            });
 
             // Apply pagination
-            const pageSize = parseInt(this.container.querySelector('#page-size-select')?.value || '50');
+            const pageSize = parseInt(this.container.querySelector('#page-size-select')?.value || '10');
             if (pageSize !== -1) {  // -1 means show all
                 const startIndex = (this.currentPage - 1) * pageSize;
                 const endIndex = startIndex + pageSize;
@@ -240,383 +233,8 @@ export class MyOrders extends BaseComponent {
         }
     }
 
-    getTotalPages() {
-        const pageSize = parseInt(this.container.querySelector('#page-size-select')?.value || '50');
-        if (pageSize === -1) return 1; // View all
-        return Math.ceil(this.totalOrders / pageSize);
-    }
-
-    // TODO: Migrate this custom table/filter setup to shared OrdersTableRenderer
-    // once renderer options cover MyOrders-specific header order, defaults, and refresh controls.
     async setupTable() {
-        // Store current filter state before rebuilding table
-        const existingCheckbox = this.container.querySelector('#fillable-orders-toggle');
-        const showOnlyCancellable = existingCheckbox?.checked ?? true; // Default to true if no existing state
-        
-        // Get tokens from WebSocket's tokenCache first
-        const ws = this.ctx.getWebSocket();
-        const tokenDisplaySymbolMap = buildTokenDisplaySymbolMap(
-            Array.from(ws.tokenCache.values()),
-            this.ctx?.getWalletChainId?.()
-        );
-        this.tokenDisplaySymbolMap = tokenDisplaySymbolMap;
-        const tokens = Array.from(ws.tokenCache.values())
-            .map((token) => ({
-                ...token,
-                displaySymbol: getDisplaySymbol(token, tokenDisplaySymbolMap)
-            }))
-            .sort((a, b) => a.displaySymbol.localeCompare(b.displaySymbol)); // Sort alphabetically by display symbol
-        
-        this.debug('Available tokens:', tokens);
-
-        const paginationControls = `
-            <div class="pagination-controls">
-                <select id="page-size-select" class="page-size-select">
-                    <option value="10">10 per page</option>
-                    <option value="25">25 per page</option>
-                    <option value="50" selected>50 per page</option>
-                    <option value="100">100 per page</option>
-                    <option value="-1">View all</option>
-                </select>
-                
-                <div class="pagination-buttons">
-                    <button class="pagination-button prev-page" title="Previous page" disabled>
-                        ←
-                    </button>
-                    <span class="page-info">Page 1 of 0</span>
-                    <button class="pagination-button next-page" title="Next page" disabled>
-                        →
-                    </button>
-                </div>
-            </div>
-        `;
-
-        // Main filter controls
-        const filterControls = `
-            <div class="filter-controls">
-                <div class="filter-row">
-                    <div class="filters-left">
-                        <div class="filters-group">
-                            <button class="advanced-filters-toggle">
-                                <svg class="filter-icon" viewBox="0 0 24 24" width="16" height="16">
-                                    <path fill="currentColor" d="M14,12V19.88C14.04,20.18 13.94,20.5 13.71,20.71C13.32,21.1 12.69,21.1 12.3,20.71L10.29,18.7C10.06,18.47 9.96,18.16 10,17.87V12H9.97L4.21,4.62C3.87,4.19 3.95,3.56 4.38,3.22C4.57,3.08 4.78,3 5,3V3H19V3C19.22,3 19.43,3.08 19.62,3.22C20.05,3.56 20.13,4.19 19.79,4.62L14.03,12H14Z"/>
-                                </svg>
-                                Filters
-                                <svg class="chevron-icon" viewBox="0 0 24 24" width="16" height="16">
-                                    <path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
-                                </svg>
-                            </button>
-                            <label class="filter-toggle">
-                                <input type="checkbox" id="fillable-orders-toggle" ${showOnlyCancellable ? 'checked' : ''}>
-                                <span>Show only cancellable orders</span>
-                            </label>
-                        </div>
-                    </div>
-                    ${paginationControls}
-                </div>
-                <div class="refresh-container refresh-container--mobile">
-                    <button class="refresh-prices-button js-refresh-prices" type="button">↻ Refresh Prices</button>
-                    <span class="refresh-status"></span>
-                    <span class="last-updated js-last-updated"></span>
-                </div>
-                <div class="advanced-filters" style="display: none;">
-                    <div class="filter-row">
-                        <div class="token-filters">
-                            <select id="sell-token-filter" class="token-filter">
-                                <option value="">All Sell Tokens</option>
-                                ${tokens.map(token => 
-                                    `<option value="${token.address}">${token.displaySymbol || token.symbol}</option>`
-                                ).join('')}
-                            </select>
-                            <select id="buy-token-filter" class="token-filter">
-                                <option value="">All Buy Tokens</option>
-                                ${tokens.map(token => 
-                                    `<option value="${token.address}">${token.displaySymbol || token.symbol}</option>`
-                                ).join('')}
-                            </select>
-                            <select id="order-sort" class="order-sort">
-                                <option value="newest">Newest First</option>
-                                <option value="best-deal">Best Deal First</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-
-        const bottomControls = `
-            <div class="filter-controls bottom-controls">
-                <div class="filter-row">
-                    <div class="refresh-container">
-                        <button class="refresh-prices-button js-refresh-prices" type="button">↻ Refresh Prices</button>
-                        <span class="refresh-status"></span>
-                        <span class="last-updated js-last-updated"></span>
-                    </div>
-                    ${paginationControls}
-                </div>
-            </div>
-        `;
-
-        const dealTooltipIcon = createInlineTooltipIcon(DEAL_TOOLTIP_TEXT, {
-            className: 'info-icon order-tooltip-icon',
-            ariaLabel: 'Explain deal value'
-        });
-
-        this.container.innerHTML = `
-            <div class="table-container">
-                ${filterControls}
-                <table class="orders-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Sell</th>
-                            <th>Buy</th>
-                            <th>
-                                Deal
-                                ${dealTooltipIcon}
-                            </th>
-                            <th>Expires</th>
-                            <th>Status</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-                ${bottomControls}
-            </div>`;
-
-        // Setup advanced filters toggle
-        const advancedFiltersToggle = this.container.querySelector('.advanced-filters-toggle');
-        const advancedFilters = this.container.querySelector('.advanced-filters');
-        
-        if (advancedFiltersToggle && advancedFilters) {
-            advancedFiltersToggle.addEventListener('click', () => {
-                const isExpanded = advancedFilters.style.display !== 'none';
-                advancedFilters.style.display = isExpanded ? 'none' : 'block';
-                advancedFiltersToggle.classList.toggle('expanded', !isExpanded);
-            });
-        }
-
-        // Add event listeners for filters
-        const sellTokenFilter = this.container.querySelector('#sell-token-filter');
-        const buyTokenFilter = this.container.querySelector('#buy-token-filter');
-        const orderSort = this.container.querySelector('#order-sort');
-
-        if (sellTokenFilter) sellTokenFilter.addEventListener('change', () => this.refreshOrdersView());
-        if (buyTokenFilter) buyTokenFilter.addEventListener('change', () => this.refreshOrdersView());
-        if (orderSort) orderSort.addEventListener('change', () => this.refreshOrdersView());
-
-        // Initialize pagination
-        this.currentPage = 1;
-        const pageSize = this.container.querySelector('#page-size-select');
-        if (pageSize) {
-            pageSize.value = '50'; // Set default page size
-        }
-
-        // Setup pagination for both top and bottom controls
-        const setupPaginationListeners = (controls) => {
-            const prevButton = controls.querySelector('.prev-page');
-            const nextButton = controls.querySelector('.next-page');
-            const pageInfo = controls.querySelector('.page-info');
-            
-            if (prevButton) {
-                prevButton.addEventListener('click', () => {
-                    if (this.currentPage > 1) {
-                        this.currentPage--;
-                        this.refreshOrdersView();
-                    }
-                });
-            }
-            
-            if (nextButton) {
-                nextButton.addEventListener('click', () => {
-                    const pageSize = parseInt(this.container.querySelector('#page-size-select').value);
-                    const totalPages = Math.ceil(this.totalOrders / pageSize);
-                    if (this.currentPage < totalPages) {
-                        this.currentPage++;
-                        this.refreshOrdersView();
-                    }
-                });
-            }
-        };
-
-        // Sync both page size selects
-        const pageSizeSelects = this.container.querySelectorAll('.page-size-select');
-        pageSizeSelects.forEach(select => {
-            select.addEventListener('change', (event) => {
-                // Update all page size selects to match
-                pageSizeSelects.forEach(otherSelect => {
-                    if (otherSelect !== event.target) {
-                        otherSelect.value = event.target.value;
-                    }
-                });
-                this.currentPage = 1; // Reset to first page when changing page size
-                this.refreshOrdersView();
-            });
-        });
-
-        // Setup pagination for both top and bottom controls
-        const controls = this.container.querySelectorAll('.filter-controls');
-        controls.forEach(setupPaginationListeners);
-
-        // Add filter toggle listener
-        const filterToggles = this.container.querySelectorAll('#fillable-orders-toggle');
-        filterToggles.forEach(toggle => {
-            toggle.addEventListener('change', (event) => {
-                filterToggles.forEach(otherToggle => {
-                    if (otherToggle !== event.target) {
-                        otherToggle.checked = event.target.checked;
-                    }
-                });
-                this.refreshOrdersView();
-            });
-        });
-
-        setupOrderTooltips(this.container);
-        this.setupEventListeners();
-    }
-
-    setupEventListeners() {
-        // Refresh controls are rendered in top (mobile) + bottom (desktop), share one in-flight state.
-        const refreshControls = Array.from(this.container.querySelectorAll('.refresh-container')).map((container) => ({
-            button: container.querySelector('.js-refresh-prices'),
-            status: container.querySelector('.refresh-status'),
-            timestamp: container.querySelector('.js-last-updated')
-        })).filter(control => control.button && control.status);
-
-        refreshControls.forEach((control) => {
-            if (control.timestamp) {
-                this.helper.updateLastUpdatedTimestamp(control.timestamp);
-            }
-        });
-
-        let refreshTimeout = null;
-        this._refreshInFlight = false;
-        const setRefreshState = ({ isLoading = false, text = '', statusClass = '' }) => {
-            refreshControls.forEach((control) => {
-                control.button.disabled = isLoading;
-                control.button.textContent = isLoading ? '↻ Refreshing...' : '↻ Refresh Prices';
-                control.status.className = `refresh-status${statusClass ? ` ${statusClass}` : ''}`;
-                control.status.textContent = text;
-                control.status.style.opacity = text || isLoading ? 1 : 0;
-            });
-        };
-
-        refreshControls.forEach((control) => {
-            control.button.addEventListener('click', async () => {
-                if (this._refreshInFlight) return;
-                this._refreshInFlight = true;
-                setRefreshState({ isLoading: true, statusClass: 'loading' });
-
-                try {
-                    const result = await this.pricingService.refreshPrices();
-                    if (result.success) {
-                        setRefreshState({
-                            isLoading: false,
-                            text: `Updated ${new Date().toLocaleTimeString()}`,
-                            statusClass: 'success'
-                        });
-                        refreshControls.forEach((entry) => {
-                            if (entry.timestamp) {
-                                this.updateLastUpdatedTimestamp(entry.timestamp);
-                            }
-                        });
-                    } else {
-                        setRefreshState({
-                            isLoading: false,
-                            text: result.message || 'Failed to refresh prices',
-                            statusClass: 'error'
-                        });
-                    }
-                } catch (error) {
-                    setRefreshState({
-                        isLoading: false,
-                        text: 'Failed to refresh prices',
-                        statusClass: 'error'
-                    });
-                } finally {
-                    this._refreshInFlight = false;
-                    if (refreshTimeout) clearTimeout(refreshTimeout);
-                    refreshTimeout = setTimeout(() => {
-                        refreshControls.forEach((entry) => {
-                            entry.status.style.opacity = 0;
-                        });
-                        refreshTimeout = null;
-                    }, 2000);
-                }
-            });
-        });
-
-        // Add pagination event listeners for both top and bottom controls
-        const controls = this.container.querySelectorAll('.filter-controls');
-        controls.forEach(control => {
-            const prevButton = control.querySelector('.prev-page');
-            const nextButton = control.querySelector('.next-page');
-            
-            if (prevButton) {
-                prevButton.addEventListener('click', () => {
-                    if (this.currentPage > 1) {
-                        this.currentPage--;
-                        this.refreshOrdersView();
-                    }
-                });
-            }
-            
-            if (nextButton) {
-                nextButton.addEventListener('click', () => {
-                    const totalPages = this.getTotalPages();
-                    this.debug('Next button clicked', { 
-                        currentPage: this.currentPage, 
-                        totalPages, 
-                        totalOrders: this.totalOrders 
-                    });
-                    if (this.currentPage < totalPages) {
-                        this.currentPage++;
-                        this.refreshOrdersView();
-                    }
-                });
-            }
-        });
-
-        // Add filter toggle listener
-        const filterToggle = this.container.querySelector('#fillable-orders-toggle');
-        if (filterToggle) {
-            filterToggle.addEventListener('change', () => {
-                this.currentPage = 1; // Reset to first page when filter changes
-                this.refreshOrdersView();
-            });
-        }
-
-        // Add token filter listeners
-        const tokenFilters = this.container.querySelectorAll('.token-filter');
-        tokenFilters.forEach(filter => {
-            filter.addEventListener('change', () => {
-                this.currentPage = 1; // Reset to first page when filter changes
-                this.refreshOrdersView();
-            });
-        });
-
-        // Add sort listener
-        const sortSelect = this.container.querySelector('#order-sort');
-        if (sortSelect) {
-            sortSelect.addEventListener('change', () => {
-                this.currentPage = 1; // Reset to first page when sort changes
-                this.refreshOrdersView();
-            });
-        }
-    }
-
-    // Update last updated timestamp
-    updateLastUpdatedTimestamp(element) {
-        if (!element || !this.pricingService) return;
-        
-        const lastUpdateTime = this.pricingService.getLastUpdateTime();
-        if (lastUpdateTime && lastUpdateTime !== 'Never') {
-            element.textContent = `Last updated: ${lastUpdateTime}`;
-            element.style.display = 'inline';
-        } else {
-            element.textContent = 'No prices loaded yet';
-            element.style.display = 'inline';
-        }
+        return this.renderer.setupTable(() => this.refreshOrdersView());
     }
 
     async createOrderRow(order) {
