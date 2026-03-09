@@ -9,6 +9,16 @@ const isLocalHostname = () => {
     return host === 'localhost' || host === '127.0.0.1';
 };
 
+export const getRequestedNetworkSlugFromUrl = () => {
+    if (typeof window === 'undefined' || !window.location) {
+        return null;
+    }
+
+    const params = new URLSearchParams(window.location.search || '');
+    const chainSlug = params.get('chain');
+    return chainSlug ? chainSlug.toLowerCase() : null;
+};
+
 const localNetworkConfig = {
     "1337": {
         slug: "local",
@@ -122,6 +132,9 @@ const primaryNetworkConfig = {
             "wss://polygon.api.onfinality.io/public-ws"
         ]
     },
+};
+
+const testNetworkConfig = {
     "80002": {
         slug: "amoy",
         name: "Polygon Amoy",
@@ -149,9 +162,13 @@ const primaryNetworkConfig = {
     },
 };
 
-const networkConfig = isLocalHostname()
-    ? { ...primaryNetworkConfig, ...localNetworkConfig }
-    : primaryNetworkConfig;
+const shouldIncludeAmoyNetwork = isLocalHostname() || getRequestedNetworkSlugFromUrl() === 'amoy';
+
+const networkConfig = {
+    ...primaryNetworkConfig,
+    ...(shouldIncludeAmoyNetwork ? testNetworkConfig : {}),
+    ...(isLocalHostname() ? localNetworkConfig : {})
+};
 
 const normalizeChainId = (chainId) => {
     if (chainId === null || chainId === undefined) {
