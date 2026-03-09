@@ -2,7 +2,15 @@ import { BaseComponent } from './components/BaseComponent.js';
 import { CreateOrder } from './components/CreateOrder.js';
 import { APP_BRAND, APP_LOGO } from './config/index.js';
 import { DEBUG_CONFIG } from './config/debug.js';
-import { getNetworkConfig, getAllNetworks, getNetworkById, getNetworkBySlug, getDefaultNetwork, setActiveNetwork } from './config/networks.js';
+import {
+	getNetworkConfig,
+	getAllNetworks,
+	getNetworkById,
+	getNetworkBySlug,
+	getDefaultNetwork,
+	getRequestedNetworkSlugFromUrl,
+	setActiveNetwork
+} from './config/networks.js';
 import { walletManager } from './services/WalletManager.js';
 import { WalletUI } from './components/WalletUI.js';
 import { WebSocketService } from './services/WebSocket.js';
@@ -1760,9 +1768,7 @@ function buildNetworkOptionMarkup(network) {
 }
 
 function getChainSlugFromUrl() {
-	const params = new URLSearchParams(window.location.search);
-	const slug = params.get('chain');
-	return slug ? slug.toLowerCase() : null;
+	return getRequestedNetworkSlugFromUrl();
 }
 
 function getInitialSelectedNetwork() {
