@@ -132,6 +132,9 @@ export function createTransactionProgressSession(toastApi, options) {
         isHidden() {
             return state.hidden;
         },
+        isVisible() {
+            return !state.hidden;
+        },
         isActive() {
             return !state.terminalState;
         },

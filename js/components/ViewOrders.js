@@ -403,14 +403,15 @@ export class ViewOrders extends BaseComponent {
         const currentAccount = wallet?.getAccount()?.toLowerCase();
         const isUserOrder = order.maker?.toLowerCase() === currentAccount;
         const ws = this.ctx.getWebSocket();
+        const canFillOrder = ws.canFillOrder(order, currentAccount);
 
-        if (this.helper.isFillProgressActive(order.id)) {
+        if (this.helper.hasTrackedFillProgress(order.id) && canFillOrder) {
             actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
             const fillButton = actionCell.querySelector('.fill-button');
             this.helper.configureFillButton(fillButton, order.id);
         } else if (isUserOrder) {
             actionCell.innerHTML = '<span class="mine-label">Mine</span>';
-        } else if (!isUserOrder && ws.canFillOrder(order, currentAccount)) {
+        } else if (!isUserOrder && canFillOrder) {
             actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
             const fillButton = actionCell.querySelector('.fill-button');
             this.helper.configureFillButton(fillButton, order.id);

@@ -4,7 +4,7 @@ import { getNetworkConfig } from '../config/networks.js';
 import { walletManager } from '../services/WalletManager.js';
 import { setVisibility } from '../utils/ui.js';
 import { erc20Abi } from '../abi/erc20.js';
-import { getAllWalletTokens, getContractAllowedTokens, clearTokenCaches } from '../utils/contractTokens.js';
+import { getAllWalletTokens, getContractAllowedTokens, clearTokenCaches, getTokenBalanceInfo } from '../utils/contractTokens.js';
 import { contractService } from '../services/ContractService.js';
 import { createLogger } from '../services/LogService.js';
 import { validateSellBalance } from '../utils/balanceValidation.js';
@@ -15,7 +15,7 @@ import {
     isUserRejection,
 } from '../utils/ui.js';
 import { escapeHtmlText } from '../utils/html.js';
-import { getExplorerUrl } from '../utils/orderUtils.js';
+import { getTokenExplorerUrl } from '../utils/orderUtils.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
 const TAKER_ADDRESS_MAX_LENGTH = 42;
@@ -37,6 +37,7 @@ export class CreateOrder extends BaseComponent {
         this.allowedTokensLoadPromise = null;
         this.allowedTokensBalanceLoadPromise = null;
         this.feeLoadPromise = null;
+        this.feeTokenBalanceLoadPromise = null;
         this.feeConfigUpdatedHandler = null;
         this.allowedTokensUpdatedHandler = null;
         this.contractDisabledHandler = null;
@@ -49,6 +50,7 @@ export class CreateOrder extends BaseComponent {
         this.isContractDisabled = false;
         this.contractStateReadError = false;
         this.transactionProgressSession = null;
+        this.transactionProgressVisibilityCleanup = null;
         this.tokenSelectorListeners = {};  // Store listeners to prevent duplicates
         this.boundWindowClickHandler = null;
         this.boundTooltipOutsideClickHandler = null;
@@ -56,6 +58,7 @@ export class CreateOrder extends BaseComponent {
         this.boundTooltipEscapeHandler = null;
         this.tooltipCleanupCallbacks = [];
         this.tokenDisplaySymbolMap = new Map();
+        this.focusedAmountField = null;
         
         // Initialize logger
         const logger = createLogger('CREATE_ORDER');
@@ -132,6 +135,135 @@ export class CreateOrder extends BaseComponent {
         return Number(trimmedValue) > 0;
     }
 
+    getAmountSuggestionButton(type) {
+        return document.getElementById(`${type}AmountSuggestion`);
+    }
+
+    getLiveTokenUsdPrice(type) {
+        const token = this[`${type}Token`];
+        const pricing = this.ctx?.getPricing?.();
+        const livePrice = token?.address ? Number(pricing?.getPrice?.(token.address)) : Number.NaN;
+        if (Number.isFinite(livePrice)) {
+            return livePrice;
+        }
+
+        const fallbackPrice = Number(token?.usdPrice);
+        return Number.isFinite(fallbackPrice) ? fallbackPrice : undefined;
+    }
+
+    getSuggestedAmount(type) {
+        const targetToken = this[`${type}Token`];
+        const otherType = type === 'sell' ? 'buy' : 'sell';
+        const otherToken = this[`${otherType}Token`];
+        const otherAmountValue = document.getElementById(`${otherType}Amount`)?.value?.trim() || '';
+
+        if (!targetToken?.address || !otherToken?.address || !this.isValidPositiveAmount(otherAmountValue)) {
+            return null;
+        }
+
+        const targetPrice = this.getLiveTokenUsdPrice(type);
+        const otherPrice = this.getLiveTokenUsdPrice(otherType);
+        const otherAmount = Number(otherAmountValue);
+
+        if (!Number.isFinite(targetPrice) || targetPrice <= 0
+            || !Number.isFinite(otherPrice) || otherPrice <= 0
+            || !Number.isFinite(otherAmount) || otherAmount <= 0) {
+            return null;
+        }
+
+        const suggestedAmount = (otherAmount * otherPrice) / targetPrice;
+        return Number.isFinite(suggestedAmount) && suggestedAmount > 0 ? suggestedAmount : null;
+    }
+
+    formatSuggestedAmount(type, amount) {
+        const numericAmount = Number(amount);
+        if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+            return '';
+        }
+
+        const maxDecimals = this.getAmountInputDecimals(type);
+        const maximumFractionDigits = maxDecimals === null ? 8 : Math.min(maxDecimals, 18);
+        const normalizedAmount = Number(numericAmount.toPrecision(15));
+
+        if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+            return '';
+        }
+
+        const formattedAmount = normalizedAmount.toLocaleString(undefined, {
+            minimumFractionDigits: 0,
+            maximumFractionDigits,
+            useGrouping: false
+        });
+
+        return this.isValidPositiveAmount(formattedAmount) ? formattedAmount : '';
+    }
+
+    syncAmountSuggestion(type) {
+        const suggestionButton = this.getAmountSuggestionButton(type);
+        if (!suggestionButton) {
+            return;
+        }
+
+        const formattedSuggestion = this.focusedAmountField === type
+            ? this.formatSuggestedAmount(type, this.getSuggestedAmount(type))
+            : '';
+
+        if (formattedSuggestion) {
+            suggestionButton.textContent = formattedSuggestion;
+            suggestionButton.dataset.value = formattedSuggestion;
+            suggestionButton.setAttribute('aria-label', `Fill ${type} amount with suggested amount ${formattedSuggestion}`);
+            suggestionButton.title = formattedSuggestion;
+            setVisibility(suggestionButton, true);
+            return;
+        }
+
+        suggestionButton.textContent = '';
+        delete suggestionButton.dataset.value;
+        suggestionButton.setAttribute('aria-label', `No suggested ${type} amount available`);
+        suggestionButton.removeAttribute('title');
+        setVisibility(suggestionButton, false);
+    }
+
+    refreshActiveAmountSuggestion() {
+        ['sell', 'buy'].forEach((type) => this.syncAmountSuggestion(type));
+    }
+
+    setFocusedAmountField(type) {
+        this.focusedAmountField = type;
+        this.refreshActiveAmountSuggestion();
+    }
+
+    scheduleAmountFieldBlur(type) {
+        setTimeout(() => {
+            if (this.focusedAmountField !== type) {
+                this.syncAmountSuggestion(type);
+                return;
+            }
+
+            const amountInput = document.getElementById(`${type}Amount`);
+            const suggestionButton = this.getAmountSuggestionButton(type);
+            const activeElement = document.activeElement;
+            if (activeElement !== amountInput && activeElement !== suggestionButton) {
+                this.focusedAmountField = null;
+                this.refreshActiveAmountSuggestion();
+            }
+        }, 0);
+    }
+
+    handleAmountSuggestionClick(type) {
+        const suggestionButton = this.getAmountSuggestionButton(type);
+        const amountInput = document.getElementById(`${type}Amount`);
+        const suggestedValue = suggestionButton?.dataset?.value || '';
+
+        if (!amountInput || !suggestedValue) {
+            return;
+        }
+
+        amountInput.value = suggestedValue;
+        amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+        amountInput.focus();
+    }
+
     handleAmountInput(type, event) {
         const amountInput = event?.target || document.getElementById(`${type}Amount`);
         if (!amountInput) {
@@ -164,11 +296,20 @@ export class CreateOrder extends BaseComponent {
         amountInput.setAttribute('inputmode', 'decimal');
 
         if (this.amountInputListeners[type]) {
-            amountInput.removeEventListener('input', this.amountInputListeners[type]);
+            amountInput.removeEventListener('input', this.amountInputListeners[type].input);
+            amountInput.removeEventListener('focus', this.amountInputListeners[type].focus);
+            amountInput.removeEventListener('blur', this.amountInputListeners[type].blur);
         }
 
-        this.amountInputListeners[type] = (event) => this.handleAmountInput(type, event);
-        amountInput.addEventListener('input', this.amountInputListeners[type]);
+        this.amountInputListeners[type] = {
+            input: (event) => this.handleAmountInput(type, event),
+            focus: () => this.setFocusedAmountField(type),
+            blur: () => this.scheduleAmountFieldBlur(type)
+        };
+
+        amountInput.addEventListener('input', this.amountInputListeners[type].input);
+        amountInput.addEventListener('focus', this.amountInputListeners[type].focus);
+        amountInput.addEventListener('blur', this.amountInputListeners[type].blur);
     }
 
     getDefaultTokenSelectorMarkup() {
@@ -189,6 +330,7 @@ export class CreateOrder extends BaseComponent {
     clearSelectedTokens() {
         this.sellToken = null;
         this.buyToken = null;
+        this.focusedAmountField = null;
 
         ['sell', 'buy'].forEach(type => {
             this[`${type}Token`] = null;
@@ -215,6 +357,7 @@ export class CreateOrder extends BaseComponent {
             }
         });
 
+        this.refreshActiveAmountSuggestion();
         this.resetBalanceDisplays();
         this.updateCreateButtonState();
         this.debug('Cleared selected tokens from create order form');
@@ -227,6 +370,7 @@ export class CreateOrder extends BaseComponent {
         this.initialized = false;
         this.initializing = false;
         this.hasLoadedData = false;
+        this.clearTransactionProgressSession();
         if (!preserveAllowedTokens) {
             this.tokens = [];
             this.allowedTokens = [];
@@ -244,9 +388,11 @@ export class CreateOrder extends BaseComponent {
         this.allowedTokensLoadPromise = null;
         this.allowedTokensBalanceLoadPromise = null;
         this.feeLoadPromise = null;
+        this.feeTokenBalanceLoadPromise = null;
         this.pendingFeeConfigRefresh = false;
         this.pendingAllowedTokensRefresh = false;
         this.feeToken = null;
+        this.focusedAmountField = null;
         this.isReadOnlyMode = true;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
@@ -319,7 +465,7 @@ export class CreateOrder extends BaseComponent {
         this.contractStateReadError = false;
         this.isContractDisabled = false;
         this.isSubmitting = false;
-        this.updateCreateButtonState();
+        this.clearTransactionProgressSession();
     }
 
     async initializeContract() {
@@ -554,7 +700,13 @@ export class CreateOrder extends BaseComponent {
         }
 
         this.feeLoadPromise = this.loadOrderCreationFee()
-            .then(() => this.updateFeeDisplay())
+            .then(() => {
+                this.updateFeeDisplay();
+                if (!this.isReadOnlyMode) {
+                    return this.refreshFeeTokenBalanceInBackground({ source: `${source}:fee-config` });
+                }
+                return null;
+            })
             .catch((error) => {
                 this.debug(`Fee refresh failed (${source}):`, error);
             })
@@ -640,6 +792,8 @@ export class CreateOrder extends BaseComponent {
         this.pricingUpdatedHandler = (event) => {
             if (event === 'priceUpdates' || event === 'refreshComplete' || event === 'priceLoadStateChanged') {
                 this.refreshOpenTokenModals();
+                this.updateTokenAmounts('sell');
+                this.updateTokenAmounts('buy');
             }
         };
 
@@ -678,7 +832,12 @@ export class CreateOrder extends BaseComponent {
         }
 
         this.debug(`Refreshing visible token balances (${source})`);
-        return this.refreshAllowedTokenBalancesInBackground();
+        const refreshTasks = [this.refreshAllowedTokenBalancesInBackground()];
+        if (this.feeToken?.address) {
+            refreshTasks.push(this.refreshFeeTokenBalanceInBackground({ source }));
+        }
+
+        return Promise.all(refreshTasks).then(([allowedTokens]) => allowedTokens);
     }
 
     isTokenBalanceLoading(token) {
@@ -736,6 +895,7 @@ export class CreateOrder extends BaseComponent {
                 this.tokens = normalizedAllowed;
                 this.allowedTokens = normalizedAllowed;
                 this.syncSelectedTokensWithAllowedList();
+                this.syncFeeTokenBalanceWithAllowedTokens(normalizedAllowed);
                 this.refreshTokenModals();
                 return normalizedAllowed;
             })
@@ -792,6 +952,99 @@ export class CreateOrder extends BaseComponent {
         });
     }
 
+    formatFeeTokenBalanceValue(balance) {
+        const numericBalance = Number(balance) || 0;
+        return numericBalance.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 4,
+            useGrouping: true
+        });
+    }
+
+    syncFeeTokenBalanceWithAllowedTokens(tokens = this.allowedTokens) {
+        if (!this.feeToken?.address || !Array.isArray(tokens)) {
+            return false;
+        }
+
+        const updatedFeeToken = tokens.find(
+            (token) => token.address?.toLowerCase() === this.feeToken.address.toLowerCase()
+        );
+
+        if (!updatedFeeToken) {
+            return false;
+        }
+
+        this.feeToken = {
+            ...this.feeToken,
+            balance: updatedFeeToken.balance,
+            balanceLoading: this.isTokenBalanceLoading(updatedFeeToken)
+        };
+        this.updateFeeDisplay();
+        return true;
+    }
+
+    refreshFeeTokenBalanceInBackground({ source = 'unknown' } = {}) {
+        const wallet = this.ctx?.getWallet?.();
+        const isWalletConnected = Boolean(wallet?.isWalletConnected?.());
+        if (this.isReadOnlyMode || !isWalletConnected || !this.feeToken?.address) {
+            if (this.feeToken?.balanceLoading) {
+                this.feeToken = {
+                    ...this.feeToken,
+                    balanceLoading: false
+                };
+                this.updateFeeDisplay();
+            }
+            return Promise.resolve(this.feeToken);
+        }
+
+        if (this.syncFeeTokenBalanceWithAllowedTokens()) {
+            return Promise.resolve(this.feeToken);
+        }
+
+        if (this.feeTokenBalanceLoadPromise) {
+            return this.feeTokenBalanceLoadPromise;
+        }
+
+        const requestedTokenAddress = this.feeToken.address.toLowerCase();
+        this.debug(`Refreshing fee token balance (${source})`);
+        this.feeToken = {
+            ...this.feeToken,
+            balanceLoading: true
+        };
+        this.updateFeeDisplay();
+
+        this.feeTokenBalanceLoadPromise = getTokenBalanceInfo(this.feeToken.address)
+            .then((balanceInfo) => {
+                if (!this.feeToken?.address || this.feeToken.address.toLowerCase() !== requestedTokenAddress) {
+                    return this.feeToken;
+                }
+
+                this.feeToken = {
+                    ...this.feeToken,
+                    balance: balanceInfo?.balance || '0',
+                    balanceLoading: false
+                };
+                this.updateFeeDisplay();
+                return this.feeToken;
+            })
+            .catch((error) => {
+                this.debug(`Error refreshing fee token balance (${source}):`, error);
+                if (this.feeToken?.address && this.feeToken.address.toLowerCase() === requestedTokenAddress) {
+                    this.feeToken = {
+                        ...this.feeToken,
+                        balanceLoading: false
+                    };
+                    this.updateFeeDisplay();
+                }
+                return this.feeToken;
+            })
+            .finally(() => {
+                this.feeTokenBalanceLoadPromise = null;
+            });
+
+        return this.feeTokenBalanceLoadPromise;
+    }
+
     async loadOrderCreationFee() {
         try {
             // Check if we have a cached value
@@ -825,19 +1078,17 @@ export class CreateOrder extends BaseComponent {
                     ]);
 
                     // Cache the results
+                    const previousFeeToken = this.feeToken;
                     this.feeToken = {
                         address: feeTokenAddress,
                         amount: feeAmount,
                         symbol: symbol,
-                        decimals: decimals
+                        decimals: decimals,
+                        balance: previousFeeToken?.address?.toLowerCase() === feeTokenAddress.toLowerCase()
+                            ? previousFeeToken.balance
+                            : null,
+                        balanceLoading: !this.isReadOnlyMode
                     };
-
-                    // Update the fee display
-                    const feeDisplay = document.querySelector('.fee-amount');
-                    if (feeDisplay) {
-                        const formattedAmount = ethers.utils.formatUnits(feeAmount, decimals);
-                        feeDisplay.textContent = `${formattedAmount} ${symbol}`;
-                    }
 
                     return;
                 } catch (error) {
@@ -908,6 +1159,7 @@ export class CreateOrder extends BaseComponent {
             if (element) element.disabled = true;
         });
 
+        this.updateFeeDisplay();
         this.updateCreateButtonState();
     }
 
@@ -925,15 +1177,7 @@ export class CreateOrder extends BaseComponent {
             if (element) element.disabled = false;
         });
 
-        // Reload fee if we have it cached
-        if (this.feeToken) {
-            const feeElement = document.getElementById('orderFee');
-            if (feeElement) {
-                const formattedFee = ethers.utils.formatUnits(this.feeToken.amount, this.feeToken.decimals);
-                feeElement.textContent = `${formattedFee} ${this.feeToken.symbol}`;
-            }
-        }
-
+        this.updateFeeDisplay();
         this.updateCreateButtonState();
     }
 
@@ -1223,14 +1467,58 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
+    clearTransactionProgressSession() {
+        if (this.transactionProgressVisibilityCleanup) {
+            this.transactionProgressVisibilityCleanup();
+            this.transactionProgressVisibilityCleanup = null;
+        }
+
+        this.transactionProgressSession = null;
+        this.updateCreateButtonState();
+    }
+
+    setTransactionProgressSession(session) {
+        if (this.transactionProgressVisibilityCleanup) {
+            this.transactionProgressVisibilityCleanup();
+            this.transactionProgressVisibilityCleanup = null;
+        }
+
+        this.transactionProgressSession = session || null;
+
+        if (!session) {
+            this.updateCreateButtonState();
+            return;
+        }
+
+        this.transactionProgressVisibilityCleanup = session.onVisibilityChange(({ hidden, active }) => {
+            if (this.transactionProgressSession !== session) {
+                return;
+            }
+
+            if (hidden && !active) {
+                this.clearTransactionProgressSession();
+                return;
+            }
+
+            this.updateCreateButtonState();
+        });
+
+        this.updateCreateButtonState();
+    }
+
     async handleCreateOrder(event) {
         event.preventDefault();
-        
-        if (this.isSubmitting) {
-            if (this.transactionProgressSession?.isHidden()) {
+
+        if (this.transactionProgressSession) {
+            if (this.transactionProgressSession.isHidden()) {
                 this.transactionProgressSession.reopen();
-                this.updateCreateButtonState();
             }
+            this.updateCreateButtonState();
+            this.debug('Create order checklist already exists');
+            return;
+        }
+
+        if (this.isSubmitting) {
             this.debug('Already processing a transaction');
             return;
         }
@@ -1418,10 +1706,7 @@ export class CreateOrder extends BaseComponent {
                     { id: 'confirm-order', label: 'Confirm order on-chain', status: 'pending' },
                 ],
             });
-            this.transactionProgressSession = progressToast;
-            progressToast.onVisibilityChange(() => {
-                this.updateCreateButtonState();
-            });
+            this.setTransactionProgressSession(progressToast);
 
             for (const requirement of approvalRequirements) {
                 if (!requirement.needsApproval) {
@@ -1577,7 +1862,6 @@ export class CreateOrder extends BaseComponent {
             handleTransactionError(error, this, 'order creation');
         } finally {
             this.isSubmitting = false;
-            this.transactionProgressSession = null;
             this.updateCreateButtonState();
         }
     }
@@ -1686,19 +1970,31 @@ export class CreateOrder extends BaseComponent {
         ['sell', 'buy'].forEach(type => {
             const currentContainer = document.getElementById(`${type}Container`);
             if (!currentContainer) return;
-            
+
             // Create the unified input container
             const container = document.createElement('div');
             container.className = 'unified-token-input';
-            
-            // Create input wrapper with label
-            const inputWrapper = document.createElement('div');
-            inputWrapper.className = 'token-input-wrapper';
-            
-            // Add the label
+
+            const inputHeader = document.createElement('div');
+            inputHeader.className = 'amount-input-header';
+
             const label = document.createElement('span');
             label.className = 'token-input-label';
             label.textContent = this.getTokenActionLabel(type);
+
+            const suggestionButton = document.createElement('button');
+            suggestionButton.type = 'button';
+            suggestionButton.id = `${type}AmountSuggestion`;
+            suggestionButton.className = 'amount-suggestion is-hidden';
+            suggestionButton.setAttribute('aria-hidden', 'true');
+            suggestionButton.setAttribute('aria-label', `No suggested ${type} amount available`);
+
+            inputHeader.appendChild(label);
+            inputHeader.appendChild(suggestionButton);
+
+            // Create input wrapper
+            const inputWrapper = document.createElement('div');
+            inputWrapper.className = 'token-input-wrapper';
             
             // Create amount input
             const amountInput = document.createElement('input');
@@ -1708,7 +2004,6 @@ export class CreateOrder extends BaseComponent {
             amountInput.placeholder = '0.0';
             
             // Assemble input wrapper
-            inputWrapper.appendChild(label);
             inputWrapper.appendChild(amountInput);
             // Pre-create USD display to preserve layout; keep hidden until valid
             const usdDisplayStatic = document.createElement('div');
@@ -1771,6 +2066,7 @@ export class CreateOrder extends BaseComponent {
             selectorGroup.appendChild(balanceDisplay);
 
             // Assemble the components
+            container.appendChild(inputHeader);
             container.appendChild(inputWrapper);
             container.appendChild(selectorGroup);
             container.appendChild(tokenInput);
@@ -2032,7 +2328,7 @@ export class CreateOrder extends BaseComponent {
                             <div class="token-balance-usd">${formattedUsdValue}</div>
                         </div>
                         <div class="token-item-actions">
-                            <a href="${getExplorerUrl(token.address)}" 
+                            <a href="${getTokenExplorerUrl(token.address)}" 
                                target="_blank"
                                class="token-explorer-link"
                                onclick="event.stopPropagation();"
@@ -2093,6 +2389,7 @@ export class CreateOrder extends BaseComponent {
             this.expiryTimers.forEach(timerId => clearInterval(timerId));
             this.expiryTimers.clear();
         }
+        this.clearTransactionProgressSession();
         this.clearInfoTooltipInteractions();
         // Remove global click handler for modals if present
         if (this.boundWindowClickHandler) {
@@ -2282,10 +2579,39 @@ export class CreateOrder extends BaseComponent {
             return;
         }
 
-        const feeDisplay = this.container?.querySelector('.fee-amount') || document.querySelector('.fee-amount');
-        if (feeDisplay) {
-            const formattedAmount = ethers.utils.formatUnits(this.feeToken.amount, this.feeToken.decimals);
-            feeDisplay.textContent = `${formattedAmount} ${this.feeToken.symbol}`;
+        const formattedAmount = ethers.utils.formatUnits(this.feeToken.amount, this.feeToken.decimals);
+        const feeAmountValue = this.container?.querySelector('.fee-amount-value') || document.querySelector('.fee-amount-value');
+        if (feeAmountValue) {
+            feeAmountValue.textContent = formattedAmount;
+        }
+
+        const feeTokenSymbol = this.container?.querySelector('.fee-token-symbol-label') || document.querySelector('.fee-token-symbol-label');
+        if (feeTokenSymbol) {
+            feeTokenSymbol.textContent = this.feeToken.symbol;
+        }
+
+        const feeTokenLink = this.container?.querySelector('.fee-token-explorer-link') || document.querySelector('.fee-token-explorer-link');
+        if (feeTokenLink) {
+            feeTokenLink.href = getTokenExplorerUrl(this.feeToken.address);
+            feeTokenLink.setAttribute('aria-label', `View ${this.feeToken.symbol} token on explorer`);
+            feeTokenLink.setAttribute('title', `View ${this.feeToken.symbol} on Explorer`);
+        }
+
+        const feeBalance = this.container?.querySelector('.fee-balance') || document.querySelector('.fee-balance');
+        const feeBalanceValue = this.container?.querySelector('.fee-balance-value') || document.querySelector('.fee-balance-value');
+        const wallet = this.ctx?.getWallet?.();
+        const isWalletConnected = Boolean(wallet?.isWalletConnected?.());
+        if (feeBalance && feeBalanceValue) {
+            if (!isWalletConnected || this.isReadOnlyMode) {
+                setVisibility(feeBalance, false);
+                feeBalanceValue.textContent = this.formatFeeTokenBalanceValue(0);
+            } else {
+                const balanceText = this.feeToken.balanceLoading
+                    ? 'loading...'
+                    : this.formatFeeTokenBalanceValue(this.feeToken.balance);
+                feeBalanceValue.textContent = balanceText;
+                setVisibility(feeBalance, true);
+            }
         }
 
         const feeTokenSymbols = this.container?.querySelectorAll('.fee-token-symbol') || [];
@@ -2315,6 +2641,10 @@ export class CreateOrder extends BaseComponent {
                 }
                 // Hide balance display when no token is selected
                 this.hideBalanceDisplay(type);
+                if (this.focusedAmountField === type) {
+                    this.focusedAmountField = null;
+                }
+                this.refreshActiveAmountSuggestion();
                 this.updateCreateButtonState();
                 return;
             }
@@ -2540,12 +2870,22 @@ export class CreateOrder extends BaseComponent {
                 hasTokens &&
                 hasAmounts;
 
+            const hasVisibleProgress = this.transactionProgressSession?.isVisible();
             const canViewProgress = this.isSubmitting && this.transactionProgressSession?.isHidden();
 
             if (canViewProgress) {
                 createButton.disabled = false;
                 createButton.classList.remove('disabled');
                 createButton.textContent = 'View Progress';
+                return;
+            }
+
+            if (hasVisibleProgress) {
+                createButton.disabled = true;
+                createButton.classList.add('disabled');
+                createButton.textContent = this.transactionProgressSession?.isActive()
+                    ? 'Creating Order...'
+                    : 'Checklist Open';
                 return;
             }
 
@@ -2607,24 +2947,21 @@ export class CreateOrder extends BaseComponent {
                 if (usdDisplay) {
                     setVisibility(usdDisplay, false);
                 }
+                this.refreshActiveAmountSuggestion();
                 this.updateCreateButtonState();
                 return;
             }
             
-            if (token && amount) {
-                const usdValue = token.usdPrice !== undefined ? numericAmount * token.usdPrice : 0;
-                // Ensure USD display element exists (in template) and update it
-                if (!usdDisplay) {
-                    usdDisplay = document.getElementById(`${type}AmountUSD`);
-                }
-                if (usdDisplay) {
-                    usdDisplay.textContent = token.usdPrice === undefined
-                        ? 'N/A'
-                        : (usdValue > 0 && usdValue < 0.01 ? '<$0.01' : `$${usdValue.toFixed(2)}`);
-                    setVisibility(usdDisplay, true);
-                }
+            const usdPrice = this.getLiveTokenUsdPrice(type);
+            const usdValue = Number.isFinite(usdPrice) ? numericAmount * usdPrice : 0;
+            if (usdDisplay) {
+                usdDisplay.textContent = !Number.isFinite(usdPrice)
+                    ? 'N/A'
+                    : (usdValue > 0 && usdValue < 0.01 ? '<$0.01' : `$${usdValue.toFixed(2)}`);
+                setVisibility(usdDisplay, true);
             }
             
+            this.refreshActiveAmountSuggestion();
             this.updateCreateButtonState();
         } catch (error) {
             this.debug('Error updating token amounts:', error);
@@ -2743,8 +3080,44 @@ export class CreateOrder extends BaseComponent {
             }
         });
 
+        this.initializeAmountSuggestionButtons();
         // Initialize balance click handlers for auto-fill functionality
         this.initializeBalanceClickHandlers();
+    }
+
+    initializeAmountSuggestionButtons() {
+        ['sell', 'buy'].forEach(type => {
+            const suggestionButton = this.getAmountSuggestionButton(type);
+            if (!suggestionButton) {
+                return;
+            }
+
+            const newSuggestionButton = suggestionButton.cloneNode(true);
+            suggestionButton.parentNode.replaceChild(newSuggestionButton, suggestionButton);
+
+            const preventBlur = (event) => {
+                event.preventDefault();
+            };
+
+            newSuggestionButton.addEventListener('pointerdown', preventBlur);
+            newSuggestionButton.addEventListener('mousedown', preventBlur);
+            newSuggestionButton.addEventListener('focus', () => this.setFocusedAmountField(type));
+            newSuggestionButton.addEventListener('blur', () => this.scheduleAmountFieldBlur(type));
+            newSuggestionButton.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.handleAmountSuggestionClick(type);
+            });
+            newSuggestionButton.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.handleAmountSuggestionClick(type);
+                }
+            });
+        });
+
+        this.refreshActiveAmountSuggestion();
     }
 
     /**
@@ -2953,8 +3326,19 @@ export class CreateOrder extends BaseComponent {
                                 </span>
                             </span>
                         </label>
-                        <div id="orderCreationFee">
-                            <span class="fee-amount"></span>
+                        <div id="orderCreationFee" class="fee-display">
+                            <span class="fee-amount">
+                                <span class="fee-amount-value"></span>
+                                <span class="fee-token-symbol-label"></span>
+                                <a class="fee-token-explorer-link token-explorer-link" href="#" target="_blank" rel="noopener noreferrer">
+                                    <svg class="token-explorer-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path fill="currentColor" d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
+                                    </svg>
+                                </a>
+                            </span>
+                            <span class="fee-balance is-hidden" aria-hidden="true">
+                                Balance: <span class="fee-balance-value">0.00</span>
+                            </span>
                         </div>
                     </div>
 

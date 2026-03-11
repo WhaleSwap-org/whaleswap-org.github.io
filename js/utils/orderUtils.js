@@ -53,19 +53,60 @@ export function formatTimeDiff(seconds) {
 }
 
 /**
+ * Resolve the blockchain explorer base URL.
+ * @param {string|number|null} chainId - Optional chain id override
+ * @returns {string|null} Explorer base URL
+ */
+function getExplorerBaseUrl(chainId = null) {
+    try {
+        const networkConfig = chainId !== null && chainId !== undefined
+            ? getNetworkConfig(chainId)
+            : getNetworkConfig();
+
+        if (!networkConfig?.explorer) {
+            console.warn('[orderUtils] Explorer URL not configured');
+            return null;
+        }
+
+        return networkConfig.explorer;
+    } catch (error) {
+        console.warn('[orderUtils] Failed to resolve explorer network', error);
+        return null;
+    }
+}
+
+/**
  * Get the blockchain explorer URL for an address
  * @param {string} address - Ethereum address
+ * @param {string|number|null} chainId - Optional chain id override
  * @returns {string} Explorer URL or '#' if not configured
  */
-export function getExplorerUrl(address) {
+export function getExplorerUrl(address, chainId = null) {
     if (!address) return '#';
-    
-    const networkConfig = getNetworkConfig();
-    if (!networkConfig?.explorer) {
-        console.warn('[orderUtils] Explorer URL not configured');
+
+    const explorerBaseUrl = getExplorerBaseUrl(chainId);
+    if (!explorerBaseUrl) {
         return '#';
     }
-    return `${networkConfig.explorer}/address/${ethers.utils.getAddress(address)}`;
+
+    return `${explorerBaseUrl}/address/${ethers.utils.getAddress(address)}`;
+}
+
+/**
+ * Get the blockchain explorer URL for a token contract.
+ * @param {string} tokenAddress - Token contract address
+ * @param {string|number|null} chainId - Optional chain id override
+ * @returns {string} Explorer URL or '#' if not configured
+ */
+export function getTokenExplorerUrl(tokenAddress, chainId = null) {
+    if (!tokenAddress) return '#';
+
+    const explorerBaseUrl = getExplorerBaseUrl(chainId);
+    if (!explorerBaseUrl) {
+        return '#';
+    }
+
+    return `${explorerBaseUrl}/token/${ethers.utils.getAddress(tokenAddress)}`;
 }
 
 /**
@@ -77,22 +118,12 @@ export function getExplorerUrl(address) {
 export function getTransactionExplorerUrl(txHash, chainId = null) {
     if (!txHash) return '#';
 
-    let networkConfig = null;
-    try {
-        networkConfig = chainId !== null && chainId !== undefined
-            ? getNetworkConfig(chainId)
-            : getNetworkConfig();
-    } catch (error) {
-        console.warn('[orderUtils] Failed to resolve transaction explorer network', error);
+    const explorerBaseUrl = getExplorerBaseUrl(chainId);
+    if (!explorerBaseUrl) {
         return '#';
     }
 
-    if (!networkConfig?.explorer) {
-        console.warn('[orderUtils] Transaction explorer URL not configured');
-        return '#';
-    }
-
-    return `${networkConfig.explorer}/tx/${txHash}`;
+    return `${explorerBaseUrl}/tx/${txHash}`;
 }
 
 /**

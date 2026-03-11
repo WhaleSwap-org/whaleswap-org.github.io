@@ -31,46 +31,90 @@ export class OrdersComponentHelper {
         this.warn = logger.warn.bind(logger);
         this.fillProgressSession = null;
         this.fillProgressOrderId = null;
+        this.fillProgressVisibilityCleanup = null;
     }
 
-    isFillProgressActive(orderId) {
-        return this.fillProgressOrderId === Number(orderId) && this.fillProgressSession?.isActive();
+    hasTrackedFillProgress(orderId) {
+        return this.fillProgressOrderId === Number(orderId) && Boolean(this.fillProgressSession);
     }
 
-    isFillProgressHidden(orderId) {
-        return this.fillProgressOrderId === Number(orderId) && this.fillProgressSession?.isHidden();
+    getFillProgressState(orderId) {
+        const normalizedOrderId = Number(orderId);
+        const hasAnyProgress = Boolean(this.fillProgressSession);
+        const hasTrackedProgress = hasAnyProgress && this.fillProgressOrderId === normalizedOrderId;
+
+        return {
+            normalizedOrderId,
+            hasAnyProgress,
+            hasTrackedProgress,
+            isActive: hasTrackedProgress && this.fillProgressSession.isActive(),
+            isHidden: hasTrackedProgress && this.fillProgressSession.isHidden(),
+            isVisible: hasTrackedProgress && this.fillProgressSession.isVisible(),
+        };
     }
 
     configureFillButton(button, orderId) {
         if (!button) return;
 
-        const isHiddenProgress = this.isFillProgressHidden(orderId);
-        const isActiveProgress = this.isFillProgressActive(orderId);
+        const progressState = this.getFillProgressState(orderId);
 
-        button.textContent = isHiddenProgress
+        button.textContent = progressState.isHidden && progressState.isActive
             ? 'View Progress'
-            : isActiveProgress
-                ? 'Filling...'
+            : progressState.isVisible
+                ? progressState.isActive
+                    ? 'Filling...'
+                    : 'Checklist Open'
                 : 'Fill';
-        button.disabled = isActiveProgress && !isHiddenProgress;
+        button.disabled = !progressState.isHidden
+            && (progressState.isVisible || (progressState.hasAnyProgress && !progressState.hasTrackedProgress));
         button.classList.toggle('disabled', button.disabled);
-        button.addEventListener('click', () => this.fillOrder(orderId));
+        button.onclick = () => this.fillOrder(progressState.normalizedOrderId);
     }
 
     syncFillProgressButtons() {
-        if (this.fillProgressOrderId === null || this.fillProgressOrderId === undefined) {
+        const buttons = this.component.container.querySelectorAll('.fill-button[data-order-id]');
+        buttons.forEach(button => this.configureFillButton(button, button.dataset.orderId));
+    }
+
+    setFillProgressSession(session, orderId) {
+        if (this.fillProgressVisibilityCleanup) {
+            this.fillProgressVisibilityCleanup();
+            this.fillProgressVisibilityCleanup = null;
+        }
+
+        this.fillProgressSession = session || null;
+        this.fillProgressOrderId = session ? Number(orderId) : null;
+
+        if (!session) {
+            this.syncFillProgressButtons();
             return;
         }
 
-        const buttons = this.component.container.querySelectorAll(
-            `button[data-order-id="${this.fillProgressOrderId}"]`
-        );
-        buttons.forEach(button => this.configureFillButton(button, this.fillProgressOrderId));
+        this.fillProgressVisibilityCleanup = session.onVisibilityChange(({ hidden, active }) => {
+            if (this.fillProgressSession !== session || this.fillProgressOrderId !== Number(orderId)) {
+                return;
+            }
+
+            if (hidden && !active) {
+                this.clearFillProgressSession();
+                return;
+            }
+
+            this.syncFillProgressButtons();
+        });
+
+        this.syncFillProgressButtons();
     }
 
     clearFillProgressSession() {
+        if (this.fillProgressVisibilityCleanup) {
+            this.fillProgressVisibilityCleanup();
+            this.fillProgressVisibilityCleanup = null;
+        }
+
         this.fillProgressSession = null;
         this.fillProgressOrderId = null;
+        this.syncFillProgressButtons();
     }
 
     /**
@@ -379,18 +423,24 @@ export class OrdersComponentHelper {
      * @returns {Promise<void>}
      */
     async fillOrder(orderId) {
+        const normalizedOrderId = Number(orderId);
+
+        if (this.fillProgressSession) {
+            if (this.fillProgressOrderId === normalizedOrderId && this.fillProgressSession.isHidden()) {
+                this.fillProgressSession.reopen();
+            }
+            this.syncFillProgressButtons();
+            this.debug('Fill checklist already exists, ignoring duplicate request');
+            return;
+        }
+
         // Prevent duplicate submissions while a fill tx is already in flight.
         if (this.component.isProcessingFill) {
-            if (this.fillProgressSession?.isHidden()) {
-                this.fillProgressSession.reopen();
-                this.syncFillProgressButtons();
-            }
             this.debug('Fill already in progress, ignoring duplicate request');
             return;
         }
 
         // Capture button state so we can restore the exact label afterward.
-        const normalizedOrderId = Number(orderId);
         const button = this.component.container.querySelector(
             `button[data-order-id="${normalizedOrderId}"]`
         );
@@ -537,12 +587,7 @@ export class OrdersComponentHelper {
                     { id: 'confirm-fill-order', label: 'Confirm fill on-chain', status: 'pending' },
                 ],
             });
-            this.fillProgressSession = progressToast;
-            this.fillProgressOrderId = normalizedOrderId;
-            progressToast.onVisibilityChange(() => {
-                this.syncFillProgressButtons();
-            });
-            this.syncFillProgressButtons();
+            this.setFillProgressSession(progressToast, normalizedOrderId);
 
             if (approvalNeeded) {
                 try {
@@ -643,7 +688,6 @@ export class OrdersComponentHelper {
             }
 
             order.status = 'Filled';
-            this.clearFillProgressSession();
             await this.component.refreshOrdersView();
 
             progressToast.updateStep('confirm-fill-order', {
@@ -665,13 +709,13 @@ export class OrdersComponentHelper {
             }
         } finally {
             // Always restore UI state and clear the in-flight guard.
-            if (button) {
+            if (button && !progressToast) {
                 button.disabled = false;
                 button.textContent = originalButtonLabel;
                 button.classList.remove('disabled');
             }
             this.component.isProcessingFill = false;
-            this.clearFillProgressSession();
+            this.syncFillProgressButtons();
         }
     }
 

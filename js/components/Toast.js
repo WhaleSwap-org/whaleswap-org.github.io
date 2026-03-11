@@ -2,6 +2,7 @@ import { createLogger } from '../services/LogService.js';
 import { getTransactionExplorerUrl } from '../utils/orderUtils.js';
 
 const TOAST_TYPES = ['error', 'success', 'warning', 'info'];
+const OUTSIDE_POINTER_LISTENER_OPTIONS = { capture: true };
 
 function shortenHash(hash) {
     if (!hash || hash.length < 12) return hash || '';
@@ -25,6 +26,7 @@ export class Toast {
         this.isProcessing = false;
         this.maxToasts = 3;
         this.container = null;
+        this.boundDocumentPointerDownHandler = this.handleDocumentPointerDown.bind(this);
 
         this.debug('Toast component initialized');
         this.initialize();
@@ -32,6 +34,7 @@ export class Toast {
 
     initialize() {
         this.createToastContainer();
+        document.addEventListener('pointerdown', this.boundDocumentPointerDownHandler, OUTSIDE_POINTER_LISTENER_OPTIONS);
         this.debug('Toast container ready');
     }
 
@@ -43,6 +46,35 @@ export class Toast {
         this.container = toastContainer;
 
         this.debug('Toast container created with debug styling');
+    }
+
+    getMountedToasts() {
+        return Array.from(this.container?.children || []).filter(toast =>
+            toast.classList.contains('toast') && !toast.classList.contains('toast-hide')
+        );
+    }
+
+    isPrimaryPointerInteraction(event) {
+        return Boolean(event)
+            && (typeof event.button !== 'number' || event.button === 0)
+            && (typeof event.isPrimary !== 'boolean' || event.isPrimary);
+    }
+
+    isToastTarget(target) {
+        const element = target instanceof Element ? target : target?.parentElement;
+        const toast = element?.closest?.('.toast');
+        return Boolean(toast && this.container?.contains(toast));
+    }
+
+    handleDocumentPointerDown(event) {
+        const mountedToasts = this.getMountedToasts();
+        if (!mountedToasts.length || !this.isPrimaryPointerInteraction(event) || this.isToastTarget(event.target)) {
+            return;
+        }
+
+        mountedToasts.forEach(toast => {
+            this.removeToast(toast);
+        });
     }
 
     showToast(message, type = 'info', duration = 5000, persistent = false) {
@@ -407,7 +439,7 @@ export class Toast {
     }
 
     processQueue() {
-        if (this.toastQueue.length === 0) {
+        if (!this.container || this.toastQueue.length === 0) {
             this.isProcessing = false;
             return;
         }
@@ -449,16 +481,23 @@ export class Toast {
         }, 100);
     }
 
-    removeToast(toast) {
-        if (toast.dataset.timeoutId) {
-            clearTimeout(parseInt(toast.dataset.timeoutId, 10));
-            delete toast.dataset.timeoutId;
-        }
+    clearToastTimeout(toast) {
+        if (!toast?.dataset?.timeoutId) return;
 
-        if (!toast._closeHandled) {
-            toast._closeHandled = true;
-            toast._onClose?.();
-        }
+        clearTimeout(parseInt(toast.dataset.timeoutId, 10));
+        delete toast.dataset.timeoutId;
+    }
+
+    handleToastClose(toast) {
+        if (toast?._closeHandled) return;
+
+        toast._closeHandled = true;
+        toast._onClose?.();
+    }
+
+    removeToast(toast) {
+        this.clearToastTimeout(toast);
+        this.handleToastClose(toast);
 
         toast.classList.add('toast-hide');
 
@@ -471,14 +510,10 @@ export class Toast {
 
     forceRemoveToast(toast) {
         if (!toast) return;
-        if (toast.dataset?.timeoutId) {
-            clearTimeout(parseInt(toast.dataset.timeoutId, 10));
-            delete toast.dataset.timeoutId;
-        }
-        if (!toast._closeHandled) {
-            toast._closeHandled = true;
-            toast._onClose?.();
-        }
+
+        this.clearToastTimeout(toast);
+        this.handleToastClose(toast);
+
         if (toast.parentNode) {
             toast.parentNode.removeChild(toast);
         }
@@ -493,6 +528,27 @@ export class Toast {
         }
 
         this.isProcessing = false;
+    }
+
+    destroy() {
+        document.removeEventListener('pointerdown', this.boundDocumentPointerDownHandler, OUTSIDE_POINTER_LISTENER_OPTIONS);
+
+        this.toastQueue = [];
+        this.isProcessing = false;
+
+        if (this.container) {
+            Array.from(this.container.children).forEach(toast => this.clearToastTimeout(toast));
+
+            if (this.container.parentNode) {
+                this.container.parentNode.removeChild(this.container);
+            }
+        }
+
+        this.container = null;
+
+        if (globalToast === this) {
+            globalToast = null;
+        }
     }
 
     showError(message, duration = 5000) {

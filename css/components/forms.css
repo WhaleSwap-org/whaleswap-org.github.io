@@ -520,9 +520,24 @@
   gap: 4px;
 }
 
+.fee-display {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
 .fee-amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 16px;
   font-weight: 500;
+}
+
+.fee-balance {
+  font-size: 14px;
+  color: var(--text-secondary, #6b7280);
 }
 
 .fee-gas {
@@ -598,15 +613,6 @@
 .token-list-empty {
   color: #666;
   font-style: italic;
-}
-
-.token-explorer-link {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 4px;
-  color: var(--text-secondary);
-  opacity: 0.7;
-  transition: opacity 0.2s;
 }
 
 .token-explorer-link:hover {
@@ -941,6 +947,7 @@
 
 .unified-token-input {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   background: var(--bg-tertiary);
   border-radius: 12px;
@@ -958,10 +965,58 @@
   gap: 8px;
 }
 
+.amount-input-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.amount-input-header .token-input-label {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+}
+
 .token-input-label {
   font-size: 14px;
   color: #666;
-  padding-left: 12px;
+  padding-left: 0;
+}
+
+.amount-suggestion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+  max-width: min(100%, 280px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.amount-suggestion:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.amount-suggestion:focus-visible {
+  outline: 2px solid #4b6bfb;
+  outline-offset: 2px;
 }
 
 .token-amount-input {
@@ -2283,7 +2338,11 @@
 #create-order .token-amount-input {
   font-size: clamp(22px, 2vw, 28px);
   line-height: 1.08;
-  padding-left: 10px; 
+  padding-left: 0;
+}
+
+#create-order .amount-usd {
+  padding-left: 0;
 }
 
 #create-order .token-selector-group {

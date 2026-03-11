@@ -384,13 +384,14 @@ export class TakerOrders extends BaseComponent {
     updateActionColumn(actionCell, order, wallet) {
         const currentAccount = wallet?.getAccount()?.toLowerCase();
         const ws = this.ctx.getWebSocket();
+        const canFillOrder = ws.canFillOrder(order, currentAccount);
 
         // For taker orders, user is the taker - show fill button if they can fill
-        if (this.helper.isFillProgressActive(order.id)) {
+        if (this.helper.hasTrackedFillProgress(order.id) && canFillOrder) {
             actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
             const fillButton = actionCell.querySelector('.fill-button');
             this.helper.configureFillButton(fillButton, order.id);
-        } else if (ws.canFillOrder(order, currentAccount)) {
+        } else if (canFillOrder) {
             if (!actionCell.querySelector('.fill-button')) {
                 actionCell.innerHTML = `<button class="fill-button" data-order-id="${order.id}"></button>`;
                 const fillButton = actionCell.querySelector('.fill-button');

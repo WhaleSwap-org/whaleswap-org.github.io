@@ -28,6 +28,7 @@
   --input-border: rgba(148, 163, 184, 0.38);
   --hover-bg: rgba(255, 255, 255, 0.78);
   --bg-hover: rgba(255, 255, 255, 0.78);
+  --loading-overlay-spinner-bg: rgba(255, 255, 255, 0.28);
 
   /* Card specific variables */
   --card-bg: rgba(255, 255, 255, 0.55);
@@ -88,6 +89,7 @@
   --input-border: rgba(148, 163, 184, 0.3);
   --hover-bg: rgba(53, 63, 82, 0.65);
   --bg-hover: rgba(53, 63, 82, 0.65);
+  --loading-overlay-spinner-bg: rgba(17, 24, 39, 0.3);
   --card-bg: rgba(20, 26, 37, 0.56);
   --card-shadow: 0 16px 36px rgba(0, 0, 0, 0.38);
   --card-border: 1px solid rgba(148, 163, 184, 0.18);
@@ -416,6 +418,28 @@ label {
   overflow: hidden;
 }
 
+.loading-overlay--global .loading-indicator--spinner {
+  display: none;
+}
+
+.loading-overlay--global.loading-overlay--spinner {
+  background: var(--loading-overlay-spinner-bg);
+  opacity: 1;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  gap: 12px;
+}
+
+.loading-overlay--global.loading-overlay--spinner .loading-indicator--spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-overlay--global.loading-overlay--spinner .loading-skeleton {
+  display: none;
+}
+
 .loading-spinner {
   width: 40px;
   height: 40px;
@@ -687,6 +711,16 @@ label {
   z-index: 2;
   text-align: center;
   white-space: nowrap;
+}
+
+.loading-overlay--global.loading-overlay--spinner .loading-text {
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  margin-top: 0;
+  max-width: min(320px, 88vw);
+  white-space: normal;
 }
 
 /* Remove any other loading/spinner styles that might exist */

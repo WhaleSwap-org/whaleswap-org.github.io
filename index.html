@@ -45,6 +45,33 @@
         }
       }
     </script>
+    <script>
+      (function () {
+        var BOOTSTRAP_LOADER_STATE_KEY = 'whaleswapBootstrapLoader';
+        var loaderState = null;
+
+        try {
+          var historyState = window.history && window.history.state ? window.history.state : {};
+          loaderState = historyState && historyState[BOOTSTRAP_LOADER_STATE_KEY]
+            ? historyState[BOOTSTRAP_LOADER_STATE_KEY]
+            : null;
+
+          if (loaderState && window.history && typeof window.history.replaceState === 'function') {
+            var nextHistoryState = Object.assign({}, historyState);
+            delete nextHistoryState[BOOTSTRAP_LOADER_STATE_KEY];
+            window.history.replaceState(nextHistoryState, '', window.location.href);
+          }
+        } catch (error) {
+          loaderState = null;
+        }
+
+        document.documentElement.dataset.bootstrapLoaderMode = loaderState && loaderState.mode === 'spinner'
+          ? 'spinner'
+          : 'skeleton';
+        window.__bootstrapLoaderState = loaderState;
+        window.__bootstrapLoaderTimeout = null;
+      })();
+    </script>
     <!-- Bootstrap loader styles (inline so loader appears immediately, even on slow networks) -->
     <style>
       #app-bootstrap-loader {
@@ -62,12 +89,44 @@
         text-align: center;
       }
 
+      #app-bootstrap-loader .loading-indicator--spinner {
+        display: none;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #app-bootstrap-loader .loading-spinner {
+        width: 44px;
+        height: 44px;
+        border: 4px solid #d4dbea;
+        border-top-color: #4b6bfb;
+        border-radius: 50%;
+        animation: bootstrap-spin 1s linear infinite;
+      }
+
+      html[data-bootstrap-loader-mode='spinner'] #app-bootstrap-loader .loading-indicator--spinner,
+      #app-bootstrap-loader.loading-overlay--spinner .loading-indicator--spinner {
+        display: flex;
+      }
+
+      html[data-bootstrap-loader-mode='spinner'] #app-bootstrap-loader,
+      #app-bootstrap-loader.loading-overlay--spinner {
+        background: rgba(248, 249, 250, 0.28);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
+
       #app-bootstrap-loader .loading-skeleton--app {
         width: min(1320px, calc(100vw - 40px));
         display: flex;
         flex-direction: column;
         gap: 18px;
         margin-bottom: 12px;
+      }
+
+      html[data-bootstrap-loader-mode='spinner'] #app-bootstrap-loader .loading-skeleton--app,
+      #app-bootstrap-loader.loading-overlay--spinner .loading-skeleton--app {
+        display: none;
       }
 
       #app-bootstrap-loader .skeleton-block {
@@ -233,6 +292,17 @@
         z-index: 2;
       }
 
+      html[data-bootstrap-loader-mode='spinner'] #app-bootstrap-loader .loading-text,
+      #app-bootstrap-loader.loading-overlay--spinner .loading-text {
+        position: static;
+        top: auto;
+        left: auto;
+        transform: none;
+        margin-top: 12px;
+        max-width: min(320px, 88vw);
+        white-space: normal;
+      }
+
       #app-bootstrap-loader .loading-hint {
         position: absolute;
         top: calc(50% + 20px);
@@ -241,6 +311,17 @@
         font-size: 12px;
         color: #5c6474;
         width: min(540px, 92vw);
+      }
+
+      html[data-bootstrap-loader-mode='spinner'] #app-bootstrap-loader .loading-hint,
+      html[data-bootstrap-loader-mode='spinner'] #app-bootstrap-loader .loading-retry,
+      #app-bootstrap-loader.loading-overlay--spinner .loading-hint,
+      #app-bootstrap-loader.loading-overlay--spinner .loading-retry {
+        position: static;
+        top: auto;
+        left: auto;
+        transform: none;
+        margin-top: 12px;
       }
 
       #app-bootstrap-loader .loading-retry {
@@ -271,6 +352,15 @@
         }
         100% {
           background-position: -200% 0;
+        }
+      }
+
+      @keyframes bootstrap-spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
         }
       }
 
@@ -350,7 +440,7 @@
     <script>
       (function () {
         var SLOW_BOOT_THRESHOLD_MS = 12000;
-        window.__bootstrapLoaderTimeout = null;
+        var loaderState = window.__bootstrapLoaderState || null;
 
         function markSlowBoot() {
           var loader = document.getElementById('app-bootstrap-loader');
@@ -374,6 +464,17 @@
         }
 
         window.addEventListener('DOMContentLoaded', function () {
+          var loader = document.getElementById('app-bootstrap-loader');
+          var loaderMessage = loaderState && typeof loaderState.message === 'string'
+            ? loaderState.message.trim()
+            : '';
+          if (loader && loaderMessage) {
+            var text = loader.querySelector('.loading-text');
+            if (text) {
+              text.textContent = loaderMessage;
+            }
+          }
+
           var retryButton = document.querySelector('[data-loader-retry]');
           if (retryButton) {
             retryButton.addEventListener('click', function () {
@@ -396,6 +497,9 @@
       aria-live="polite"
       aria-label="Application loading"
     >
+      <div class="loading-indicator loading-indicator--spinner" aria-hidden="true">
+        <div class="loading-spinner"></div>
+      </div>
       <div class="loading-skeleton loading-skeleton--app" aria-hidden="true">
         <div class="skeleton-app-header">
           <div class="skeleton-app-brand">
@@ -449,7 +553,7 @@
           <div class="logo-container">
             <img src="img/whaleSwap.png" alt="WhaleSwap Logo" class="logo-image" />
             <h1>WhaleSwap</h1>
-            <span class="version">v1.0.60</span>
+            <span class="version">v1.0.61</span>
           </div>
         </div>
         <!-- Theme toggle and wallet connection controls -->

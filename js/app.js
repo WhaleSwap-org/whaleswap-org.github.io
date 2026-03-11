@@ -34,6 +34,7 @@ import { hasAnyClaimables } from './utils/claims.js';
 import { isUserRejection } from './utils/ui.js';
 import { escapeHtml } from './utils/html.js';
 
+const BOOTSTRAP_LOADER_STATE_KEY = 'whaleswapBootstrapLoader';
 class App {
 	constructor() {
 		this.isInitializing = false;
@@ -650,11 +651,71 @@ class App {
 	getSkeletonLoaderMarkup(message = 'Loading...', variant = 'form') {
 		return `
 			${this.getSkeletonMarkupByVariant(variant)}
-			<div class="loading-text">${message}</div>
+			<div class="loading-text">${escapeHtml(message)}</div>
 		`;
 	}
 
-	showGlobalLoader(message = 'Loading WhaleSwap...') {
+	getGlobalLoaderMarkup(message = 'Loading WhaleSwap...', variant = 'app') {
+		return `
+			<div class="loading-indicator loading-indicator--spinner" aria-hidden="true">
+				<div class="loading-spinner"></div>
+			</div>
+			${this.getSkeletonMarkupByVariant(variant)}
+			<div class="loading-text">${escapeHtml(message)}</div>
+		`;
+	}
+
+	resolveGlobalLoaderMode(mode = null) {
+		if (mode === 'spinner' || mode === 'skeleton') {
+			return mode;
+		}
+		if (this.globalLoader?.dataset?.loaderMode === 'spinner') {
+			return 'spinner';
+		}
+		return document.documentElement?.dataset?.bootstrapLoaderMode === 'spinner'
+			? 'spinner'
+			: 'skeleton';
+	}
+
+	ensureGlobalLoaderMarkup(loader, message = 'Loading WhaleSwap...') {
+		if (!loader) return;
+		if (loader.querySelector('.loading-indicator--spinner') && loader.querySelector('.loading-skeleton')) {
+			return;
+		}
+		loader.innerHTML = this.getGlobalLoaderMarkup(message, 'app');
+	}
+
+	setGlobalLoaderMode(mode = null) {
+		if (!this.globalLoader) return;
+		const resolvedMode = this.resolveGlobalLoaderMode(mode);
+		this.globalLoader.dataset.loaderMode = resolvedMode;
+		this.globalLoader.classList.toggle('loading-overlay--spinner', resolvedMode === 'spinner');
+		if (document.documentElement?.dataset) {
+			document.documentElement.dataset.bootstrapLoaderMode = resolvedMode;
+		}
+	}
+
+	persistBootstrapLoaderState({ mode = 'spinner', message = 'Loading WhaleSwap...' } = {}) {
+		try {
+			const historyState = window.history?.state || {};
+			window.history?.replaceState?.(
+				{
+					...historyState,
+					[BOOTSTRAP_LOADER_STATE_KEY]: {
+						mode: mode === 'spinner' ? 'spinner' : 'skeleton',
+						message: String(message || '')
+					}
+				},
+				'',
+				window.location.href
+			);
+		} catch (error) {
+			this.debug('Failed to persist bootstrap loader state:', error);
+		}
+	}
+
+	showGlobalLoader(message = 'Loading WhaleSwap...', options = {}) {
+		const { mode = null } = options;
 		if (window.__bootstrapLoaderTimeout) {
 			clearTimeout(window.__bootstrapLoaderTimeout);
 			window.__bootstrapLoaderTimeout = null;
@@ -662,6 +723,8 @@ class App {
 
 		if (this.globalLoader?.parentElement) {
 			this.globalLoader.classList.remove('is-slow');
+			this.ensureGlobalLoaderMarkup(this.globalLoader, message);
+			this.setGlobalLoaderMode(mode);
 			const hint = this.globalLoader.querySelector('[data-loader-hint]');
 			const retry = this.globalLoader.querySelector('[data-loader-retry]');
 			if (hint) hint.hidden = true;
@@ -675,6 +738,8 @@ class App {
 		if (existingLoader) {
 			this.globalLoader = existingLoader;
 			this.globalLoader.classList.remove('is-slow');
+			this.ensureGlobalLoaderMarkup(this.globalLoader, message);
+			this.setGlobalLoaderMode(mode);
 			const hint = this.globalLoader.querySelector('[data-loader-hint]');
 			const retry = this.globalLoader.querySelector('[data-loader-retry]');
 			if (hint) hint.hidden = true;
@@ -685,9 +750,10 @@ class App {
 
 		const loader = document.createElement('div');
 		loader.className = 'loading-overlay loading-overlay--global';
-		loader.innerHTML = this.getSkeletonLoaderMarkup(message, 'app');
+		loader.innerHTML = this.getGlobalLoaderMarkup(message, 'app');
 		document.body.appendChild(loader);
 		this.globalLoader = loader;
+		this.setGlobalLoaderMode(mode);
 		return loader;
 	}
 
@@ -708,6 +774,9 @@ class App {
 			this.globalLoader.remove();
 		}
 		this.globalLoader = null;
+		if (document.documentElement?.dataset) {
+			document.documentElement.dataset.bootstrapLoaderMode = 'skeleton';
+		}
 	}
 
 	getSelectedNetwork() {
@@ -968,7 +1037,7 @@ class App {
 				});
 			}
 
-			this.showGlobalLoader(`Switching to ${getNetworkLabel(targetNetwork)}...`);
+			this.showGlobalLoader(`Switching to ${getNetworkLabel(targetNetwork)}...`, { mode: 'spinner' });
 			this.loadingOverlay = this.globalLoader;
 
 			try {
@@ -1083,11 +1152,10 @@ class App {
 		const wallet = this.ctx?.getWallet?.();
 		const isConnected = !!wallet?.isWalletConnected?.() && !!wallet?.getSigner?.();
 		if (!isConnected) {
-			try {
-				window.location.reload();
-			} catch (error) {
-				console.warn('[App] Reload failed after disconnected network selection:', error);
-			}
+			triggerPageReloadWithSwitchFallback({
+				loaderMode: 'spinner',
+				loaderMessage: `Switching to ${getNetworkLabel(network)}...`
+			});
 			return;
 		}
 
@@ -1660,6 +1728,31 @@ class App {
 		);
 	}
 
+	prepareForNetworkReload(options = {}) {
+		const {
+			loaderMode = 'spinner',
+			loaderMessage = 'Switching network...'
+		} = options;
+
+		this.persistBootstrapLoaderState({
+			mode: loaderMode,
+			message: loaderMessage
+		});
+		this.showGlobalLoader(loaderMessage, { mode: loaderMode });
+
+		try {
+			if (this.currentTab !== 'create-order') {
+				return;
+			}
+
+			const createOrderComponent = this.components?.['create-order'];
+			if (typeof createOrderComponent?.persistFormStateForReload === 'function') {
+				createOrderComponent.persistFormStateForReload();
+			}
+		} catch (error) {
+			this.debug('Failed to preserve create order form state before reload:', error);
+		}
+	}
 	showLoader(container = document.body) {
 		const loader = document.createElement('div');
 		loader.className = 'loading-overlay';
@@ -2061,6 +2154,19 @@ function syncAddNetworkButtonVisibility() {
 		: 'Add Network';
 }
 
+function triggerPageReloadWithSwitchFallback(options = {}) {
+	try {
+		window.app?.prepareForNetworkReload?.(options);
+	} catch (error) {
+		console.warn('[App] Failed to preserve state before reload:', error);
+	}
+
+	try {
+		window.location.reload();
+	} catch (error) {
+		console.warn('[App] Reload failed after network switch:', error);
+	}
+}
 function syncNetworkBadgeFromState() {
 	if (!networkBadge) return;
 
