@@ -3,10 +3,10 @@
   border-top: 1px solid var(--border-color, #e0e0e0);
   background: transparent;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .footer-wrapper {
@@ -36,10 +36,11 @@
 }
 
 .legal-help-inline {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .legal-help-inline-item {
@@ -62,74 +63,6 @@
   background: rgba(148, 163, 184, 0.16);
 }
 
-.legal-help-launcher {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color, #e0e0e0);
-  background: var(--bg-secondary, #ffffff);
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  cursor: pointer;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
-  z-index: 60;
-}
-
-.legal-help-launcher:hover {
-  background: var(--bg-hover, #f5f5f5);
-}
-
-[data-theme="dark"] .legal-help-launcher {
-  background: var(--bg-secondary, #1f2933);
-}
-
-.legal-help-dropdown {
-  position: fixed;
-  right: 24px;
-  bottom: 64px;
-  min-width: 220px;
-  background: var(--bg-secondary, #ffffff);
-  border-radius: 16px;
-  border: 1px solid var(--border-color, #e0e0e0);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.24);
-  padding: 10px 0;
-  z-index: 60;
-}
-
-.legal-help-dropdown[hidden] {
-  display: none !important;
-}
-
-.legal-help-header {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  padding: 4px 16px 8px 16px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.legal-help-item {
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 8px 16px;
-  text-align: left;
-  font-size: 14px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.legal-help-item:hover {
-  background: var(--bg-hover, #f5f5f5);
-}
-
 .legal-modal-overlay {
   position: fixed;
   inset: 0;
@@ -137,7 +70,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 80;
+  z-index: 10000;
 }
 
 .legal-modal-overlay[hidden] {
@@ -374,14 +307,7 @@
   }
 
   .legal-help-inline {
-    display: inline-flex;
     width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .legal-help-launcher,
-  .legal-help-dropdown {
-    display: none !important;
   }
 
   .legal-modal {

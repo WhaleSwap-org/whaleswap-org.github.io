@@ -186,7 +186,9 @@ export class WalletManager {
                 return;
             }
 
-            this.provider = new ethers.providers.Web3Provider(injectedProvider);
+            // Use the "any" network so the provider survives chain changes without
+            // throwing "underlying network changed" on the next signer/contract call.
+            this.provider = new ethers.providers.Web3Provider(injectedProvider, 'any');
             
             // Set contract configuration
             const networkCfg = getNetworkConfig();

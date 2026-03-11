@@ -18,8 +18,7 @@ import { escapeHtmlText } from '../utils/html.js';
 import { getExplorerUrl } from '../utils/orderUtils.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 
-const CREATE_ORDER_RELOAD_STATE_KEY = 'whaleswap:create-order:reload-state:v1';
-const CREATE_ORDER_RELOAD_STATE_MAX_AGE_MS = 5 * 60 * 1000;
+const TAKER_ADDRESS_MAX_LENGTH = 42;
 
 export class CreateOrder extends BaseComponent {
     constructor() {
@@ -46,6 +45,7 @@ export class CreateOrder extends BaseComponent {
         this.pendingAllowedTokensRefresh = false;
         this.sellToken = null;
         this.buyToken = null;
+        this.isReadOnlyMode = true;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
         this.transactionProgressSession = null;
@@ -75,6 +75,100 @@ export class CreateOrder extends BaseComponent {
             clearTimeout(timeout);
             timeout = setTimeout(later, wait);
         };
+    }
+
+    sanitizeAmountInputValue(value) {
+        if (typeof value !== 'string' || value.length === 0) {
+            return '';
+        }
+
+        const digitsAndDecimalOnly = value.replace(/[^\d.]/g, '');
+        const firstDecimalIndex = digitsAndDecimalOnly.indexOf('.');
+
+        if (firstDecimalIndex === -1) {
+            return digitsAndDecimalOnly;
+        }
+
+        return digitsAndDecimalOnly.slice(0, firstDecimalIndex + 1)
+            + digitsAndDecimalOnly.slice(firstDecimalIndex + 1).replace(/\./g, '');
+    }
+
+    getAmountInputDecimals(type) {
+        const tokenDecimals = this[`${type}Token`]?.decimals;
+        return Number.isInteger(tokenDecimals) && tokenDecimals >= 0 ? tokenDecimals : null;
+    }
+
+    normalizeAmountInputValue(type, value) {
+        const sanitizedValue = this.sanitizeAmountInputValue(value);
+        const maxDecimals = this.getAmountInputDecimals(type);
+
+        if (maxDecimals === null || !sanitizedValue.includes('.')) {
+            return sanitizedValue;
+        }
+
+        const [whole, fraction = ''] = sanitizedValue.split('.');
+
+        if (maxDecimals === 0) {
+            return whole;
+        }
+
+        return `${whole}.${fraction.slice(0, maxDecimals)}`;
+    }
+
+    isValidPositiveAmount(value) {
+        if (typeof value !== 'string') {
+            return false;
+        }
+
+        const trimmedValue = value.trim();
+        if (!trimmedValue || trimmedValue === '.') {
+            return false;
+        }
+
+        if (!/^(?:\d+\.?\d*|\.\d+)$/.test(trimmedValue)) {
+            return false;
+        }
+
+        return Number(trimmedValue) > 0;
+    }
+
+    handleAmountInput(type, event) {
+        const amountInput = event?.target || document.getElementById(`${type}Amount`);
+        if (!amountInput) {
+            return;
+        }
+
+        const rawValue = amountInput.value ?? '';
+        const selectionStart = typeof amountInput.selectionStart === 'number'
+            ? amountInput.selectionStart
+            : rawValue.length;
+        const sanitizedValue = this.normalizeAmountInputValue(type, rawValue);
+
+        if (sanitizedValue !== rawValue) {
+            const sanitizedBeforeCaret = this.normalizeAmountInputValue(type, rawValue.slice(0, selectionStart));
+            amountInput.value = sanitizedValue;
+
+            if (typeof amountInput.setSelectionRange === 'function') {
+                amountInput.setSelectionRange(sanitizedBeforeCaret.length, sanitizedBeforeCaret.length);
+            }
+        }
+
+        this.updateTokenAmounts(type);
+    }
+
+    bindAmountInput(type, amountInput) {
+        if (!amountInput) {
+            return;
+        }
+
+        amountInput.setAttribute('inputmode', 'decimal');
+
+        if (this.amountInputListeners[type]) {
+            amountInput.removeEventListener('input', this.amountInputListeners[type]);
+        }
+
+        this.amountInputListeners[type] = (event) => this.handleAmountInput(type, event);
+        amountInput.addEventListener('input', this.amountInputListeners[type]);
     }
 
     getDefaultTokenSelectorMarkup() {
@@ -128,13 +222,24 @@ export class CreateOrder extends BaseComponent {
 
     // Method to reset component state for account switching/disconnects
     resetState(options = {}) {
-        const { clearSelections = false } = options;
+        const { clearSelections = false, preserveAllowedTokens = false } = options;
         this.debug('Resetting CreateOrder component state...');
         this.initialized = false;
         this.initializing = false;
         this.hasLoadedData = false;
-        this.tokens = [];
-        this.allowedTokens = [];
+        if (!preserveAllowedTokens) {
+            this.tokens = [];
+            this.allowedTokens = [];
+            this.tokenDisplaySymbolMap = new Map();
+        } else {
+            const clearTokenBalances = (token) => ({
+                ...token,
+                balance: null,
+                balanceLoading: true
+            });
+            this.tokens = Array.isArray(this.tokens) ? this.tokens.map(clearTokenBalances) : [];
+            this.allowedTokens = Array.isArray(this.allowedTokens) ? this.allowedTokens.map(clearTokenBalances) : [];
+        }
         this.tokensLoading = false;
         this.allowedTokensLoadPromise = null;
         this.allowedTokensBalanceLoadPromise = null;
@@ -142,103 +247,23 @@ export class CreateOrder extends BaseComponent {
         this.pendingFeeConfigRefresh = false;
         this.pendingAllowedTokensRefresh = false;
         this.feeToken = null;
+        this.isReadOnlyMode = true;
         this.isContractDisabled = false;
         this.contractStateReadError = false;
-        this.tokenDisplaySymbolMap = new Map();
         if (clearSelections) {
             this.clearSelectedTokens();
+            this.clearTakerState();
         }
         // Token cache is centralized in WebSocket - no local cache to clear
         this.resetBalanceDisplays();
     }
 
-    getCreateOrderFormStateForReload() {
-        const sellAmount = document.getElementById('sellAmount')?.value?.trim() || '';
-        const buyAmount = document.getElementById('buyAmount')?.value?.trim() || '';
-        const takerAddress = document.getElementById('takerAddress')?.value?.trim() || '';
-        const takerToggle = this.container?.querySelector('.taker-toggle');
-        const isTakerExpanded = Boolean(takerToggle?.classList.contains('active'));
-        const selectedChainSlug = this.ctx?.getSelectedChainSlug?.() || getNetworkConfig()?.slug || null;
-
-        const snapshot = {
-            savedAt: Date.now(),
-            selectedChainSlug,
-            sellTokenAddress: this.sellToken?.address || '',
-            buyTokenAddress: this.buyToken?.address || '',
-            sellAmount,
-            buyAmount,
-            takerAddress,
-            isTakerExpanded: isTakerExpanded || Boolean(takerAddress),
-        };
-
-        const hasFormState = Boolean(
-            snapshot.sellTokenAddress
-            || snapshot.buyTokenAddress
-            || snapshot.sellAmount
-            || snapshot.buyAmount
-            || snapshot.takerAddress
-        );
-
-        return hasFormState ? snapshot : null;
-    }
-
-    persistFormStateForReload() {
-        try {
-            if (typeof window === 'undefined' || !window.sessionStorage) {
-                return false;
-            }
-
-            const snapshot = this.getCreateOrderFormStateForReload();
-            if (!snapshot) {
-                window.sessionStorage.removeItem(CREATE_ORDER_RELOAD_STATE_KEY);
-                return false;
-            }
-
-            window.sessionStorage.setItem(CREATE_ORDER_RELOAD_STATE_KEY, JSON.stringify(snapshot));
-            this.debug('Persisted create-order form state for reload');
-            return true;
-        } catch (error) {
-            this.debug('Unable to persist create-order form state for reload:', error);
-            return false;
+    clearTakerState() {
+        const takerAddressInput = document.getElementById('takerAddress');
+        if (takerAddressInput) {
+            takerAddressInput.value = '';
         }
-    }
-
-    readPendingReloadFormState() {
-        try {
-            if (typeof window === 'undefined' || !window.sessionStorage) {
-                return null;
-            }
-
-            const raw = window.sessionStorage.getItem(CREATE_ORDER_RELOAD_STATE_KEY);
-            if (!raw) {
-                return null;
-            }
-
-            const parsed = JSON.parse(raw);
-            const savedAt = Number(parsed?.savedAt || 0);
-            if (!savedAt || (Date.now() - savedAt) > CREATE_ORDER_RELOAD_STATE_MAX_AGE_MS) {
-                window.sessionStorage.removeItem(CREATE_ORDER_RELOAD_STATE_KEY);
-                return null;
-            }
-
-            return parsed;
-        } catch (error) {
-            this.debug('Unable to read pending create-order reload state:', error);
-            try {
-                window.sessionStorage?.removeItem?.(CREATE_ORDER_RELOAD_STATE_KEY);
-            } catch (_) {}
-            return null;
-        }
-    }
-
-    clearPendingReloadFormState() {
-        try {
-            if (typeof window !== 'undefined' && window.sessionStorage) {
-                window.sessionStorage.removeItem(CREATE_ORDER_RELOAD_STATE_KEY);
-            }
-        } catch (error) {
-            this.debug('Unable to clear pending create-order reload state:', error);
-        }
+        this.setTakerExpanded(false);
     }
 
     setTakerExpanded(isExpanded) {
@@ -260,92 +285,37 @@ export class CreateOrder extends BaseComponent {
         }
     }
 
-    async applyReloadFormState(snapshot) {
-        if (!snapshot) {
-            return { clearSnapshot: false, restored: false };
+    sanitizeTakerAddressInput(value) {
+        const normalizedValue = String(value ?? '').trim().toLowerCase();
+        if (!normalizedValue) {
+            return '';
         }
 
-        const currentSelectedChainSlug = this.ctx?.getSelectedChainSlug?.() || getNetworkConfig()?.slug || null;
-        if (snapshot.selectedChainSlug && currentSelectedChainSlug && snapshot.selectedChainSlug !== currentSelectedChainSlug) {
-            this.debug('Skipping create-order form restore on different selected chain');
-            return { clearSnapshot: true, restored: false };
+        if (normalizedValue.startsWith('0x')) {
+            return `0x${normalizedValue.slice(2).replace(/[^0-9a-f]/g, '')}`.slice(0, TAKER_ADDRESS_MAX_LENGTH);
         }
 
-        if ((!Array.isArray(this.tokens) || this.tokens.length === 0) && this.allowedTokensLoadPromise) {
-            await this.allowedTokensLoadPromise;
-        } else if (!Array.isArray(this.tokens) || this.tokens.length === 0) {
-            await this.loadContractTokens();
+        if (normalizedValue.startsWith('0')) {
+            return `0${normalizedValue.slice(1).replace(/[^0-9a-f]/g, '')}`.slice(0, TAKER_ADDRESS_MAX_LENGTH);
         }
 
-        if (snapshot.sellTokenAddress && this.allowedTokensBalanceLoadPromise) {
-            await this.allowedTokensBalanceLoadPromise;
-        }
-
-        const sellToken = snapshot.sellTokenAddress
-            ? this.tokens.find(token => token.address?.toLowerCase() === snapshot.sellTokenAddress.toLowerCase())
-            : null;
-        if (sellToken) {
-            await this.handleTokenSelect('sell', sellToken);
-        }
-
-        const buyToken = snapshot.buyTokenAddress
-            ? this.tokens.find(token => token.address?.toLowerCase() === snapshot.buyTokenAddress.toLowerCase())
-            : null;
-        if (buyToken) {
-            await this.handleTokenSelect('buy', buyToken);
-        }
-
-        const sellAmountInput = document.getElementById('sellAmount');
-        if (sellAmountInput && snapshot.sellAmount) {
-            sellAmountInput.value = snapshot.sellAmount;
-            sellAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        const buyAmountInput = document.getElementById('buyAmount');
-        if (buyAmountInput && snapshot.buyAmount) {
-            buyAmountInput.value = snapshot.buyAmount;
-            buyAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        this.setTakerExpanded(Boolean(snapshot.isTakerExpanded));
-        const takerAddressInput = document.getElementById('takerAddress');
-        if (takerAddressInput) {
-            takerAddressInput.value = snapshot.takerAddress || '';
-        }
-
-        const restoredSellToken = !snapshot.sellTokenAddress
-            || this.sellToken?.address?.toLowerCase() === snapshot.sellTokenAddress.toLowerCase();
-        const restoredBuyToken = !snapshot.buyTokenAddress
-            || this.buyToken?.address?.toLowerCase() === snapshot.buyTokenAddress.toLowerCase();
-        const restored = restoredSellToken && restoredBuyToken;
-
-        if (!restored) {
-            this.debug('Create-order form restore deferred until token data is available');
-            return { clearSnapshot: false, restored: false };
-        }
-
-        this.updateCreateButtonState();
-        this.debug('Restored create-order form state after reload');
-        return { clearSnapshot: true, restored: true };
+        return normalizedValue.replace(/[^0-9a-f]/g, '').slice(0, TAKER_ADDRESS_MAX_LENGTH);
     }
 
-    async restorePendingReloadFormState() {
-        const snapshot = this.readPendingReloadFormState();
-        if (!snapshot) {
+    initializeTakerAddressInput() {
+        const takerAddressInput = document.getElementById('takerAddress');
+        if (!takerAddressInput) {
             return;
         }
 
-        try {
-            const result = await this.applyReloadFormState(snapshot);
-            if (result?.clearSnapshot) {
-                this.clearPendingReloadFormState();
-            }
-        } catch (error) {
-            this.debug('Failed to restore create-order form state after reload:', error);
-        }
+        takerAddressInput.oninput = () => {
+            takerAddressInput.value = this.sanitizeTakerAddressInput(takerAddressInput.value);
+        };
+        takerAddressInput.value = this.sanitizeTakerAddressInput(takerAddressInput.value);
     }
 
     applyDisconnectedState() {
+        this.isReadOnlyMode = true;
         this.contractStateReadError = false;
         this.isContractDisabled = false;
         this.isSubmitting = false;
@@ -390,8 +360,18 @@ export class CreateOrder extends BaseComponent {
     }
 
     async initialize(readOnlyMode = true, options = {}) {
-        if (this.initializing || this.initialized) {
-            this.debug('Already initializing or initialized, skipping...');
+        if (this.initializing) {
+            this.debug('Already initializing, skipping...');
+            return;
+        }
+        if (this.initialized) {
+            this.debug('Already initialized, refreshing active state only');
+            if (readOnlyMode) {
+                this.setReadOnlyMode();
+            } else {
+                this.setConnectedMode();
+                void this.requestVisibleBalanceRefresh('tab-active');
+            }
             return;
         }
         this.initializing = true;
@@ -484,6 +464,9 @@ export class CreateOrder extends BaseComponent {
             
             // Load fee/token data in background so initial tab render is not blocked.
             this.startBackgroundDataLoading();
+            if (!readOnlyMode) {
+                void this.requestVisibleBalanceRefresh('tab-active');
+            }
             this.hasLoadedData = true;
             
             // Initialize token selectors
@@ -491,8 +474,7 @@ export class CreateOrder extends BaseComponent {
             
             // Initialize amount input listeners
             this.initializeAmountInputs();
-
-            await this.restorePendingReloadFormState();
+            this.initializeTakerAddressInput();
             
             this.initialized = true;
             this.debug('Initialization complete');
@@ -537,6 +519,12 @@ export class CreateOrder extends BaseComponent {
         this.tokensLoading = true;
         this.setAllowedTokenListsLoadingState('Loading allowed tokens...');
         this.allowedTokensLoadPromise = this.loadContractTokens()
+            .then((tokens) => {
+                if (forceFresh && !this.isReadOnlyMode) {
+                    void this.requestVisibleBalanceRefresh(`${source}:post-force-refresh`);
+                }
+                return tokens;
+            })
             .catch((error) => {
                 this.debug(`Allowed token refresh failed (${source}):`, error);
             })
@@ -658,7 +646,45 @@ export class CreateOrder extends BaseComponent {
         pricing.subscribe(this.pricingUpdatedHandler);
     }
 
+    requestVisibleBalanceRefresh(source = 'unknown') {
+        const wallet = this.ctx?.getWallet?.();
+        const isWalletConnected = Boolean(wallet?.isWalletConnected?.());
+        if (this.isReadOnlyMode || !isWalletConnected) {
+            this.debug(`Skipping visible balance refresh while disconnected/read-only (${source})`);
+            return Promise.resolve(this.allowedTokens);
+        }
+
+        const hasAllowedTokens = Array.isArray(this.allowedTokens) && this.allowedTokens.length > 0;
+        if (!hasAllowedTokens) {
+            if (this.allowedTokensLoadPromise) {
+                this.debug(`Deferring visible balance refresh until allowed tokens load (${source})`);
+                return this.allowedTokensLoadPromise
+                    .then(() => {
+                        const loadedTokensAvailable = Array.isArray(this.allowedTokens) && this.allowedTokens.length > 0;
+                        if (!loadedTokensAvailable) {
+                            this.debug(`No allowed tokens available after load; skipping balance refresh (${source})`);
+                            return this.allowedTokens;
+                        }
+                        return this.requestVisibleBalanceRefresh(`${source}:after-allowed-tokens`);
+                    })
+                    .catch((error) => {
+                        this.debug(`Allowed token load failed before balance refresh (${source}):`, error);
+                        return this.allowedTokens;
+                    });
+            }
+
+            this.debug(`Skipping visible balance refresh with no allowed tokens loaded (${source})`);
+            return Promise.resolve(this.allowedTokens);
+        }
+
+        this.debug(`Refreshing visible token balances (${source})`);
+        return this.refreshAllowedTokenBalancesInBackground();
+    }
+
     isTokenBalanceLoading(token) {
+        if (this.isReadOnlyMode) {
+            return false;
+        }
         return Boolean(token?.balanceLoading);
     }
 
@@ -868,6 +894,7 @@ export class CreateOrder extends BaseComponent {
 
     setReadOnlyMode() {
         this.debug('Setting read-only mode');
+        this.isReadOnlyMode = true;
         
         // Ensure UI is hidden per styles by removing wallet-connected
         const swapSection = document.querySelector('.swap-section');
@@ -885,6 +912,7 @@ export class CreateOrder extends BaseComponent {
     }
 
     setConnectedMode() {
+        this.isReadOnlyMode = false;
         // Make sure the swap section is marked as wallet-connected so CSS reveals inputs
         const swapSection = document.querySelector('.swap-section');
         if (swapSection) {
@@ -1244,7 +1272,11 @@ export class CreateOrder extends BaseComponent {
             this.debug('Current buyToken:', this.buyToken);
             
             // Get form values
-            let taker = document.getElementById('takerAddress')?.value.trim() || '';
+            const takerAddressInput = document.getElementById('takerAddress');
+            let taker = this.sanitizeTakerAddressInput(takerAddressInput?.value?.trim() || '');
+            if (takerAddressInput && takerAddressInput.value !== taker) {
+                takerAddressInput.value = taker;
+            }
             
             // Validate sell token
             if (!this.sellToken || !this.sellToken.address) {
@@ -1309,11 +1341,11 @@ export class CreateOrder extends BaseComponent {
             const buyAmount = document.getElementById('buyAmount')?.value.trim();
 
             // Validate inputs
-            if (!sellAmount || isNaN(sellAmount) || parseFloat(sellAmount) <= 0) {
+            if (!this.isValidPositiveAmount(sellAmount)) {
                 this.showError('Please enter a valid sell amount');
                 return;
             }
-            if (!buyAmount || isNaN(buyAmount) || parseFloat(buyAmount) <= 0) {
+            if (!this.isValidPositiveAmount(buyAmount)) {
                 this.showError('Please enter a valid buy amount');
                 return;
             }
@@ -1600,7 +1632,6 @@ export class CreateOrder extends BaseComponent {
                         this.debug('Error fetching prices for allowed tokens:', error);
                     });
             }
-            this.refreshAllowedTokenBalancesInBackground();
             
             // Debug: Check if tokens have iconUrl
             for (const token of normalizedAllowed) {
@@ -1747,13 +1778,6 @@ export class CreateOrder extends BaseComponent {
             // Clear the container and add the new structure
             currentContainer.innerHTML = '';
             currentContainer.appendChild(container);
-            
-            // Add event listeners
-            tokenSelector.addEventListener('click', () => {
-                const modal = document.getElementById(`${type}TokenModal`);
-                if (modal) modal.classList.add('show');
-            });
-            
             // Create modal if it doesn't exist
             if (!document.getElementById(`${type}TokenModal`)) {
                 const modal = this.createTokenModal(type);
@@ -2402,8 +2426,8 @@ export class CreateOrder extends BaseComponent {
                 // Remove existing listeners
                 const newInput = amountInput.cloneNode(true);
                 amountInput.parentNode.replaceChild(newInput, amountInput);
-                // Add new listener
-                newInput.addEventListener('input', () => this.updateTokenAmounts(type));
+                newInput.value = this.normalizeAmountInputValue(type, newInput.value);
+                this.bindAmountInput(type, newInput);
                 
                 // Focus on the input field after token selection
                 setTimeout(() => {
@@ -2573,26 +2597,30 @@ export class CreateOrder extends BaseComponent {
         try {
             const amount = document.getElementById(`${type}Amount`)?.value || '0';
             const token = this[`${type}Token`];
+            const numericAmount = Number(amount);
             
             // Find USD display element
             let usdDisplay = document.getElementById(`${type}AmountUSD`);
             
             // If no token selected or amount is 0/empty, hide the USD display without removing
-            if (!token || !amount || amount === '0') {
+            if (!token || !amount || !Number.isFinite(numericAmount) || numericAmount <= 0) {
                 if (usdDisplay) {
                     setVisibility(usdDisplay, false);
                 }
+                this.updateCreateButtonState();
                 return;
             }
             
             if (token && amount) {
-                const usdValue = token.usdPrice !== undefined ? Number(amount) * token.usdPrice : 0;
+                const usdValue = token.usdPrice !== undefined ? numericAmount * token.usdPrice : 0;
                 // Ensure USD display element exists (in template) and update it
                 if (!usdDisplay) {
                     usdDisplay = document.getElementById(`${type}AmountUSD`);
                 }
                 if (usdDisplay) {
-                    usdDisplay.textContent = token.usdPrice !== undefined ? `$${usdValue.toFixed(2)}` : 'N/A';
+                    usdDisplay.textContent = token.usdPrice === undefined
+                        ? 'N/A'
+                        : (usdValue > 0 && usdValue < 0.01 ? '<$0.01' : `$${usdValue.toFixed(2)}`);
                     setVisibility(usdDisplay, true);
                 }
             }
@@ -2635,6 +2663,7 @@ export class CreateOrder extends BaseComponent {
                         this.renderAllowedTokenList(type);
                     }
                     modal.style.display = 'block';
+                    void this.requestVisibleBalanceRefresh(`${type}-selector-open`);
 
                     // Keep state fresh without blocking modal open on network issues.
                     void this.refreshContractDisabledState();
@@ -2710,13 +2739,7 @@ export class CreateOrder extends BaseComponent {
         ['sell', 'buy'].forEach(type => {
             const amountInput = document.getElementById(`${type}Amount`);
             if (amountInput) {
-                // Remove prior listener if present
-                if (this.amountInputListeners[type]) {
-                    amountInput.removeEventListener('input', this.amountInputListeners[type]);
-                }
-                // Create and store new listener
-                this.amountInputListeners[type] = () => this.updateTokenAmounts(type);
-                amountInput.addEventListener('input', this.amountInputListeners[type]);
+                this.bindAmountInput(type, amountInput);
             }
         });
 
@@ -2817,7 +2840,7 @@ export class CreateOrder extends BaseComponent {
                     <!-- Sell token input section -->
                     <div id="sellContainer" class="swap-input-container">
                         <div class="amount-input-wrapper">
-                            <input type="number" id="sellAmount" placeholder="0.0" />
+                            <input type="text" id="sellAmount" placeholder="0.0" inputmode="decimal" pattern="^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]*)$" autocomplete="off" spellcheck="false" />
                             <button id="sellAmountMax" class="max-button">MAX</button>
                         </div>
                         <div class="amount-usd is-hidden" id="sellAmountUSD" aria-hidden="true">≈ $0.00</div>
@@ -2844,7 +2867,7 @@ export class CreateOrder extends BaseComponent {
                     <!-- Buy token input section -->
                     <div id="buyContainer" class="swap-input-container">
                         <div class="amount-input-wrapper">
-                            <input type="number" id="buyAmount" placeholder="0.0" />
+                            <input type="text" id="buyAmount" placeholder="0.0" inputmode="decimal" pattern="^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]*)$" autocomplete="off" spellcheck="false" />
                         </div>
                         <div class="amount-usd is-hidden" id="buyAmountUSD" aria-hidden="true">≈ $0.00</div>
                         <div id="buyTokenSelector" class="token-selector">
@@ -2893,7 +2916,16 @@ export class CreateOrder extends BaseComponent {
                             </span>
                         </div>
                         <div id="taker-input-content" class="taker-input-content hidden">
-                            <input type="text" id="takerAddress" class="taker-address-input" placeholder="0x..." />
+                            <input
+                                type="text"
+                                id="takerAddress"
+                                class="taker-address-input"
+                                placeholder="0x..."
+                                maxlength="${TAKER_ADDRESS_MAX_LENGTH}"
+                                autocomplete="off"
+                                autocapitalize="off"
+                                spellcheck="false"
+                            />
                         </div>
                     </div>
 

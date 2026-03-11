@@ -37,31 +37,6 @@ export class Footer extends BaseComponent {
                     Privacy
                 </button>
             </div>
-            <button
-                type="button"
-                class="legal-help-launcher"
-                id="legal-help-launcher"
-                aria-label="Legal information"
-            >
-                ?
-            </button>
-            <div class="legal-help-dropdown" id="legal-help-dropdown" hidden>
-                <div class="legal-help-header">Links</div>
-                <button
-                    type="button"
-                    class="legal-help-item"
-                    data-legal-target="tos"
-                >
-                    Terms of Service
-                </button>
-                <button
-                    type="button"
-                    class="legal-help-item"
-                    data-legal-target="privacy"
-                >
-                    Privacy Policy
-                </button>
-            </div>
             <div class="legal-modal-overlay" id="legal-modal-overlay" hidden>
                 <div class="legal-modal" role="dialog" aria-modal="true" aria-labelledby="legal-modal-title">
                     <div class="legal-modal-header">
@@ -80,19 +55,22 @@ export class Footer extends BaseComponent {
             </div>
         `;
 
+        const overlay = document.getElementById('legal-modal-overlay');
+        if (overlay && overlay.parentElement !== document.body) {
+            document.body.appendChild(overlay);
+        }
+
         this.bindEvents();
     }
 
     bindEvents() {
-        const launcher = document.getElementById('legal-help-launcher');
-        const dropdown = document.getElementById('legal-help-dropdown');
         const inlineActions = document.getElementById('legal-help-inline');
         const overlay = document.getElementById('legal-modal-overlay');
         const closeButton = document.getElementById('legal-modal-close');
         const modalTitle = document.getElementById('legal-modal-title');
         const modalBody = document.getElementById('legal-modal-body');
 
-        if (!launcher || !dropdown || !overlay || !closeButton || !modalTitle || !modalBody) {
+        if (!inlineActions || !overlay || !closeButton || !modalTitle || !modalBody) {
             return;
         }
 
@@ -170,21 +148,6 @@ export class Footer extends BaseComponent {
             }
         };
 
-        const toggleDropdown = () => {
-            const isHidden = dropdown.hasAttribute('hidden');
-            if (isHidden) {
-                dropdown.removeAttribute('hidden');
-            } else {
-                dropdown.setAttribute('hidden', '');
-            }
-        };
-
-        const closeDropdown = () => {
-            if (!dropdown.hasAttribute('hidden')) {
-                dropdown.setAttribute('hidden', '');
-            }
-        };
-
         const openModal = async (type) => {
             if (type === 'tos') {
                 modalTitle.textContent = 'Terms of Service';
@@ -204,7 +167,6 @@ export class Footer extends BaseComponent {
                 return;
             }
             overlay.removeAttribute('hidden');
-            closeDropdown();
         };
 
         const closeModal = () => {
@@ -213,20 +175,7 @@ export class Footer extends BaseComponent {
             }
         };
 
-        launcher.addEventListener('click', (event) => {
-            event.stopPropagation();
-            toggleDropdown();
-        });
-
-        dropdown.addEventListener('click', (event) => {
-            const target = event.target;
-            if (!(target instanceof HTMLElement)) return;
-            const type = target.getAttribute('data-legal-target');
-            if (!type) return;
-            openModal(type);
-        });
-
-        inlineActions?.addEventListener('click', (event) => {
+        inlineActions.addEventListener('click', (event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
             const type = target.getAttribute('data-legal-target');
@@ -241,14 +190,6 @@ export class Footer extends BaseComponent {
         overlay.addEventListener('click', (event) => {
             if (event.target === overlay) {
                 closeModal();
-            }
-        });
-
-        document.addEventListener('click', (event) => {
-            const target = event.target;
-            if (!(target instanceof HTMLElement)) return;
-            if (!dropdown.contains(target) && target !== launcher) {
-                closeDropdown();
             }
         });
     }

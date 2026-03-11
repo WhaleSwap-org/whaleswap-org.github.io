@@ -59,6 +59,20 @@ export class MyOrders extends BaseComponent {
         });
     }
 
+    scheduleClaimVisibilityRefreshAfterCancel() {
+        const app = window.app;
+        if (typeof app?.scheduleClaimTabVisibilityRefresh === 'function') {
+            app.scheduleClaimTabVisibilityRefresh(null, { force: true });
+            return;
+        }
+
+        if (typeof app?.refreshClaimTabVisibility === 'function') {
+            app.refreshClaimTabVisibility({ force: true }).catch((error) => {
+                this.debug('Fallback claim-tab visibility refresh failed:', error);
+            });
+        }
+    }
+
     async initialize(readOnlyMode = true) {
         // Prevent concurrent initializations
         if (this.isInitializing) {
@@ -391,6 +405,8 @@ export class MyOrders extends BaseComponent {
                             throw new Error('Transaction reverted by contract');
                         }
 
+                        this.scheduleClaimVisibilityRefreshAfterCancel();
+
                         // Show success notification
                         this.showSuccess(`Order ${order.id} cancelled successfully!`);
 
@@ -498,7 +514,9 @@ export class MyOrders extends BaseComponent {
                             throw new Error('Transaction reverted by contract');
                         }
 
-                        this.showSuccess(`Order ${order.id} cancelled successfully!`);
+                        this.scheduleClaimVisibilityRefreshAfterCancel();
+
+                        this.showSuccess(`Order ${order.id} cancelled successfully! Go to the Claim tab to withdraw your tokens.`);
                         actionCell.textContent = '-';
                         if (this.debouncedRefresh) {
                             this.debouncedRefresh();

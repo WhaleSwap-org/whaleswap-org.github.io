@@ -134,6 +134,40 @@ export class WebSocketService {
         }
     }
 
+    closeProviderConnection(provider = this.provider) {
+        if (!provider) {
+            return;
+        }
+
+        try {
+            if (typeof provider.removeAllListeners === 'function') {
+                provider.removeAllListeners();
+            }
+        } catch (error) {
+            this.debug('Error removing provider listeners during cleanup:', error);
+        }
+
+        const socket = provider._websocket;
+        if (!socket) {
+            return;
+        }
+
+        try {
+            socket.onopen = null;
+            socket.onerror = null;
+            socket.onclose = null;
+        } catch (_) {}
+
+        try {
+            const readyState = typeof socket.readyState === 'number' ? socket.readyState : null;
+            if (readyState === null || readyState < 2) {
+                socket.close(1000);
+            }
+        } catch (error) {
+            this.debug('Error closing WebSocket connection during cleanup:', error);
+        }
+    }
+
     async monitorConnectionHealth() {
         if (this.healthCheckPromise) {
             return await this.healthCheckPromise;
@@ -530,12 +564,7 @@ export class WebSocketService {
                     } catch (error) {
                         this.debug('Failed to connect to WebSocket URL:', url, error);
                         try {
-                            if (this.provider?._websocket) {
-                                this.provider._websocket.onopen = null;
-                                this.provider._websocket.onerror = null;
-                                this.provider._websocket.onclose = null;
-                                this.provider._websocket.close();
-                            }
+                            this.closeProviderConnection(this.provider);
                         } catch (_) {}
                         this.provider = null;
                     }
@@ -1025,13 +1054,7 @@ export class WebSocketService {
             this.clearReconnectTimer();
             
             // Remove provider event listeners
-            if (this.provider) {
-                if (this.provider._websocket) {
-                    this.provider._websocket.onopen = null;
-                    this.provider._websocket.onerror = null;
-                    this.provider._websocket.onclose = null;
-                }
-            }
+            this.closeProviderConnection(this.provider);
             
             // Remove contract event listeners
             if (this.contract) {
@@ -1552,15 +1575,7 @@ export class WebSocketService {
                 // Clean up existing connection
                 if (this.provider) {
                     try {
-                        if (this.provider._websocket) {
-                            this.provider._websocket.onopen = null;
-                            this.provider._websocket.onerror = null;
-                            this.provider._websocket.onclose = null;
-                        }
-                        this.provider.removeAllListeners();
-                        if (this.provider._websocket) {
-                            this.provider._websocket.close();
-                        }
+                        this.closeProviderConnection(this.provider);
                     } catch (error) {
                         this.debug('Error cleaning up old connection:', error);
                     }

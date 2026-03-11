@@ -193,7 +193,7 @@ export class BaseComponent {
 
         const targetNetwork = getNetworkConfig();
         const targetLabel = targetNetwork?.displayName || targetNetwork?.name || 'the selected network';
-        const switchWallet = window.app?.switchWalletToNetworkWithReload;
+        const switchWallet = window.app?.switchWalletToNetwork;
 
         if (typeof switchWallet !== 'function') {
             this.showWarning(`Switch your wallet to ${targetLabel} before trying to ${actionLabel}.`);
@@ -201,12 +201,11 @@ export class BaseComponent {
         }
 
         this.showWarning(`Switching wallet to ${targetLabel} before trying to ${actionLabel}...`);
-        const switched = await switchWallet.call(window.app, targetNetwork);
-        if (switched) {
-            this.showInfo(`Wallet switched to ${targetLabel}. Retry ${actionLabel} once the app is ready.`);
-        }
-
-        return false;
+        return await switchWallet.call(window.app, targetNetwork, {
+            source: `write:${actionLabel}`,
+            selectedChainChanged: false,
+            previousSelectedNetwork: targetNetwork,
+        });
     }
 
     /**
