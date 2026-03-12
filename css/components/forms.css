@@ -963,6 +963,7 @@
   flex-direction: column;
   flex: 1;
   gap: 8px;
+  position: relative;
 }
 
 .amount-input-header {
@@ -1113,6 +1114,34 @@
   z-index: 2;
   background: transparent;
   padding: 4px 0;
+}
+
+.swap-arrow-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px;
+  margin: 0;
+  line-height: 0;
+  border-radius: 999px;
+  opacity: 0.72;
+  transition: color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.swap-arrow-button:hover {
+  color: var(--text-primary);
+  opacity: 1;
+  transform: translateY(-1px) scale(1.06);
+}
+
+.swap-arrow-button:focus-visible {
+  outline: 2px solid #4b6bfb;
+  outline-offset: 6px;
+  border-radius: 999px;
 }
 
 .swap-arrow svg {
