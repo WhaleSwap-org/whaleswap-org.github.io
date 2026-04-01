@@ -20,7 +20,7 @@ const CONCURRENCY_LIMIT = 5; // Max concurrent metadata/icon tasks
 // No global rate limiting state needed with multicall + caching
 
 // Simple in-memory caches
-const TOKEN_METADATA_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const TOKEN_METADATA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const BALANCE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 const tokenMetadataCache = new Map(); // key: tokenAddress (lowercase) -> { value, ts }
 const balanceCache = new Map(); // key: `${token}-${user}` -> { value, ts }

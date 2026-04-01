@@ -1010,18 +1010,31 @@ export class WebSocketService {
      * High-level helper: fetch orders in batches using multicall with fallback.
      * Returns an array of decoded orders (without timing expansion).
      */
-    async fetchOrdersBatched(totalOrders, batchSize = 50) {
+    async fetchOrdersInRange(startOrderId, endOrderIdExclusive, batchSize = 50) {
         const all = [];
         if (!this.contract) {
             throw new Error('Contract not initialized. Call initialize() first.');
         }
+        const normalizedStartOrderId = Math.max(0, Number(startOrderId) || 0);
+        const normalizedEndOrderIdExclusive = Math.max(
+            normalizedStartOrderId,
+            Number(endOrderIdExclusive) || 0
+        );
+        const totalOrders = Math.max(0, normalizedEndOrderIdExclusive - normalizedStartOrderId);
         const totalBatches = Math.ceil(totalOrders / batchSize);
-        this.debug(`Batched order fetch: ${totalOrders} orders in ${totalBatches} batches of ${batchSize}`);
+        const lastScannedOrderId = totalOrders > 0
+            ? normalizedEndOrderIdExclusive - 1
+            : normalizedStartOrderId;
+        this.debug(
+            `Batched order fetch: scanning ${totalOrders} order slots `
+            + `from ${normalizedStartOrderId} to ${lastScannedOrderId} `
+            + `in ${totalBatches} batches of ${batchSize}`
+        );
         let fetchedSoFar = 0;
 
         for (let batch = 0; batch < totalBatches; batch++) {
-            const startIndex = batch * batchSize;
-            const endIndex = Math.min(startIndex + batchSize, totalOrders);
+            const startIndex = normalizedStartOrderId + (batch * batchSize);
+            const endIndex = Math.min(startIndex + batchSize, normalizedEndOrderIdExclusive);
             this.debug(`Fetching batch ${batch + 1}/${totalBatches} (orders ${startIndex}-${endIndex - 1})`);
             let batchOrders = await this.fetchOrdersViaMulticall(startIndex, endIndex);
             if (!batchOrders) {
@@ -1133,19 +1146,36 @@ export class WebSocketService {
                 }
                 this.debug('Starting order sync with contract:', this.contract.address);
 
+                let firstOrderId = 0;
                 let nextOrderId = 0;
+                try {
+                    firstOrderId = await this.contract.firstOrderId();
+                    this.debug('firstOrderId result:', firstOrderId.toString());
+                } catch (error) {
+                    this.debug('firstOrderId call failed, using default value:', error);
+                }
                 try {
                     nextOrderId = await this.contract.nextOrderId();
                     this.debug('nextOrderId result:', nextOrderId.toString());
                 } catch (error) {
                     this.debug('nextOrderId call failed, using default value:', error);
                 }
+                const startOrderId = Math.max(0, Number(firstOrderId) || 0);
+                const endOrderIdExclusive = Math.max(startOrderId, Number(nextOrderId) || 0);
+                this.debug('Resolved order sync range:', {
+                    startOrderId,
+                    endOrderIdExclusive
+                });
 
                 // Clear existing cache before sync
                 this.orderCache.clear();
 
                 // Use optimized batched fetch (multicall with fallback)
-                const fetchedOrders = await this.fetchOrdersBatched(Number(nextOrderId), 50);
+                const fetchedOrders = await this.fetchOrdersInRange(
+                    startOrderId,
+                    endOrderIdExclusive,
+                    50
+                );
 
                 // Enrich with timings and populate cache
                 for (const o of fetchedOrders) {

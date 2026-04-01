@@ -79,36 +79,17 @@ class App {
 
 	async handleWalletConnectEvent(data = {}) {
 		const walletChainId = data?.chainId || walletManager.chainId || null;
-		const selectedNetwork = this.getSelectedNetwork();
-		const walletNetwork = getNetworkById(walletChainId);
-		const shouldAttemptSwitch = !walletNetwork || walletNetwork.slug !== selectedNetwork.slug;
 		const shouldShowCompatibilityNotice = data?.userInitiated === true;
 
 		clearNetworkSetupRequired();
 		this.ctx.setWalletChainId(walletChainId);
 		syncNetworkBadgeFromState();
 
-		if (shouldAttemptSwitch) {
-			this.updateTabVisibility(false);
-			await this.refreshAdminTabVisibility();
-			await this.refreshClaimTabVisibility();
-			await this.refreshOrderTabVisibility();
-			const switched = await this.switchWalletToNetwork(selectedNetwork, {
-				source: 'wallet-connect',
-				selectedChainChanged: false,
-				previousSelectedNetwork: selectedNetwork,
-			});
-			if (switched && shouldShowCompatibilityNotice) {
-				this.showWarning(WALLET_COMPATIBILITY_NOTICE);
-			}
-			return;
-		}
-
 		if (shouldShowCompatibilityNotice) {
 			this.showWarning(WALLET_COMPATIBILITY_NOTICE);
 		}
 
-		this.debug('Wallet connected on selected chain, reinitializing components...');
+		this.debug('Wallet connected, reinitializing components...');
 		this.updateTabVisibility(true);
 		await this.refreshAdminTabVisibility();
 		await this.refreshClaimTabVisibility();
@@ -122,6 +103,15 @@ class App {
 			|| tabId === 'my-orders'
 			|| tabId === 'taker-orders'
 			|| tabId === 'cleanup-orders';
+	}
+
+	isWalletConnectedForUi() {
+		const wallet = this.ctx?.getWallet?.() || walletManager;
+		return Boolean(
+			wallet?.isWalletConnected?.()
+			|| wallet?.getAccount?.()
+			|| wallet?.getSigner?.()
+		);
 	}
 
 	getTabButton(tabId) {
@@ -263,7 +253,7 @@ class App {
 			const isConnected = !!wallet?.isWalletConnected?.();
 			const account = wallet?.getAccount?.();
 
-			if (!isConnected || !account || !this.isWalletOnSelectedNetwork()) {
+			if (!isConnected || !account) {
 				return await applyVisibility(noOrderTabsVisibility);
 			}
 
@@ -380,7 +370,7 @@ class App {
 			const isConnected = !!wallet?.isWalletConnected?.();
 			const userAddress = wallet?.getAccount?.();
 
-				if (!isConnected || !userAddress || !this.isWalletOnSelectedNetwork()) {
+				if (!isConnected || !userAddress) {
 					if (isCurrentRequest()) {
 						this.clearClaimVisibilityRetryTimer();
 						this.resetClaimVisibilityRetryBackoff();
@@ -1307,14 +1297,8 @@ class App {
 				}
 			});
 
-			// Treat presence of signer as connected for initial render to avoid flicker,
-			// but only enable connected UX when wallet chain matches selected chain.
-			const wallet = this.ctx.getWallet();
-			const isInitiallyConnected = !!wallet?.getSigner?.();
-			const isInitialNetworkMatch = this.isWalletOnSelectedNetwork(
-				this.ctx.getWalletChainId() || walletManager.chainId || null
-			);
-			const hasInitialConnectedContext = isInitiallyConnected && isInitialNetworkMatch;
+			const isInitiallyConnected = this.isWalletConnectedForUi();
+			const hasInitialConnectedContext = isInitiallyConnected;
 			this.currentTab = hasInitialConnectedContext ? 'create-order' : 'view-orders';
 
 				// Add wallet connection state handler
@@ -1352,14 +1336,6 @@ class App {
 							this.ctx.setWalletChainId(walletManager.chainId || null);
 							syncNetworkBadgeFromState();
 
-								if (!this.isWalletOnSelectedNetwork()) {
-									this.updateTabVisibility(false);
-									await this.refreshAdminTabVisibility();
-									await this.refreshClaimTabVisibility();
-									await this.refreshOrderTabVisibility();
-									break;
-								}
-
 								this.debug('Account changed, reinitializing components...');
 								this.updateTabVisibility(true);
 								await this.refreshAdminTabVisibility();
@@ -1394,7 +1370,7 @@ class App {
 										walletChainId,
 									});
 								} else {
-								this.updateTabVisibility(false);
+								this.updateTabVisibility(true);
 								await this.refreshAdminTabVisibility();
 								await this.refreshClaimTabVisibility();
 								await this.refreshOrderTabVisibility();
@@ -1497,7 +1473,7 @@ class App {
 				this.scheduleClaimTabVisibilityRefresh();
 			};
 
-			// Update initial tab visibility based on connection + selected-chain match
+			// Update initial tab visibility based on wallet connection only.
 			this.updateTabVisibility(hasInitialConnectedContext);
 			// Do not block first paint on owner check/network calls.
 			Promise.resolve()
@@ -1527,7 +1503,7 @@ class App {
 		// Initialize theme handling
 		this.initializeTheme();
 
-		// Prefer signer presence + selected-chain match for initial render
+		// Treat connected wallets as connected UI even if the wallet chain differs.
 		const initialReadOnlyMode = !hasInitialConnectedContext;
 		this.updateGlobalLoaderText('Preparing interface...');
 		await this.initializeComponents(initialReadOnlyMode);
