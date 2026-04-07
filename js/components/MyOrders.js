@@ -113,7 +113,7 @@ export class MyOrders extends BaseComponent {
                     onRefresh: () => this.refreshOrdersView()
                 });
                 await this.setupTable();
-                await this.helper.setupWebSocket(() => this.refreshOrdersView());
+                await this.setupWebSocket();
             } else {
                 this.debug('Table already exists, skipping setup');
             }
@@ -147,6 +147,20 @@ export class MyOrders extends BaseComponent {
             this.showError('Failed to initialize orders view');
         } finally {
             this.isInitializing = false;
+        }
+    }
+
+    async setupWebSocket() {
+        await this.helper.setupWebSocket(() => this.refreshOrdersView());
+
+        // Subscribe to orderSyncComplete to refresh when sync completes
+        const ws = this.ctx.getWebSocket();
+        if (ws && !this._syncCompleteHandler) {
+            this._syncCompleteHandler = () => this.refreshOrdersView();
+            ws.subscribe('orderSyncComplete', this._syncCompleteHandler);
+            if (this.eventSubscriptions) {
+                this.eventSubscriptions.add({ event: 'orderSyncComplete', callback: this._syncCompleteHandler });
+            }
         }
     }
 

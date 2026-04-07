@@ -51,6 +51,7 @@ export class CreateOrder extends BaseComponent {
         this.contractStateReadError = false;
         this.transactionProgressSession = null;
         this.transactionProgressVisibilityCleanup = null;
+        this.orderCreatedSuccessfully = false; // Track if order was successfully created
         this.tokenSelectorListeners = {};  // Store listeners to prevent duplicates
         this.boundWindowClickHandler = null;
         this.boundTooltipOutsideClickHandler = null;
@@ -1603,7 +1604,43 @@ export class CreateOrder extends BaseComponent {
         }
 
         this.transactionProgressSession = null;
+        this.orderCreatedSuccessfully = false; // Reset flag when clearing session
         this.updateCreateButtonState();
+    }
+
+    /**
+     * Clear order input values after successful order creation
+     * Keeps selected tokens unchanged, only clears amounts
+     */
+    clearOrderInputValues() {
+        const sellAmountInput = document.getElementById('sellAmount');
+        const buyAmountInput = document.getElementById('buyAmount');
+        const takerAddressInput = document.getElementById('takerAddress');
+        
+        if (sellAmountInput) {
+            sellAmountInput.value = '';
+        }
+        if (buyAmountInput) {
+            buyAmountInput.value = '';
+        }
+        if (takerAddressInput) {
+            takerAddressInput.value = '';
+        }
+        
+        // Clear USD displays
+        const sellUsdDisplay = document.getElementById('sellAmountUSD');
+        const buyUsdDisplay = document.getElementById('buyAmountUSD');
+        
+        if (sellUsdDisplay) {
+            sellUsdDisplay.textContent = '≈ $0.00';
+            setVisibility(sellUsdDisplay, false);
+        }
+        if (buyUsdDisplay) {
+            buyUsdDisplay.textContent = '≈ $0.00';
+            setVisibility(buyUsdDisplay, false);
+        }
+        
+        this.debug('Cleared order input values (amounts, taker address, and USD displays)');
     }
 
     setTransactionProgressSession(session) {
@@ -1625,6 +1662,11 @@ export class CreateOrder extends BaseComponent {
             }
 
             if (hidden && !active) {
+                // Modal is closed and transaction is complete
+                // Clear values only if order was successfully created
+                if (this.orderCreatedSuccessfully) {
+                    this.clearOrderInputValues();
+                }
                 this.clearTransactionProgressSession();
                 return;
             }
@@ -1637,6 +1679,9 @@ export class CreateOrder extends BaseComponent {
 
     async handleCreateOrder(event) {
         event.preventDefault();
+
+        // Reset the success flag at the start of each order creation attempt
+        this.orderCreatedSuccessfully = false;
 
         if (this.transactionProgressSession) {
             if (this.transactionProgressSession.isHidden()) {
@@ -1963,6 +2008,7 @@ export class CreateOrder extends BaseComponent {
                     detail: 'Confirmed',
                 });
                 progressToast.finishSuccess('Order created successfully.');
+                this.orderCreatedSuccessfully = true; // Mark order as successfully created
             } catch (error) {
                 this.debug('Create order confirmation error:', error);
                 const errorMessage = error.message?.includes('Transaction timeout')

@@ -95,7 +95,7 @@ export class ViewOrders extends BaseComponent {
                 // First time setup - initialize services, create table, setup WebSocket
                 this.setupServices();
                 await this.renderer.setupTable(() => this.refreshOrdersView());
-                await this.helper.setupWebSocket(() => this.refreshOrdersView());
+                await this.setupWebSocket();
                 this.initialized = true;
             }
             // Just refresh the view with current cache
@@ -109,7 +109,17 @@ export class ViewOrders extends BaseComponent {
 
     // setupWebSocket now handled by helper
     async setupWebSocket() {
-        return this.helper.setupWebSocket(() => this.refreshOrdersView());
+        await this.helper.setupWebSocket(() => this.refreshOrdersView());
+
+        // Subscribe to orderSyncComplete to refresh when sync completes
+        const ws = this.ctx.getWebSocket();
+        if (ws && !this._syncCompleteHandler) {
+            this._syncCompleteHandler = () => this.refreshOrdersView();
+            ws.subscribe('orderSyncComplete', this._syncCompleteHandler);
+            if (this.eventSubscriptions) {
+                this.eventSubscriptions.add({ event: 'orderSyncComplete', callback: this._syncCompleteHandler });
+            }
+        }
     }
 
     async refreshOrdersView() {

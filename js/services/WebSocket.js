@@ -1128,6 +1128,8 @@ export class WebSocketService {
         if (!triggerIfNeeded) {
             return false;
         }
+        // Ensure WebSocket is initialized before syncing orders
+        await this.waitForInitialization();
         return this.syncAllOrders();
     }
 
@@ -1202,16 +1204,17 @@ export class WebSocketService {
                 } catch (_) {}
 
                 this.debug('Order sync complete. Cache size:', this.orderCache.size);
-                this.notifySubscribers('orderSyncComplete', Object.fromEntries(this.orderCache));
+                // Set flag BEFORE notifying subscribers so UI components see correct state
+                this.hasCompletedOrderSync = true;
                 this.debug('Setting up event listeners...');
                 await this.setupEventListeners(this.contract);
-                this.hasCompletedOrderSync = true;
+                this.notifySubscribers('orderSyncComplete', Object.fromEntries(this.orderCache));
                 return true;
             } catch (error) {
                 this.debug('Order sync failed:', error);
                 this.orderCache.clear();
-                this.notifySubscribers('orderSyncComplete', {});
                 this.hasCompletedOrderSync = false;
+                this.notifySubscribers('orderSyncComplete', {});
                 return false;
             } finally {
                 this.orderSyncPromise = null;

@@ -10,6 +10,7 @@ export class Cleanup extends BaseComponent {
         this.isInitializing = false;
         this.isInitialized = false;
         this.currentMode = null; // track readOnly/connected mode to allow re-init on change
+        this.eventSubscriptions = new Set(); // Track WebSocket subscriptions for cleanup
         
         // Initialize logger
         const logger = createLogger('CLEANUP');
@@ -338,25 +339,33 @@ export class Cleanup extends BaseComponent {
         }
 
         // Subscribe to all relevant events
-        this.webSocket.subscribe('OrderCleanedUp', () => {
+        const orderCleanedHandler = () => {
             this.debug('Order cleaned event received');
             this.checkCleanupOpportunities();
-        });
+        };
+        this.webSocket.subscribe('OrderCleanedUp', orderCleanedHandler);
+        this.eventSubscriptions.add({ event: 'OrderCleanedUp', callback: orderCleanedHandler });
 
-        this.webSocket.subscribe('OrderCanceled', () => {
+        const orderCanceledHandler = () => {
             this.debug('Order canceled event received');
             this.checkCleanupOpportunities();
-        });
+        };
+        this.webSocket.subscribe('OrderCanceled', orderCanceledHandler);
+        this.eventSubscriptions.add({ event: 'OrderCanceled', callback: orderCanceledHandler });
 
-        this.webSocket.subscribe('OrderFilled', () => {
+        const orderFilledHandler = () => {
             this.debug('Order filled event received');
             this.checkCleanupOpportunities();
-        });
+        };
+        this.webSocket.subscribe('OrderFilled', orderFilledHandler);
+        this.eventSubscriptions.add({ event: 'OrderFilled', callback: orderFilledHandler });
 
-        this.webSocket.subscribe('orderSyncComplete', () => {
+        const orderSyncCompleteHandler = () => {
             this.debug('Order sync complete event received');
             this.checkCleanupOpportunities();
-        });
+        };
+        this.webSocket.subscribe('orderSyncComplete', orderSyncCompleteHandler);
+        this.eventSubscriptions.add({ event: 'orderSyncComplete', callback: orderSyncCompleteHandler });
 
         // Add wallet connection event listeners
         const wallet = this.ctx.getWallet();
@@ -654,6 +663,17 @@ export class Cleanup extends BaseComponent {
         if (this.intervalId) {
             this.debug('Cleaning up cleanup check interval');
             clearInterval(this.intervalId);
+        }
+        
+        // Unsubscribe from WebSocket events
+        if (this.eventSubscriptions && this.eventSubscriptions.size > 0) {
+            const ws = this.ctx.getWebSocket();
+            if (ws) {
+                this.eventSubscriptions.forEach(sub => {
+                    ws.unsubscribe(sub.event, sub.callback);
+                });
+            }
+            this.eventSubscriptions.clear();
         }
         
         // Remove wallet listeners
