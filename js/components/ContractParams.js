@@ -1,5 +1,6 @@
 import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
+import { contractService } from '../services/ContractService.js';
 import { ethers } from 'ethers';
 
 export class ContractParams extends BaseComponent {
@@ -244,11 +245,13 @@ export class ContractParams extends BaseComponent {
         };
         let successCount = 0;
 
+        // Use HTTP RPC for contract parameter reads (avoids WebSocket timeout issues)
+        console.log('[CONTRACT_PARAMS] Starting HTTP RPC reads for contract parameters');
         await Promise.all(
             Object.entries(paramMethods).map(async ([key, method]) => {
                 try {
                     params[key] = await this.readWithTimeout(
-                        () => ws.queueRequest(() => contract[method]()),
+                        () => contractService._readViaHttpRpc((c) => c[method]()),
                         method
                     );
                     successCount++;
@@ -318,9 +321,10 @@ export class ContractParams extends BaseComponent {
             await Promise.all(
                 Array.from(feeTokenSet).map(async (tokenAddress) => {
                     try {
+                        // Use HTTP RPC for accumulated fees read
                         const [amount, tokenInfo] = await Promise.all([
                             this.readWithTimeout(
-                                () => contract.accumulatedFeesByToken(tokenAddress),
+                                () => contractService._readViaHttpRpc((c) => c.accumulatedFeesByToken(tokenAddress)),
                                 `accumulated fees for ${tokenAddress}`,
                             ),
                             this.readWithTimeout(

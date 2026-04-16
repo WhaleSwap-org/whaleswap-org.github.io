@@ -33,8 +33,10 @@ import { createAppContext, setGlobalContext } from './services/AppContext.js';
 import { hasAnyClaimables } from './utils/claims.js';
 import { isUserRejection } from './utils/ui.js';
 import { escapeHtml } from './utils/html.js';
+import { clearBalanceCache } from './utils/contractTokens.js';
 
 const BOOTSTRAP_LOADER_STATE_KEY = 'whaleswapBootstrapLoader';
+const ACTIVE_TAB_STATE_KEY = 'whaleswapActiveTab';
 class App {
 	constructor() {
 		this.isInitializing = false;
@@ -694,7 +696,8 @@ class App {
 					[BOOTSTRAP_LOADER_STATE_KEY]: {
 						mode: mode === 'spinner' ? 'spinner' : 'skeleton',
 						message: String(message || '')
-					}
+					},
+					[ACTIVE_TAB_STATE_KEY]: this.currentTab || 'view-orders'
 				},
 				'',
 				window.location.href
@@ -865,6 +868,7 @@ class App {
 		if (missingNetwork && restoredNetwork?.slug === targetNetwork?.slug) {
 			setNetworkSetupRequired(targetNetwork.slug);
 			syncNetworkBadgeFromState();
+			syncAddNetworkButtonVisibility();
 		}
 		if (restoredNetwork) {
 			this.showWarning(this.getNetworkSwitchFailureWarning(error, targetNetwork, restoredNetwork));
@@ -874,11 +878,13 @@ class App {
 		if (missingNetwork) {
 			setNetworkSetupRequired(targetNetwork.slug);
 			syncNetworkBadgeFromState();
+			syncAddNetworkButtonVisibility();
 			this.showWarning(this.getNetworkSwitchFailureWarning(error, targetNetwork));
 			return;
 		}
 		clearNetworkSetupRequired();
 		syncNetworkBadgeFromState();
+		syncAddNetworkButtonVisibility();
 		this.showWarning(this.getNetworkSwitchFailureWarning(error, targetNetwork));
 	}
 
@@ -930,6 +936,10 @@ class App {
 	}
 
 	async recreateNetworkServices() {
+		// Clear balance cache on network switch (issue #174)
+		// Note: Token metadata is stable and persists for TTL duration
+		clearBalanceCache();
+		
 		const ws = this.ctx?.getWebSocket?.();
 		if (ws?.cleanup) {
 			try {
@@ -1139,30 +1149,24 @@ class App {
 			return;
 		}
 
+		// Issue #153: Network selection updates app state without triggering wallet operations
+		// For connected users, use in-app transition to preserve navigation context (PR #178 review)
 		const wallet = this.ctx?.getWallet?.();
 		const isConnected = !!wallet?.isWalletConnected?.() && !!wallet?.getSigner?.();
-		if (!isConnected) {
-			triggerPageReloadWithSwitchFallback({
-				loaderMode: 'spinner',
-				loaderMessage: `Switching to ${getNetworkLabel(network)}...`
-			});
-			return;
-		}
-
-		const walletNetwork = getNetworkById(this.ctx.getWalletChainId() || walletManager.chainId || null);
-		if (walletNetwork?.slug === network.slug) {
+		
+		if (isConnected) {
+			// Use in-app transition for connected users to preserve active tab
 			await this.handleSuccessfulConnectedNetworkTransition(network, {
 				source: 'network-selector',
 				selectedChainChanged,
 			});
-			return;
+		} else {
+			// Use page reload for disconnected/read-only users
+			triggerPageReloadWithSwitchFallback({
+				loaderMode: 'spinner',
+				loaderMessage: `Switching to ${getNetworkLabel(network)}...`
+			});
 		}
-
-		await this.switchWalletToNetwork(network, {
-			source: 'network-selector',
-			selectedChainChanged,
-			previousSelectedNetwork,
-		});
 	}
 
 	async load () {
@@ -1218,10 +1222,11 @@ class App {
 			this.updateGlobalLoaderText('Initializing wallet...');
 			await this.initializeWalletManager();
 			this.alignSelectedNetworkToRestoredWallet();
+			const hasInitialConnectedContext = this.isWalletConnectedForUi();
 			this.updateGlobalLoaderText('Initializing pricing...');
 			await this.initializePricingService();
 			this.updateGlobalLoaderText('Connecting to order feed...');
-			await this.initializeWebSocket();
+			await this.initializeWebSocket({ awaitReady: hasInitialConnectedContext });
 
 			// Initialize CreateOrder first
 			this.components = {
@@ -1297,9 +1302,12 @@ class App {
 				}
 			});
 
-			const isInitiallyConnected = this.isWalletConnectedForUi();
-			const hasInitialConnectedContext = isInitiallyConnected;
-			this.currentTab = hasInitialConnectedContext ? 'create-order' : 'view-orders';
+			// Restore active tab from history state if available (PR #178 review)
+			const historyState = window.history?.state || {};
+			const restoredTab = historyState[ACTIVE_TAB_STATE_KEY];
+			this.currentTab = (restoredTab && this.isTabVisible(restoredTab)) 
+				? restoredTab 
+				: (hasInitialConnectedContext ? 'create-order' : 'view-orders');
 
 				// Add wallet connection state handler
 				walletManager.addListener(async (event, data) => {
@@ -1515,6 +1523,7 @@ class App {
 		this.hideGlobalLoader();
 
 		// Start initial order sync in the background so first render is not blocked.
+		// Reuse ws variable from earlier in load() method
 		if (ws) {
 			this.startInitialOrderSync(ws);
 		}
@@ -1574,7 +1583,8 @@ class App {
 		}
 	}
 
-	async initializeWebSocket() {
+	async initializeWebSocket(options = {}) {
+		const { awaitReady = true } = options;
 		try {
 			this.debug('Initializing WebSocket...');
 			// Initialize WebSocket with injected pricingService
@@ -1612,9 +1622,15 @@ class App {
 				} catch (_) {}
 			});
 
-			const wsInitialized = await webSocketService.initialize();
-			if (!wsInitialized) {
-				this.debug('WebSocket initialization failed, falling back to HTTP');
+			const initializationPromise = webSocketService.initialize();
+			if (awaitReady) {
+				await initializationPromise;
+				// Order sync will be triggered by startInitialOrderSync() after components are ready
+			} else {
+				this.debug('Starting WebSocket initialization in background');
+				void initializationPromise.catch((error) => {
+					this.debug('Background WebSocket initialization error:', error);
+				});
 			}
 
 			this.debug('WebSocket initialized');
@@ -1628,19 +1644,17 @@ class App {
 			this.debug('Initializing components in ' +
 				(readOnlyMode ? 'read-only' : 'connected') + ' mode');
 
-			// In read-only mode, initialize the tabs that should always be visible
+			// In read-only mode, initialize only the active tab.
+			// Off-screen tabs initialize lazily when the user opens them.
 			if (readOnlyMode) {
-				const readOnlyTabs = ['intro', 'create-order', 'view-orders', 'cleanup-orders', 'contract-params'];
-				for (const tabId of readOnlyTabs) {
-					const component = this.components[tabId];
-					if (component && typeof component.initialize === 'function') {
-						this.debug(`Initializing read-only component: ${tabId}`);
-						try {
-							await component.initialize(readOnlyMode);
-							this.tabReady.add(tabId);
-						} catch (error) {
-							console.error(`[App] Error initializing ${tabId}:`, error);
-						}
+				const currentComponent = this.components[this.currentTab];
+				if (currentComponent && typeof currentComponent.initialize === 'function') {
+					this.debug(`Initializing read-only component: ${this.currentTab}`);
+					try {
+						await currentComponent.initialize(readOnlyMode);
+						this.tabReady.add(this.currentTab);
+					} catch (error) {
+						console.error(`[App] Error initializing ${this.currentTab}:`, error);
 					}
 				}
 			} else {
@@ -1682,6 +1696,10 @@ class App {
 			return;
 		}
 		this.lastDisconnectNotification = now;
+
+		// Clear balance cache on wallet disconnect (issue #174)
+		// Note: Token metadata is stable and persists for TTL duration
+		clearBalanceCache();
 
 		const walletConnectBtn = document.getElementById('walletConnect');
 		const walletInfo = document.getElementById('walletInfo');
@@ -2077,7 +2095,9 @@ function getInitialSelectedNetwork() {
 function updateChainInUrl(slug) {
 	const url = new URL(window.location.href);
 	url.searchParams.set('chain', slug);
-	window.history.replaceState({}, '', url);
+	// Preserve existing history state (e.g., ACTIVE_TAB_STATE_KEY) when updating URL (PR #178 review)
+	const existingState = window.history?.state || {};
+	window.history.replaceState(existingState, '', url);
 }
 
 function markSelectedNetworkOption(slug) {
@@ -2143,12 +2163,20 @@ function triggerPageReloadWithSwitchFallback(options = {}) {
 		console.warn('[App] Reload failed after network switch:', error);
 	}
 }
+
+/**
+ * Sync network badge from app state (issue #153)
+ * The network badge shows the selected app network only.
+ * Wallet connection status is handled by the wallet button, not the network selector.
+ */
 function syncNetworkBadgeFromState() {
 	if (!networkBadge) return;
 
 	const selectedSlug = selectedNetworkSlug || window.app?.ctx?.getSelectedChainSlug?.() || getDefaultNetwork().slug;
 	const selectedNetwork = getNetworkBySlug(selectedSlug) || getDefaultNetwork();
 	renderNetworkBadge(selectedNetwork);
+
+	// Network badge only shows selected network, not wallet connection status
 	networkBadge.classList.remove('connected', 'setup-needed', 'wrong-network', 'disconnected');
 	if (networkButton) {
 		networkButton.dataset.networkStatus = 'default';
@@ -2157,47 +2185,8 @@ function syncNetworkBadgeFromState() {
 		networkDropdown.dataset.networkStatus = 'default';
 	}
 
-	const walletChainId = window.app?.ctx?.getWalletChainId?.();
-	if (!walletChainId) {
-		networkBadge.classList.add('disconnected');
-		if (networkButton) {
-			networkButton.dataset.networkStatus = 'disconnected';
-		}
-		if (networkDropdown) {
-			networkDropdown.dataset.networkStatus = 'disconnected';
-		}
-		syncAddNetworkButtonVisibility();
-		return;
-	}
-
-	const walletNetwork = getNetworkById(walletChainId);
-	if (walletNetwork && walletNetwork.slug === selectedNetwork.slug) {
-		clearNetworkSetupRequired();
-		networkBadge.classList.add('connected');
-		if (networkButton) {
-			networkButton.dataset.networkStatus = 'connected';
-		}
-		if (networkDropdown) {
-			networkDropdown.dataset.networkStatus = 'connected';
-		}
-	} else if (networkSetupRequiredSlug && networkSetupRequiredSlug === selectedNetwork.slug) {
-		networkBadge.classList.add('setup-needed');
-		if (networkButton) {
-			networkButton.dataset.networkStatus = 'setup-needed';
-		}
-		if (networkDropdown) {
-			networkDropdown.dataset.networkStatus = 'setup-needed';
-		}
-	} else {
-		networkBadge.classList.add('wrong-network');
-		if (networkButton) {
-			networkButton.dataset.networkStatus = 'wrong-network';
-		}
-		if (networkDropdown) {
-			networkDropdown.dataset.networkStatus = 'wrong-network';
-		}
-	}
-
+	// Let syncAddNetworkButtonVisibility() decide visibility based on networkSetupRequiredSlug (PR #178 review)
+	// This preserves the "Add <Network>" retry affordance when setup is required
 	syncAddNetworkButtonVisibility();
 }
 

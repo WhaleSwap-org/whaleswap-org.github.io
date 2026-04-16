@@ -4,7 +4,7 @@ import { getNetworkConfig } from '../config/networks.js';
 import { walletManager } from '../services/WalletManager.js';
 import { setVisibility } from '../utils/ui.js';
 import { erc20Abi } from '../abi/erc20.js';
-import { getAllWalletTokens, getContractAllowedTokens, clearTokenCaches, getTokenBalanceInfo } from '../utils/contractTokens.js';
+import { getAllWalletTokens, getContractAllowedTokens, clearBalanceCache, getTokenBalanceInfo } from '../utils/contractTokens.js';
 import { contractService } from '../services/ContractService.js';
 import { createLogger } from '../services/LogService.js';
 import { validateSellBalance } from '../utils/balanceValidation.js';
@@ -1141,17 +1141,16 @@ export class CreateOrder extends BaseComponent {
 
             while (retryCount < maxRetries) {
                 try {
-                    const feeTokenAddress = await this.contract.feeToken();
+                    // Use HTTP RPC for startup reads to avoid WebSocket timeout issues
+                    const { feeToken: feeTokenAddress, feeAmount } = await contractService.getFeeConfig();
                     this.debug('Fee token address:', feeTokenAddress);
-
-                    const feeAmount = await this.contract.orderCreationFeeAmount();
                     this.debug('Fee amount:', feeAmount);
 
-                    // Get token details
+                    // Get token details via HTTP RPC (read-only contract call)
                     const tokenContract = new ethers.Contract(
                         feeTokenAddress,
                         erc20Abi,
-                        this.provider
+                        contractService.getHttpProvider()
                     );
 
                     const [symbol, decimals] = await Promise.all([
@@ -1992,10 +1991,12 @@ export class CreateOrder extends BaseComponent {
                 this.debug('Transaction confirmed successfully:', receipt);
 
                 try {
-                    clearTokenCaches();
+                    // Only clear balance cache - metadata is stable and should persist
+                    // (per issue #174 - token metadata should survive order creation)
+                    clearBalanceCache();
                     this.refreshOpenTokenModals();
                 } catch (refreshError) {
-                    this.debug('Post-order cache clear/refresh failed:', refreshError);
+                    this.debug('Post-order balance cache clear/refresh failed:', refreshError);
                 }
 
                 const ws = this.ctx.getWebSocket();

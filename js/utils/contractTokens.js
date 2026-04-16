@@ -4,6 +4,7 @@ import { contractService } from '../services/ContractService.js';
 import { createLogger } from '../services/LogService.js';
 import { tokenIconService } from '../services/TokenIconService.js';
 import { tryAggregate as multicallTryAggregate } from '../services/MulticallService.js';
+import { tokenMetadataCache } from '../services/TokenMetadataCache.js';
 import { erc20Abi } from '../abi/erc20.js';
 
 const ERC20_INTERFACE = new ethers.utils.Interface(erc20Abi);
@@ -17,91 +18,13 @@ const warn = logger.warn.bind(logger);
 // Concurrency control
 const CONCURRENCY_LIMIT = 5; // Max concurrent metadata/icon tasks
 
-// No global rate limiting state needed with multicall + caching
-
-// Simple in-memory caches
-const TOKEN_METADATA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+// Balance cache is kept separate from metadata cache (per issue #174)
+// Balances are user-specific and should be invalidated on create/fill/cancel
 const BALANCE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
-const tokenMetadataCache = new Map(); // key: tokenAddress (lowercase) -> { value, ts }
 const balanceCache = new Map(); // key: `${token}-${user}` -> { value, ts }
-const TOKEN_METADATA_STORAGE_KEY_PREFIX = 'tokenMetadataCache';
-const TOKEN_METADATA_STORAGE_SCHEMA = 'v1';
-let tokenMetadataStorageLoaded = false;
 
-function getTokenMetadataStorageKey() {
-    try {
-        const network = getNetworkConfig();
-        const chainId = parseInt(network.chainId, 16);
-        const chainSegment = Number.isFinite(chainId) ? String(chainId) : 'unknown';
-        return `${TOKEN_METADATA_STORAGE_KEY_PREFIX}:${TOKEN_METADATA_STORAGE_SCHEMA}:${chainSegment}`;
-    } catch (_) {
-        return `${TOKEN_METADATA_STORAGE_KEY_PREFIX}:${TOKEN_METADATA_STORAGE_SCHEMA}:unknown`;
-    }
-}
-
-function loadTokenMetadataCacheFromStorage() {
-    if (tokenMetadataStorageLoaded || typeof localStorage === 'undefined') {
-        return;
-    }
-
-    tokenMetadataStorageLoaded = true;
-
-    try {
-        const raw = localStorage.getItem(getTokenMetadataStorageKey());
-        if (!raw) {
-            return;
-        }
-
-        const parsed = JSON.parse(raw);
-        const now = Date.now();
-
-        Object.entries(parsed).forEach(([address, entry]) => {
-            if (!entry || typeof entry !== 'object') {
-                return;
-            }
-            if (typeof entry.ts !== 'number' || !entry.value) {
-                return;
-            }
-            if ((now - entry.ts) >= TOKEN_METADATA_CACHE_TTL_MS) {
-                return;
-            }
-            tokenMetadataCache.set(address, { value: entry.value, ts: entry.ts });
-        });
-    } catch (err) {
-        debug('Failed to load token metadata cache from localStorage:', err);
-    }
-}
-
-function persistTokenMetadataCacheToStorage() {
-    if (typeof localStorage === 'undefined') {
-        return;
-    }
-
-    try {
-        const now = Date.now();
-        const serializable = {};
-
-        tokenMetadataCache.forEach((entry, address) => {
-            if (!entry || typeof entry.ts !== 'number' || !entry.value) {
-                return;
-            }
-            if ((now - entry.ts) >= TOKEN_METADATA_CACHE_TTL_MS) {
-                return;
-            }
-            serializable[address] = entry;
-        });
-
-        localStorage.setItem(getTokenMetadataStorageKey(), JSON.stringify(serializable));
-    } catch (err) {
-        debug('Failed to persist token metadata cache to localStorage:', err);
-    }
-}
-
-function setTokenMetadataCache(address, metadata) {
-    const addressKey = address.toLowerCase();
-    tokenMetadataCache.set(addressKey, { value: metadata, ts: Date.now() });
-    persistTokenMetadataCacheToStorage();
-}
+// Note: Token metadata cache is now managed by TokenMetadataCache service
+// This provides a unified cache shared across WebSocketService, CreateOrder, and order views
 
 /**
  * Batch fetch balances and decimals for many tokens using multicall
@@ -258,91 +181,13 @@ export async function getContractAllowedTokens(options = {}) {
 }
 
 /**
- * Get token metadata (symbol, name, decimals)
+ * Get token metadata (symbol, name, decimals) - uses shared TokenMetadataCache
  * @param {string} tokenAddress - The token address
  * @returns {Promise<Object>} Token metadata
  */
 async function getTokenMetadata(tokenAddress) {
-    try {
-        const normalizedAddress = tokenAddress.toLowerCase();
-
-        loadTokenMetadataCacheFromStorage();
-
-        const cached = tokenMetadataCache.get(normalizedAddress);
-        if (cached && (Date.now() - cached.ts) < TOKEN_METADATA_CACHE_TTL_MS) {
-            return cached.value;
-        }
-
-        const provider = contractService.getProvider();
-
-        // Prepare multicall for symbol, name, decimals (single ABI source: erc20.js)
-        const calls = [
-            { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('symbol', []) },
-            { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('name', []) },
-            { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('decimals', []) }
-        ];
-
-        let symbol, name, decimals;
-        const mcResult = await multicallTryAggregate(calls);
-        if (mcResult) {
-            // Decode gracefully; if any fail, fallback to direct
-            try {
-                symbol = ERC20_INTERFACE.decodeFunctionResult('symbol', mcResult[0].returnData)[0];
-                name = ERC20_INTERFACE.decodeFunctionResult('name', mcResult[1].returnData)[0];
-                decimals = ERC20_INTERFACE.decodeFunctionResult('decimals', mcResult[2].returnData)[0];
-            } catch (_) {
-                const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
-                [symbol, name, decimals] = await Promise.all([
-                    tokenContract.symbol(),
-                    tokenContract.name(),
-                    tokenContract.decimals()
-                ]);
-            }
-        } else {
-            const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
-            [symbol, name, decimals] = await Promise.all([
-                tokenContract.symbol(),
-                tokenContract.name(),
-                tokenContract.decimals()
-            ]);
-        }
-
-        const metadata = {
-            symbol,
-            name,
-            decimals: parseInt(decimals)
-        };
-
-        setTokenMetadataCache(normalizedAddress, metadata);
-        return metadata;
-
-    } catch (err) {
-        // Check if it's a rate limit error
-        if (err.code === -32005 || err.message?.includes('rate limit')) {
-            warn(`Rate limit hit while getting metadata for token ${tokenAddress}, using fallback`);
-            
-            // Return fallback metadata for rate-limited requests
-            const fallbackMetadata = {
-                symbol: 'UNKNOWN',
-                name: 'Unknown Token',
-                decimals: 18
-            };
-            
-            setTokenMetadataCache(tokenAddress, fallbackMetadata);
-            return fallbackMetadata;
-        }
-        
-        error(`Failed to get metadata for token ${tokenAddress}:`, err);
-        
-        // Return fallback metadata
-        const fallbackMetadata = {
-            symbol: 'UNKNOWN',
-            name: 'Unknown Token',
-            decimals: 18
-        };
-        setTokenMetadataCache(tokenAddress, fallbackMetadata);
-        return fallbackMetadata;
-    }
+    // Delegate to shared cache
+    return tokenMetadataCache.fetch(tokenAddress);
 }
 
 /**
@@ -460,18 +305,34 @@ export async function getTokenBalanceInfo(tokenAddress) {
 }
 
 /**
- * Clear all caches (useful for testing or when switching networks)
+ * Clear balance cache only (balances are user-specific and should be invalidated on create/fill/cancel)
+ */
+export function clearBalanceCache() {
+    balanceCache.clear();
+    debug('Balance cache cleared');
+}
+
+/**
+ * Clear all caches (metadata + balance) - use for network switch or full reset
+ * Note: Token metadata cache is now managed by TokenMetadataCache service
  */
 export function clearTokenCaches() {
-    tokenMetadataCache.clear();
+    // Clear balance cache (local)
     balanceCache.clear();
-    tokenMetadataStorageLoaded = false;
+    
+    // Clear shared metadata cache for current network
+    tokenMetadataCache.clearCurrentNetwork();
 
-    if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(getTokenMetadataStorageKey());
-    }
+    debug('Token caches cleared (metadata + balance)');
+}
 
-    debug('Token caches cleared');
+/**
+ * Clear all caches for all networks - use for wallet disconnect / full app reset
+ */
+export function clearAllTokenCaches() {
+    balanceCache.clear();
+    tokenMetadataCache.clearAll();
+    debug('All token caches cleared (all networks)');
 }
 
 // Removed deprecated resetRateLimiting() - no longer needed with multicall + caching

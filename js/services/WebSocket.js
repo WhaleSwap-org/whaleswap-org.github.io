@@ -2,9 +2,11 @@ import { ethers } from 'ethers';
 import { ORDER_CONSTANTS } from '../config/index.js';
 import { getNetworkConfig } from '../config/networks.js';
 import { tryAggregate as multicallTryAggregate, isMulticallAvailable } from './MulticallService.js';
+import { contractService } from './ContractService.js';
 import { erc20Abi } from '../abi/erc20.js';
 import { createLogger } from './LogService.js';
 import { tokenIconService } from './TokenIconService.js';
+import { tokenMetadataCache } from './TokenMetadataCache.js';
 
 export class WebSocketService {
     constructor(options = {}) {
@@ -28,6 +30,7 @@ export class WebSocketService {
         this.requestQueue = [];
         this.processingQueue = false;
         this.lastRequestTime = 0;
+        this.nextRequestStartAt = 0;
         this.minRequestInterval = 100; // Increase from 100ms to 500ms between requests
         this.maxConcurrentRequests = 2; // Reduce from 3 to 1 concurrent request
         this.activeRequests = 0;
@@ -54,6 +57,9 @@ export class WebSocketService {
         // Order sync lifecycle state
         this.orderSyncPromise = null;
         this.hasCompletedOrderSync = false;
+        this.lifecycleVersion = 0;
+        this.eventListenersAttached = false;
+        this.eventListenersContract = null;
 
         // Contract disabled-state cache
         this.contractDisabledCache = null;
@@ -69,8 +75,29 @@ export class WebSocketService {
         this.error = logger.error.bind(logger);
         this.warn = logger.warn.bind(logger);
         
-        this.tokenCache = new Map();  // Add token cache
+        // Token metadata is now managed by the shared tokenMetadataCache service
+        // this.tokenCache is deprecated - use tokenMetadataCache instead
         this.pricingUpdateHandler = null;
+    }
+
+    /**
+     * Get the token cache (delegates to shared tokenMetadataCache)
+     * @deprecated Use tokenMetadataCache directly
+     */
+    get tokenCache() {
+        // Return a Map-like interface backed by the shared cache
+        return {
+            has: (address) => tokenMetadataCache.has(address),
+            get: (address) => tokenMetadataCache.get(address),
+            set: (address, metadata) => tokenMetadataCache.set(address, metadata),
+            values: () => tokenMetadataCache.getAll().values(),
+            entries: () => {
+                const tokens = tokenMetadataCache.getAll();
+                return tokens.map(t => [t.address, t]).values();
+            },
+            clear: () => tokenMetadataCache.clearCurrentNetwork(),
+            size: tokenMetadataCache.getAll().length
+        };
     }
 
     clearReconnectTimer() {
@@ -206,7 +233,11 @@ export class WebSocketService {
             return false;
         }
 
-        return this.reconnect('initialize-failed');
+        const reconnected = await this.reconnect('initialize-failed');
+        if (!reconnected) {
+            this.debug('Reconnection failed, falling back to HTTP-only mode');
+        }
+        return reconnected;
     }
 
     resetContractDisabledStateCache() {
@@ -412,37 +443,150 @@ export class WebSocketService {
         return null;
     }
 
-    async queueRequest(callback) {
-        while (this.activeRequests >= this.maxConcurrentRequests) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // Increase wait time
+    getNetworkContextKey() {
+        const config = getNetworkConfig();
+        return `${config?.chainId || 'unknown'}:${config?.contractAddress || 'unknown'}`;
+    }
+
+    isStaleWork(lifecycleVersion, networkContextKey) {
+        return this.lifecycleVersion !== lifecycleVersion
+            || this.getNetworkContextKey() !== networkContextKey;
+    }
+
+    isProviderReadError(error) {
+        const errorCode = error?.code || error?.error?.code || '';
+        const errorMessage = String(
+            error?.message
+            || error?.reason
+            || error?.error?.message
+            || ''
+        );
+
+        return errorCode === 'NETWORK_ERROR'
+            || errorCode === 'SERVER_ERROR'
+            || /could not detect network|missing response/i.test(errorMessage);
+    }
+
+    processRequestQueue() {
+        if (this.processingQueue) {
+            return;
         }
-        
-        const now = Date.now();
-        const timeSinceLastRequest = now - this.lastRequestTime;
-        
-        if (timeSinceLastRequest < this.minRequestInterval) {
-            await new Promise(resolve => 
-                setTimeout(resolve, this.minRequestInterval - timeSinceLastRequest)
-            );
-        }
-        
+
+        this.processingQueue = true;
         try {
-            this.activeRequests++;
-            this.debug(`Making request (active: ${this.activeRequests})`);
-            const result = await callback();
-            this.lastRequestTime = Date.now();
-            return result;
-        } catch (error) {
-            if (error?.error?.code === -32005) {
-                this.warn('Rate limit hit, waiting before retry...');
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                return this.queueRequest(callback);
+            while (this.activeRequests < this.maxConcurrentRequests && this.requestQueue.length > 0) {
+                const job = this.requestQueue.shift();
+                this.startQueuedRequest(job);
             }
-            this.error('Request failed:', error);
-            throw error;
         } finally {
-            this.activeRequests--;
+            this.processingQueue = false;
         }
+    }
+
+    startQueuedRequest(job) {
+        const now = Date.now();
+        const scheduledStartAt = Math.max(now, this.nextRequestStartAt);
+        const delayMs = Math.max(0, scheduledStartAt - now);
+        this.nextRequestStartAt = scheduledStartAt + this.minRequestInterval;
+        this.activeRequests++;
+
+        setTimeout(async () => {
+            try {
+                this.lastRequestTime = Date.now();
+                this.debug(`Making request (active: ${this.activeRequests})`);
+                const result = await job.callback();
+                job.resolve(result);
+            } catch (error) {
+                if (error?.error?.code === -32005) {
+                    this.warn('Rate limit hit, waiting before retry...');
+                    setTimeout(() => {
+                        this.requestQueue.unshift(job);
+                        this.processRequestQueue();
+                    }, 2000);
+                    return;
+                }
+
+                this.error('Request failed:', error);
+                job.reject(error);
+            } finally {
+                this.activeRequests = Math.max(0, this.activeRequests - 1);
+                this.processRequestQueue();
+            }
+        }, delayMs);
+    }
+
+    async queueRequest(callback) {
+        return await new Promise((resolve, reject) => {
+            this.requestQueue.push({ callback, resolve, reject });
+            this.processRequestQueue();
+        });
+    }
+
+    async ensureEventListenersReady() {
+        if (!this.isInitialized || !this.provider || !this.contract) {
+            return false;
+        }
+
+        if (this.eventListenersAttached && this.eventListenersContract === this.contract) {
+            return true;
+        }
+
+        await this.setupEventListeners(this.contract);
+        this.eventListenersAttached = true;
+        this.eventListenersContract = this.contract;
+        return true;
+    }
+
+    attachEventListenersAfterRealtimeReady(realtimeReadyPromise, lifecycleVersion, networkContextKey) {
+        void Promise.resolve(realtimeReadyPromise)
+            .then(async (ready) => {
+                if (!ready || this.isStaleWork(lifecycleVersion, networkContextKey)) {
+                    return;
+                }
+
+                await this.ensureEventListenersReady();
+            })
+            .catch((error) => {
+                this.debug('Realtime initialization failed after snapshot sync:', error);
+            });
+    }
+
+    async loadStartupSnapshotViaHttp() {
+        contractService.initialize({ webSocket: this });
+
+        return await contractService.readViaHttpRpc(async ({ contract, provider }) => {
+            if (!contract) {
+                throw new Error('HTTP contract not available');
+            }
+
+            const [firstOrderId, nextOrderId, orderExpiry, gracePeriod] = await Promise.all([
+                contract.firstOrderId(),
+                contract.nextOrderId(),
+                contract.ORDER_EXPIRY(),
+                contract.GRACE_PERIOD()
+            ]);
+
+            const startOrderId = Math.max(0, Number(firstOrderId) || 0);
+            const endOrderIdExclusive = Math.max(startOrderId, Number(nextOrderId) || 0);
+            const fetchedOrders = await this.fetchOrdersInRange(
+                startOrderId,
+                endOrderIdExclusive,
+                50,
+                { contract, provider }
+            );
+
+            return {
+                provider,
+                contract,
+                firstOrderId,
+                nextOrderId,
+                orderExpiry,
+                gracePeriod,
+                startOrderId,
+                endOrderIdExclusive,
+                fetchedOrders
+            };
+        });
     }
 
     withTimeout(promise, timeoutMs, message) {
@@ -571,7 +715,8 @@ export class WebSocketService {
                 }
                 
                 if (!connected) {
-                    throw new Error('Failed to connect to any WebSocket URL');
+                    this.debug('Failed to connect to any WebSocket URL, falling back to HTTP-only mode');
+                    return false;
                 }
 
                 await this.bootstrapChainTime();
@@ -884,25 +1029,31 @@ export class WebSocketService {
      * If multicall is unavailable, returns null to signal fallback.
      * Uses this.contract.interface so decode shape always matches the deployment ABI.
      */
-    async fetchOrdersViaMulticall(startIndex, endIndex) {
+    async fetchOrdersViaMulticall(startIndex, endIndex, options = {}) {
         try {
-            if (!isMulticallAvailable()) {
+            const contract = options.contract || this.contract;
+            const provider = options.provider || contract?.provider || this.provider;
+            if (!contract) {
+                throw new Error('Contract not initialized. Call initialize() first.');
+            }
+
+            if (!isMulticallAvailable(provider)) {
                 this.debug('Multicall not available, skipping multicall path');
                 return null;
             }
 
-            const iface = this.contract.interface;
+            const iface = contract.interface;
             const calls = [];
             for (let i = startIndex; i < endIndex; i++) {
                 calls.push({
-                    target: this.contract.address,
+                    target: contract.address,
                     callData: iface.encodeFunctionData('orders', [i])
                 });
             }
 
             // Try once, then retry once on failure before falling back
             let results = await this.withTimeout(
-                multicallTryAggregate(calls, { requireSuccess: false }),
+                multicallTryAggregate(calls, { requireSuccess: false, provider }),
                 5000,
                 'multicall timeout'
             );
@@ -911,7 +1062,7 @@ export class WebSocketService {
                 await new Promise(r => setTimeout(r, 150));
                 try {
                     results = await this.withTimeout(
-                        multicallTryAggregate(calls, { requireSuccess: false }),
+                        multicallTryAggregate(calls, { requireSuccess: false, provider }),
                         5000,
                         'multicall timeout'
                     );
@@ -964,7 +1115,12 @@ export class WebSocketService {
     /**
      * Fallback: fetch orders individually with small concurrency.
      */
-    async fetchOrdersIndividually(startIndex, endIndex, concurrency = 3) {
+    async fetchOrdersIndividually(startIndex, endIndex, concurrency = 3, options = {}) {
+        const contract = options.contract || this.contract;
+        if (!contract) {
+            throw new Error('Contract not initialized. Call initialize() first.');
+        }
+
         const indices = [];
         for (let i = startIndex; i < endIndex; i++) indices.push(i);
         const results = [];
@@ -976,7 +1132,7 @@ export class WebSocketService {
                 if (idx >= indices.length) break;
                 const orderId = indices[idx];
                 try {
-                    const order = await this.contract.orders(orderId);
+                    const order = await contract.orders(orderId);
                     if (order.maker === ethers.constants.AddressZero) {
                         continue;
                     }
@@ -994,6 +1150,10 @@ export class WebSocketService {
                         orderCreationFee: order.orderCreationFee
                     });
                 } catch (e) {
+                    if (this.isProviderReadError(e)) {
+                        this.debug(`Provider error reading order ${orderId} via fallback`, e);
+                        throw e;
+                    }
                     this.debug(`Failed to read order ${orderId} via fallback`, e);
                 }
             }
@@ -1010,9 +1170,11 @@ export class WebSocketService {
      * High-level helper: fetch orders in batches using multicall with fallback.
      * Returns an array of decoded orders (without timing expansion).
      */
-    async fetchOrdersInRange(startOrderId, endOrderIdExclusive, batchSize = 50) {
+    async fetchOrdersInRange(startOrderId, endOrderIdExclusive, batchSize = 50, options = {}) {
         const all = [];
-        if (!this.contract) {
+        const contract = options.contract || this.contract;
+        const provider = options.provider || contract?.provider || this.provider;
+        if (!contract) {
             throw new Error('Contract not initialized. Call initialize() first.');
         }
         const normalizedStartOrderId = Math.max(0, Number(startOrderId) || 0);
@@ -1036,9 +1198,9 @@ export class WebSocketService {
             const startIndex = normalizedStartOrderId + (batch * batchSize);
             const endIndex = Math.min(startIndex + batchSize, normalizedEndOrderIdExclusive);
             this.debug(`Fetching batch ${batch + 1}/${totalBatches} (orders ${startIndex}-${endIndex - 1})`);
-            let batchOrders = await this.fetchOrdersViaMulticall(startIndex, endIndex);
+            let batchOrders = await this.fetchOrdersViaMulticall(startIndex, endIndex, { contract, provider });
             if (!batchOrders) {
-                batchOrders = await this.fetchOrdersIndividually(startIndex, endIndex, 3);
+                batchOrders = await this.fetchOrdersIndividually(startIndex, endIndex, 3, { contract });
             }
             all.push(...batchOrders);
             fetchedSoFar += batchOrders.length;
@@ -1100,14 +1262,20 @@ export class WebSocketService {
             this.lastChainTimeBootstrapFailureAtMonotonicMs = null;
             this.orderSyncPromise = null;
             this.hasCompletedOrderSync = false;
+            this.eventListenersAttached = false;
+            this.eventListenersContract = null;
+            this.lifecycleVersion++;
             this.isInitialized = false;
             this.provider = null;
             this.contract = null;
             this.initializationPromise = null;
             this.orderExpiry = null;
             this.gracePeriod = null;
+            this.requestQueue = [];
+            this.processingQueue = false;
             this.activeRequests = 0;
             this.lastRequestTime = 0;
+            this.nextRequestStartAt = 0;
             this.resetContractDisabledStateCache();
             this.healthCheckPromise = null;
             this.reconnectPromise = null;
@@ -1128,8 +1296,6 @@ export class WebSocketService {
         if (!triggerIfNeeded) {
             return false;
         }
-        // Ensure WebSocket is initialized before syncing orders
-        await this.waitForInitialization();
         return this.syncAllOrders();
     }
 
@@ -1140,54 +1306,47 @@ export class WebSocketService {
         }
 
         this.orderSyncPromise = (async () => {
-            this.debug('Starting order sync with existing contract...');
+            this.debug('Starting startup order snapshot sync...');
+            const lifecycleVersion = this.lifecycleVersion;
+            const networkContextKey = this.getNetworkContextKey();
+            const realtimeReadyPromise = this.initialize().catch((error) => {
+                this.debug('Realtime WebSocket initialization failed during startup sync:', error);
+                return false;
+            });
 
             try {
-                if (!this.contract) {
-                    throw new Error('Contract not initialized. Call initialize() first.');
+                const snapshot = await this.loadStartupSnapshotViaHttp();
+                if (this.isStaleWork(lifecycleVersion, networkContextKey)) {
+                    this.debug('Discarding stale startup snapshot after lifecycle/network change');
+                    return false;
                 }
-                this.debug('Starting order sync with contract:', this.contract.address);
 
-                let firstOrderId = 0;
-                let nextOrderId = 0;
-                try {
-                    firstOrderId = await this.contract.firstOrderId();
-                    this.debug('firstOrderId result:', firstOrderId.toString());
-                } catch (error) {
-                    this.debug('firstOrderId call failed, using default value:', error);
-                }
-                try {
-                    nextOrderId = await this.contract.nextOrderId();
-                    this.debug('nextOrderId result:', nextOrderId.toString());
-                } catch (error) {
-                    this.debug('nextOrderId call failed, using default value:', error);
-                }
-                const startOrderId = Math.max(0, Number(firstOrderId) || 0);
-                const endOrderIdExclusive = Math.max(startOrderId, Number(nextOrderId) || 0);
+                this.orderExpiry = snapshot.orderExpiry;
+                this.gracePeriod = snapshot.gracePeriod;
                 this.debug('Resolved order sync range:', {
-                    startOrderId,
-                    endOrderIdExclusive
+                    startOrderId: snapshot.startOrderId,
+                    endOrderIdExclusive: snapshot.endOrderIdExclusive
                 });
 
                 // Clear existing cache before sync
                 this.orderCache.clear();
 
-                // Use optimized batched fetch (multicall with fallback)
-                const fetchedOrders = await this.fetchOrdersInRange(
-                    startOrderId,
-                    endOrderIdExclusive,
-                    50
-                );
-
                 // Enrich with timings and populate cache
-                for (const o of fetchedOrders) {
+                for (const o of snapshot.fetchedOrders) {
+                    if (this.isStaleWork(lifecycleVersion, networkContextKey)) {
+                        this.debug('Discarding stale startup snapshot while populating cache');
+                        return false;
+                    }
+
                     const orderData = {
                         ...o,
                         timings: this.buildOrderTimings(o.timestamp)
                     };
                     // Calculate deal metrics for the order
                     try {
-                        const enrichedOrderData = await this.calculateDealMetrics(orderData);
+                        const enrichedOrderData = await this.calculateDealMetrics(orderData, {
+                            provider: snapshot.provider
+                        });
                         this.orderCache.set(o.id, enrichedOrderData);
                         this.debug('Added order to cache with deal metrics:', enrichedOrderData);
                     } catch (error) {
@@ -1206,15 +1365,20 @@ export class WebSocketService {
                 this.debug('Order sync complete. Cache size:', this.orderCache.size);
                 // Set flag BEFORE notifying subscribers so UI components see correct state
                 this.hasCompletedOrderSync = true;
-                this.debug('Setting up event listeners...');
-                await this.setupEventListeners(this.contract);
                 this.notifySubscribers('orderSyncComplete', Object.fromEntries(this.orderCache));
+                this.attachEventListenersAfterRealtimeReady(
+                    realtimeReadyPromise,
+                    lifecycleVersion,
+                    networkContextKey
+                );
                 return true;
             } catch (error) {
                 this.debug('Order sync failed:', error);
-                this.orderCache.clear();
-                this.hasCompletedOrderSync = false;
-                this.notifySubscribers('orderSyncComplete', {});
+                if (!this.isStaleWork(lifecycleVersion, networkContextKey)) {
+                    this.orderCache.clear();
+                    this.hasCompletedOrderSync = false;
+                    this.notifySubscribers('orderSyncComplete', {});
+                }
                 return false;
             } finally {
                 this.orderSyncPromise = null;
@@ -1366,9 +1530,14 @@ export class WebSocketService {
     }
 
     // Deal = buy USD value / sell USD value using token-normalized (decimal-adjusted) amounts.
-    async calculateDealMetrics(orderData) {
-        const buyTokenInfo = await this.getTokenInfo(orderData.buyToken); // maker wants to receive this
-        const sellTokenInfo = await this.getTokenInfo(orderData.sellToken); // maker offers this
+    async calculateDealMetrics(orderData, options = {}) {
+        const tokenProvider = options.provider || null;
+        const buyTokenInfo = await this.getTokenInfo(orderData.buyToken, {
+            provider: tokenProvider
+        }); // maker wants to receive this
+        const sellTokenInfo = await this.getTokenInfo(orderData.sellToken, {
+            provider: tokenProvider
+        }); // maker offers this
 
         const buyTokenDecimals = Number.isInteger(buyTokenInfo?.decimals) ? buyTokenInfo.decimals : 18;
         const sellTokenDecimals = Number.isInteger(sellTokenInfo?.decimals) ? sellTokenInfo.decimals : 18;
@@ -1459,21 +1628,27 @@ export class WebSocketService {
         };
     }
 
-    async getTokenInfo(tokenAddress) {
+    async getTokenInfo(tokenAddress, options = {}) {
         try {
             // Normalize address to lowercase for consistent comparison
             const normalizedAddress = tokenAddress.toLowerCase();
 
-            // 1. First check cache
-            if (this.tokenCache.has(normalizedAddress)) {
-                this.debug('Token info found in cache:', normalizedAddress);
-                return this.tokenCache.get(normalizedAddress);
+            // 1. First check shared cache
+            const cached = tokenMetadataCache.get(normalizedAddress);
+            if (cached) {
+                this.debug('Token info found in shared cache:', normalizedAddress);
+                return cached;
             }
 
             // 2. Fetch from contract using queueRequest
             this.debug('Fetching token info from contract:', normalizedAddress);
-            return await this.queueRequest(async () => {
-                const contract = new ethers.Contract(tokenAddress, erc20Abi, this.provider);
+            const provider = options.provider || this.provider;
+            if (!provider) {
+                throw new Error('Provider not initialized');
+            }
+
+            const readTokenInfo = async () => {
+                const contract = new ethers.Contract(tokenAddress, erc20Abi, provider);
                 const [symbol, decimals, name] = await Promise.all([
                     contract.symbol(),
                     contract.decimals(),
@@ -1497,23 +1672,29 @@ export class WebSocketService {
                     iconUrl: iconUrl
                 };
 
-                // Cache the result
-                this.tokenCache.set(normalizedAddress, tokenInfo);
-                this.debug('Added token to cache:', tokenInfo);
+                // Cache the result in shared cache
+                tokenMetadataCache.set(normalizedAddress, tokenInfo);
+                this.debug('Added token to shared cache:', tokenInfo);
 
                 return tokenInfo;
-            });
+            };
+
+            if (provider !== this.provider || options.queue === false) {
+                return await readTokenInfo();
+            }
+
+            return await this.queueRequest(readTokenInfo);
 
         } catch (error) {
             this.debug('Error getting token info:', error);
-            // Return a basic fallback object
+            // Return a basic fallback object (not cached - per issue #173)
             const fallback = {
                 address: tokenAddress.toLowerCase(),
                 symbol: `${tokenAddress.slice(0, 4)}...${tokenAddress.slice(-4)}`,
                 decimals: 18,
-                name: 'Unknown Token'
+                name: 'Unknown Token',
+                _isFallback: true
             };
-            this.tokenCache.set(tokenAddress.toLowerCase(), fallback);
             return fallback;
         }
     }
@@ -1619,6 +1800,8 @@ export class WebSocketService {
                 this.provider = null;
                 this.contract = null;
                 this.initializationPromise = null;
+                this.eventListenersAttached = false;
+                this.eventListenersContract = null;
                 this.lastKnownChainTimestamp = null;
                 this.chainTimeSyncedAtMonotonicMs = null;
                 this.chainTimeSyncPromise = null;
@@ -1634,13 +1817,25 @@ export class WebSocketService {
             }
 
             retryCycleDelay = this.reconnectDelay * Math.pow(2, this.maxReconnectAttempts - 1);
-            this.debug(`Max reconnection attempts reached; scheduling another reconnect cycle in ${retryCycleDelay}ms`);
+            this.debug(`Max reconnection attempts reached; falling back to HTTP-only mode; will retry in background`);
             this.reconnectAttempts = 0;
+            
+            // Return false to indicate HTTP-only mode; schedule background retry in finally block
+            // (cannot call queueReconnect here because reconnectPromise is still set)
+            this._scheduleBackgroundRetry = true;
+            this._backgroundRetryDelay = retryCycleDelay * 2;
+            
             return false;
         })().finally(() => {
             this.reconnectPromise = null;
-            if (retryCycleDelay !== null && !this.isInitialized && !this.reconnectTimer) {
-                this.queueReconnect('retry-cycle', retryCycleDelay);
+            
+            // Schedule background reconnection after reconnectPromise is cleared
+            // This ensures live updates resume when WebSocket becomes available again
+            if (this._scheduleBackgroundRetry) {
+                this._scheduleBackgroundRetry = false;
+                const delay = this._backgroundRetryDelay;
+                this._backgroundRetryDelay = null;
+                this.queueReconnect('background-retry-after-max-attempts', delay);
             }
         });
 

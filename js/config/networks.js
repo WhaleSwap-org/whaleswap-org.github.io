@@ -125,9 +125,8 @@ const primaryNetworkConfig = {
         },
         // Multicall2 contract (Uniswap) deployed on Polygon mainnet
         multicallAddress: "0x275617327c958bD06b5D6b871E7f491D76113dd8",
-        wsUrl: "wss://polygon.gateway.tenderly.co",
+        wsUrl: "wss://polygon-bor.publicnode.com",
         fallbackWsUrls: [
-            "wss://polygon-bor.publicnode.com",
             "wss://polygon-bor-rpc.publicnode.com",
             "wss://polygon.api.onfinality.io/public-ws"
         ]
@@ -144,9 +143,9 @@ const testNetworkConfig = {
         contractAddress: "0x0aB6ca718d12349B5477fD480a13F5e21a786222",
         contractABI: CONTRACT_ABI,
         explorer: "https://amoy.polygonscan.com",
-        rpcUrl: "https://rpc-amoy.polygon.technology",
+        rpcUrl: "https://polygon-amoy-bor-rpc.publicnode.com",
         fallbackRpcUrls: [
-            "https://polygon-amoy-bor-rpc.publicnode.com"
+            "https://rpc-amoy.polygon.technology"
         ],
         chainId: "0x13882",
         nativeCurrency: {
