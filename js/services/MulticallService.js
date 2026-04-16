@@ -17,7 +17,7 @@ const MULTICALL2_ABI = [
  * Get a Multicall2 contract instance for the current network
  * Returns null if provider or multicall address is not available
  */
-function getMulticallContract() {
+function getMulticallContract(providerOverride = null) {
 	try {
 		const networkCfg = getNetworkConfig();
 		const multicallAddress = networkCfg.multicallAddress;
@@ -26,7 +26,7 @@ function getMulticallContract() {
 			return null;
 		}
 
-		const provider = contractService.getProvider();
+		const provider = providerOverride || contractService.getProvider();
 		if (!provider) {
 			debug('No provider available for Multicall');
 			return null;
@@ -42,12 +42,12 @@ function getMulticallContract() {
 /**
  * Execute a batch of read-only calls via Multicall2.
  * @param {Array<{ target: string, callData: string }>} calls
- * @param {{ requireSuccess?: boolean }} options
+ * @param {{ requireSuccess?: boolean, provider?: ethers.providers.Provider|null }} options
  * @returns {Promise<Array<{ success: boolean, returnData: string }>> | null} Returns null if multicall is not available
  */
 export async function tryAggregate(calls, options = {}) {
 	const requireSuccess = options.requireSuccess === true;
-	const mc = getMulticallContract();
+	const mc = getMulticallContract(options.provider || null);
 	if (!mc) return null; // Signal to fallback
 
 	if (!Array.isArray(calls) || calls.length === 0) {
@@ -65,12 +65,11 @@ export async function tryAggregate(calls, options = {}) {
 /**
  * Helper to check if multicall is configured and provider is available.
  */
-export function isMulticallAvailable() {
+export function isMulticallAvailable(providerOverride = null) {
 	try {
 		const networkCfg = getNetworkConfig();
-		return !!(networkCfg.multicallAddress && contractService.getProvider());
+		return !!(networkCfg.multicallAddress && (providerOverride || contractService.getProvider()));
 	} catch {
 		return false;
 	}
 }
-

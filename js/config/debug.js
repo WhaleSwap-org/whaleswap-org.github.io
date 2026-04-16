@@ -15,6 +15,8 @@ export const DEBUG_CONFIG = {
     TOAST: false, // Enable toast debugging for testing
     PRICING_DEFAULT_TO_ONE: false, // Default missing prices to 1 for testing, false for production
     ADMIN_BYPASS_OWNER_CHECK: false, // Temporary: bypass owner gating for Admin tab access
+    CONTRACT_SERVICE: true, // Enable to debug HTTP RPC calls
+    CONTRACT_PARAMS: true, // Enable to debug contract params reads
     // Add more specific flags as needed
 };
 

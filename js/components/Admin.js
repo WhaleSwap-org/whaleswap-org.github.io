@@ -7,6 +7,7 @@ import { getNetworkConfig } from '../config/networks.js';
 import { walletManager } from '../services/WalletManager.js';
 import { generateTokenIconHTML } from '../utils/tokenIcons.js';
 import { getAllWalletTokens } from '../utils/contractTokens.js';
+import { contractService } from '../services/ContractService.js';
 
 export class Admin extends BaseComponent {
     constructor() {
@@ -807,12 +808,10 @@ export class Admin extends BaseComponent {
         if (!target) return;
 
         try {
-            const [feeToken, feeAmountRaw] = await Promise.all([
-                this.contract.feeToken(),
-                this.contract.orderCreationFeeAmount()
-            ]);
+            // Use HTTP RPC for fee config to avoid WebSocket timeout issues
+            const { feeToken, feeAmount: feeAmountRaw } = await contractService.getFeeConfig();
 
-            const tokenContract = new ethers.Contract(feeToken, erc20Abi, this.contract.provider);
+            const tokenContract = new ethers.Contract(feeToken, erc20Abi, contractService.getHttpProvider());
             const [symbol, decimals] = await Promise.all([
                 tokenContract.symbol(),
                 tokenContract.decimals()

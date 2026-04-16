@@ -1,6 +1,8 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ethers } from 'ethers';
 import { WALLET_COMPATIBILITY_NOTICE } from '../config/index.js';
+import { erc20Abi } from '../abi/erc20.js';
+import { contractService } from '../services/ContractService.js';
 
 export class Intro extends BaseComponent {
 	constructor() {
@@ -26,20 +28,40 @@ export class Intro extends BaseComponent {
 
 	async refreshOrderFeeCopy() {
 		try {
-			const ws = this.ctx.getWebSocket();
-			if (!ws) return;
+			// Use HTTP RPC for startup reads to avoid WebSocket timeout issues
+			const contractService = this.ctx.getContractService();
+			if (!contractService) {
+				this.debug('[Intro] ContractService not available');
+				return;
+			}
 
-			await ws.waitForInitialization();
-			if (!ws.contract) return;
+			const { feeToken: feeTokenAddress, feeAmount: feeAmountRaw } = await contractService.getFeeConfig();
 
-			const [feeTokenAddress, feeAmountRaw] = await Promise.all([
-				ws.queueRequest(async () => ws.contract.feeToken()),
-				ws.queueRequest(async () => ws.contract.orderCreationFeeAmount())
-			]);
+			// Fetch token metadata via HTTP RPC (avoids WebSocket dependency)
+			let tokenSymbol;
+			let tokenDecimals;
+			
+			try {
+				const httpProvider = contractService.getHttpProvider();
+				if (httpProvider) {
+					const tokenContract = new ethers.Contract(feeTokenAddress, erc20Abi, httpProvider);
+					[tokenSymbol, tokenDecimals] = await Promise.all([
+						tokenContract.symbol(),
+						tokenContract.decimals()
+					]);
+					tokenDecimals = Number(tokenDecimals);
+				} else {
+					throw new Error('No HTTP provider available');
+				}
+			} catch (tokenError) {
+				// Fallback: try WebSocket cache, then use defaults
+				this.debug('[Intro] Failed to fetch token metadata via HTTP, trying WebSocket cache:', tokenError);
+				const ws = this.ctx.getWebSocket();
+				const tokenInfo = ws ? await ws.getTokenInfo(feeTokenAddress).catch(() => null) : null;
+				tokenSymbol = tokenInfo?.symbol || `${feeTokenAddress.slice(0, 6)}...${feeTokenAddress.slice(-4)}`;
+				tokenDecimals = Number.isInteger(tokenInfo?.decimals) ? tokenInfo.decimals : 18;
+			}
 
-			const tokenInfo = await ws.getTokenInfo(feeTokenAddress);
-			const tokenSymbol = tokenInfo?.symbol || `${feeTokenAddress.slice(0, 6)}...${feeTokenAddress.slice(-4)}`;
-			const tokenDecimals = Number.isInteger(tokenInfo?.decimals) ? tokenInfo.decimals : 18;
 			const formattedFee = ethers.utils.formatUnits(feeAmountRaw, tokenDecimals);
 
 			this.applyOrderFeeCopy({

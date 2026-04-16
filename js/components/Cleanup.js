@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { handleTransactionError } from '../utils/ui.js';
+import { contractService } from '../services/ContractService.js';
 
 export class Cleanup extends BaseComponent {
     constructor(containerId) {
@@ -257,11 +258,8 @@ export class Cleanup extends BaseComponent {
             // Display reward for next cleanup
             if (elements.currentReward && nextOrderToClean) {
                 try {
-                    // Get fee information directly from contract
-                    const [feeToken, feeAmount] = await Promise.all([
-                        this.webSocket.contract.feeToken(),
-                        this.webSocket.contract.orderCreationFeeAmount()
-                    ]);
+                    // Use HTTP RPC for fee config to avoid WebSocket timeout issues
+                    const { feeToken, feeAmount } = await contractService.getFeeConfig();
 
                     this.debug('Fee info from contract:', { feeToken, feeAmount: feeAmount.toString() });
 
