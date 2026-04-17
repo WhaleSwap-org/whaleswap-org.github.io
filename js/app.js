@@ -713,6 +713,39 @@ class App {
 		}
 	}
 
+	persistActiveTabState(tabId = this.currentTab || 'view-orders') {
+		try {
+			const nextTabId = String(tabId || '').trim();
+			if (!nextTabId) {
+				return;
+			}
+
+			const historyState = window.history?.state || {};
+			window.history?.replaceState?.(
+				{
+					...historyState,
+					[ACTIVE_TAB_STATE_KEY]: nextTabId
+				},
+				'',
+				window.location.href
+			);
+		} catch (error) {
+			this.debug('Failed to persist active tab state:', error);
+		}
+	}
+
+	getDefaultInitialTab(hasInitialConnectedContext = false) {
+		return hasInitialConnectedContext ? 'create-order' : 'view-orders';
+	}
+
+	resolveInitialTab(restoredTab, hasInitialConnectedContext = false) {
+		const fallbackTab = this.getDefaultInitialTab(hasInitialConnectedContext);
+		const normalizedRestoredTab = String(restoredTab || '').trim();
+		return normalizedRestoredTab && this.isTabVisible(normalizedRestoredTab)
+			? normalizedRestoredTab
+			: fallbackTab;
+	}
+
 	showGlobalLoader(message = 'Loading WhaleSwap...', options = {}) {
 		const { mode = null } = options;
 		if (window.__bootstrapLoaderTimeout) {
@@ -1303,12 +1336,13 @@ class App {
 				}
 			});
 
-			// Restore active tab from history state if available (PR #178 review)
+			// Restore active tab from history state if available (PR #178 review).
+			// Resolve it only after initial tab visibility has been applied; some
+			// tabs (for example cleanup-orders) start hidden in the HTML and are
+			// made visible by updateTabVisibility().
 			const historyState = window.history?.state || {};
 			const restoredTab = historyState[ACTIVE_TAB_STATE_KEY];
-			this.currentTab = (restoredTab && this.isTabVisible(restoredTab)) 
-				? restoredTab 
-				: (hasInitialConnectedContext ? 'create-order' : 'view-orders');
+			this.currentTab = this.getDefaultInitialTab(hasInitialConnectedContext);
 
 				// Add wallet connection state handler
 				walletManager.addListener(async (event, data) => {
@@ -1484,6 +1518,7 @@ class App {
 
 			// Update initial tab visibility based on wallet connection only.
 			this.updateTabVisibility(hasInitialConnectedContext);
+			this.currentTab = this.resolveInitialTab(restoredTab, hasInitialConnectedContext);
 			// Do not block first paint on owner check/network calls.
 			Promise.resolve()
 				.then(() => this.refreshAdminTabVisibility())
@@ -1846,6 +1881,7 @@ class App {
 
 			// Show and initialize selected tab
 			if (tabContent) {
+				this.persistActiveTabState(tabId);
 				tabContent.classList.add('active');
 
 				// Initialize component for this tab
