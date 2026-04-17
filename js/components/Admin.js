@@ -40,10 +40,8 @@ export class Admin extends BaseComponent {
         this.isInitializing = true;
 
         try {
-            const ws = this.ctx.getWebSocket();
-            await ws?.waitForInitialization();
-
-            this.contract = ws?.contract;
+            // Use HTTP for reads so Admin never blocks on WS readiness.
+            this.contract = await contractService.readViaHttpRpc(({ contract: httpContract }) => httpContract);
             if (!this.contract) {
                 throw new Error('Contract not initialized');
             }

@@ -6,6 +6,7 @@ import { generateTokenIconHTML } from '../utils/tokenIcons.js';
 import { getClaimableSnapshot } from '../utils/claims.js';
 import { buildTokenDisplaySymbolMap, getDisplaySymbol } from '../utils/tokenDisplay.js';
 import { escapeHtml } from '../utils/html.js';
+import { contractService } from '../services/ContractService.js';
 
 export class Claim extends BaseComponent {
     constructor(containerId = 'claim') {
@@ -45,9 +46,9 @@ export class Claim extends BaseComponent {
 
         try {
             const ws = this.ctx.getWebSocket();
-            await ws?.waitForInitialization?.();
             this.webSocket = ws;
-            this.contract = ws?.contract || null;
+            // Use HTTP for reads so Claim never blocks on WS readiness.
+            this.contract = await contractService.readViaHttpRpc(({ contract: httpContract }) => httpContract);
 
             this.renderShell();
             this.container.removeEventListener('click', this.handleContainerClick);

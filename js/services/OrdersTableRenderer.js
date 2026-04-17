@@ -736,7 +736,8 @@ export class OrdersTableRenderer {
             const order = ws.orderCache.get(Number(orderId));
             if (!order) return;
 
-            await ws.ensureChainTimeInitialized();
+            // Avoid blocking UI updates (row render) on chain-time bootstrap.
+            ws.ensureChainTimeInitialized().catch(() => {});
             const currentTime = ws.getCurrentTimestamp();
             const expiresAt = order?.timings?.expiresAt;
             const timeDiff = Number.isFinite(currentTime) && typeof expiresAt === 'number'

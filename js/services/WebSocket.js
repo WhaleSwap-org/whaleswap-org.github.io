@@ -52,6 +52,10 @@ export class WebSocketService {
         this.chainTimeSyncPromise = null;
         this.chainTimeMaxAgeMs = 120000;
         this.chainTimeRetryCooldownMs = 10000;
+        // Hard cap on provider.getBlock('latest') during chain-time bootstrap.
+        // Must stay short enough that first-paint never feels wedged even if a
+        // partially-connected provider never settles its pending requests.
+        this.chainTimeBootstrapTimeoutMs = 8000;
         this.lastChainTimeBootstrapFailureAtMonotonicMs = null;
 
         // Order sync lifecycle state
@@ -179,11 +183,18 @@ export class WebSocketService {
             return;
         }
 
-        try {
-            socket.onopen = null;
-            socket.onerror = null;
-            socket.onclose = null;
-        } catch (_) {}
+        // NOTE: Do NOT null out socket.onopen/onerror/onclose here.
+        //
+        // ethers' WebSocketProvider installs its own onclose handler that is
+        // responsible for rejecting every pending entry in provider._requests.
+        // If we strip it, `socket.close(1000)` below will close the socket but
+        // any in-flight send()/getBlock()/getBlockNumber() promises are
+        // orphaned and never settle. That is the deadlock that stranded
+        // bootstrapChainTime() -> getBlock('latest') on the first failing
+        // Polygon WS URL, leaving the "Preparing interface..." loader stuck
+        // forever. We already called provider.removeAllListeners() above, so
+        // any external 'close'/'error' listeners (that WE registered) are
+        // gone and ethers' internal cleanup can run unobserved.
 
         try {
             const readyState = typeof socket.readyState === 'number' ? socket.readyState : null;
@@ -313,7 +324,13 @@ export class WebSocketService {
 
         this.chainTimeSyncPromise = (async () => {
             try {
-                const block = await this.provider.getBlock('latest');
+                // WS is for events; chain time is a read -> use HTTP.
+                const httpProvider = contractService.getHttpProvider();
+                const block = await this.withTimeout(
+                    (httpProvider ? httpProvider.getBlock('latest') : this.provider.getBlock('latest')),
+                    this.chainTimeBootstrapTimeoutMs,
+                    'Timed out fetching latest block for chain-time bootstrap'
+                );
                 const blockTimestamp = Number(block?.timestamp);
 
                 if (!Number.isFinite(blockTimestamp)) {
@@ -623,13 +640,16 @@ export class WebSocketService {
             const requestId = ++this.contractDisabledRequestSeq;
             this.contractDisabledInFlightRequestId = requestId;
             const requestPromise = this.queueRequest(async () => {
-                if (!this.contract) {
-                    throw new Error('Contract not initialized');
-                }
-
-                // Timeout must apply to the queued RPC itself so queue slots are released.
+                // WS should be "events only": do contract-state reads via HTTP.
+                // This prevents transient WS socket flaps (CLOSING/CLOSED) from
+                // disabling the Create Order button with "Unable to Verify Contract State".
                 const isDisabled = await this.withTimeout(
-                    Promise.resolve(this.contract.isDisabled()),
+                    contractService.readViaHttpRpc(async ({ contract }) => {
+                        if (!contract) {
+                            throw new Error('HTTP contract unavailable');
+                        }
+                        return await contract.isDisabled();
+                    }),
                     timeoutMs,
                     'isDisabled timeout'
                 );
@@ -719,8 +739,6 @@ export class WebSocketService {
                     return false;
                 }
 
-                await this.bootstrapChainTime();
-
                 // Initialize contract before fetching constants
                 this.debug('Initializing contract...');
                 this.contractAddress = config.contractAddress;
@@ -741,13 +759,20 @@ export class WebSocketService {
                     abi: this.contract.interface.format()
                 });
 
-                this.debug('Fetching contract constants...');
-                this.orderExpiry = await this.contract.ORDER_EXPIRY();
-                this.gracePeriod = await this.contract.GRACE_PERIOD();
-                this.debug('Contract constants loaded:', {
-                    orderExpiry: this.orderExpiry.toString(),
-                    gracePeriod: this.gracePeriod.toString()
+                // WS should be "events only": read constants via HTTP RPC.
+                this.debug('Fetching contract constants via HTTP RPC...');
+                const constants = await contractService.readViaHttpRpc(async ({ contract }) => {
+                    if (!contract) {
+                        throw new Error('HTTP contract unavailable');
+                    }
+                    const [orderExpiry, gracePeriod] = await Promise.all([
+                        contract.ORDER_EXPIRY(),
+                        contract.GRACE_PERIOD()
+                    ]);
+                    return { orderExpiry, gracePeriod };
                 });
+                this.orderExpiry = constants.orderExpiry;
+                this.gracePeriod = constants.gracePeriod;
                 
                 // Subscribe to pricing service after everything else is ready
                 const pricing = this.pricingService;
@@ -806,35 +831,16 @@ export class WebSocketService {
     async setupEventListeners(contract) {
         try {
             this.debug('Setting up event listeners for contract:', contract.address);
+
+            // Patch ethers' internal subscription path to swallow rejections when
+            // the socket is closing/closed (public WS endpoints are flaky).
+            // This avoids console noise like:
+            //   "WebSocket is already in CLOSING or CLOSED state."
+            this.shieldEthersSubscriptions(this.provider);
             
             // Test event subscription
             const filter = contract.filters.OrderCreated();
             this.debug('Created filter:', filter);
-
-            // Add error handling for WebSocket connection
-            const socket = this.provider?._websocket;
-            if (socket) {
-                socket.onopen = () => {
-                    this.debug('WebSocket connected');
-                };
-
-                socket.onerror = (error) => {
-                    this.debug('WebSocket error:', error);
-                };
-
-                socket.onclose = (event) => {
-                    if (socket !== this.provider?._websocket) {
-                        this.debug('Ignoring close event from stale websocket instance');
-                        return;
-                    }
-
-                    this.debug('WebSocket closed:', event);
-                    if (event.code !== 1000) {
-                        this.debug('WebSocket closed unexpectedly, attempting to reconnect...');
-                        this.queueReconnect('socket-close', 5000);
-                    }
-                };
-            }
 
             contract.on("OrderCreated", async (...args) => {
                 try {
@@ -1021,6 +1027,37 @@ export class WebSocketService {
         } catch (error) {
             this.debug('Error setting up event listeners:', error);
         }
+    }
+
+    shieldEthersSubscriptions(provider) {
+        if (!provider || provider.__wsSubscriptionShielded) {
+            return;
+        }
+
+        const originalSubscribe = provider._subscribe;
+        if (typeof originalSubscribe !== 'function') {
+            return;
+        }
+
+        provider.__wsSubscriptionShielded = true;
+        provider._subscribe = (...args) => {
+            try {
+                const result = originalSubscribe.apply(provider, args);
+                // ethers returns a Promise for WS subscription setup; when the
+                // socket is closed mid-flight it can reject. Attach a catch to
+                // prevent unhandled rejections / noisy console output.
+                if (result && typeof result.then === 'function') {
+                    return result.catch((error) => {
+                        this.debug('Silenced eth_subscribe failure:', error);
+                        return null;
+                    });
+                }
+                return result;
+            } catch (error) {
+                this.debug('Silenced eth_subscribe throw:', error);
+                return Promise.resolve(null);
+            }
+        };
     }
 
     /**

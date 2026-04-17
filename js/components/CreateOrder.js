@@ -634,20 +634,12 @@ export class CreateOrder extends BaseComponent {
                 }
             }
 
+            // CreateOrder should not depend on WS readiness. It only needs:
+            // - HTTP reads for config/allowed tokens/balances
+            // - wallet signer for writes
             const ws = this.ctx.getWebSocket();
-            // CreateOrder only creates orders, it doesn't need to listen to order events
-
-            // Wait for WebSocket to be fully initialized
             if (!ws?.isInitialized) {
-                this.debug('Waiting for WebSocket initialization...');
-                await new Promise(resolve => {
-                    const checkInterval = setInterval(() => {
-                        if (ws?.isInitialized) {
-                            clearInterval(checkInterval);
-                            resolve();
-                        }
-                    }, 100);
-                });
+                this.debug('WebSocket not ready yet; continuing with HTTP-only reads');
             }
 
             // Clear existing content before re-populating
@@ -656,16 +648,14 @@ export class CreateOrder extends BaseComponent {
             if (sellContainer) sellContainer.innerHTML = '';
             if (buyContainer) buyContainer.innerHTML = '';
 
-            // Use WebSocket's contract instance
-            this.contract = ws.contract;
-            this.provider = ws.provider;
+            // Use HTTP contract/provider for reads so network switching can't
+            // strand balances in "loading...".
+            this.contract = await contractService.readViaHttpRpc(({ contract }) => contract);
+            this.provider = contractService.getHttpProvider();
 
             if (!this.contract) {
-                throw new Error('Contract not initialized');
+                throw new Error('HTTP contract not initialized');
             }
-            
-            // Initialize contract service
-            contractService.initialize();
             
             if (readOnlyMode) {
                 this.setReadOnlyMode();

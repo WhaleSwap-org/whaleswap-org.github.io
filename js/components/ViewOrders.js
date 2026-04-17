@@ -134,7 +134,9 @@ export class ViewOrders extends BaseComponent {
                 Array.from(ws.tokenCache.values()),
                 this.ctx?.getWalletChainId?.()
             );
-            await ws.ensureChainTimeInitialized();
+            // Never block first render / refresh on chain-time bootstrap.
+            // Expiry checks fall back to local wall-clock when chain time is unknown.
+            ws.ensureChainTimeInitialized().catch(() => {});
             let ordersToDisplay = Array.from(ws.orderCache.values());
             
             // Apply token filters

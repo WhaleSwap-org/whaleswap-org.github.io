@@ -210,7 +210,8 @@ async function getUserTokenBalance(tokenAddress) {
             return cached.value;
         }
         
-        const provider = contractService.getProvider();
+        // Balance reads should be HTTP-only; WS can flap during network switches.
+        const provider = contractService.getHttpProvider() || contractService.getProvider();
 
         // First, try multicall for decimals and balanceOf (single ABI source: erc20.js)
         const calls = [

@@ -100,7 +100,8 @@ export class TakerOrders extends BaseComponent {
                 Array.from(ws.tokenCache.values()),
                 this.ctx?.getWalletChainId?.()
             );
-            await ws.ensureChainTimeInitialized();
+            // Never block first render / refresh on chain-time bootstrap.
+            ws.ensureChainTimeInitialized().catch(() => {});
             let ordersToDisplay = Array.from(ws.orderCache.values())
                 .filter(order => 
                     order?.taker && 

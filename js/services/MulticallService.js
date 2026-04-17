@@ -26,7 +26,9 @@ function getMulticallContract(providerOverride = null) {
 			return null;
 		}
 
-		const provider = providerOverride || contractService.getProvider();
+		// Multicall is a *read path*; prefer HTTP so WS socket flaps cannot
+		// strand balance reads on network switches.
+		const provider = providerOverride || contractService.getHttpProvider() || contractService.getProvider();
 		if (!provider) {
 			debug('No provider available for Multicall');
 			return null;

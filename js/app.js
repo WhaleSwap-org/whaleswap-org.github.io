@@ -260,13 +260,18 @@ class App {
 			}
 
 			const ws = this.ctx?.getWebSocket?.();
-			await ws?.waitForInitialization?.();
 			if (!ws) {
 				return await applyVisibility(noOrderTabsVisibility);
 			}
 
+			// Never block UI on WebSocket readiness / order sync. If the cache
+			// isn't ready yet, keep tabs hidden and re-check shortly.
 			if (force || !ws.hasCompletedOrderSync) {
-				await ws.waitForOrderSync({ triggerIfNeeded: true });
+				void ws.waitForInitialization?.()
+					.then(() => ws.waitForOrderSync?.({ triggerIfNeeded: true }))
+					.then(() => this.scheduleOrderTabVisibilityRefresh({ force: false }))
+					.catch((error) => this.debug('Deferred order-tab visibility refresh failed:', error));
+				return await applyVisibility(noOrderTabsVisibility, { allowRedirect: false });
 			}
 
 			const orders = Array.from(ws.orderCache?.values?.() || []);
@@ -382,8 +387,9 @@ class App {
 				}
 
 			const ws = this.ctx?.getWebSocket?.();
-			await ws?.waitForInitialization?.();
-			const contract = ws?.contract;
+			// Do not block UI on WS readiness. Use HTTP contract reads for
+			// visibility checks to avoid stalls during rapid chain toggles.
+			const contract = await contractService.readViaHttpRpc(({ contract: httpContract }) => httpContract);
 				if (!contract) {
 					await applyVisibility(fallbackVisible, {
 						authoritative: false,
@@ -1119,10 +1125,15 @@ class App {
 
 		try {
 			await walletManager.switchToNetwork(resolvedTargetNetwork);
-			return await this.handleSuccessfulConnectedNetworkTransition(resolvedTargetNetwork, {
-				source,
-				selectedChainChanged,
+			// The wallet's chainChanged event (see handler above) will fire
+			// and trigger the full-reload path. Trigger it here as a safety
+			// net in case the wallet does not emit chainChanged (some
+			// providers skip the event when the chain is already correct).
+			triggerPageReloadWithSwitchFallback({
+				loaderMode: 'spinner',
+				loaderMessage: `Switching to ${getNetworkLabel(resolvedTargetNetwork)}...`
 			});
+			return true;
 		} catch (error) {
 			const pendingSwitchRequest = this.pendingWalletSwitchRequest;
 			if (this.pendingWalletSwitchRequest?.targetSlug === resolvedTargetNetwork.slug) {
@@ -1137,10 +1148,6 @@ class App {
 
 	async handleNetworkSelectionCommit(network, options = {}) {
 		if (!network) return;
-		const {
-			selectedChainChanged = false,
-			previousSelectedNetwork = null,
-		} = options;
 
 		try {
 			setActiveNetwork(network);
@@ -1149,24 +1156,15 @@ class App {
 			return;
 		}
 
-		// Issue #153: Network selection updates app state without triggering wallet operations
-		// For connected users, use in-app transition to preserve navigation context (PR #178 review)
-		const wallet = this.ctx?.getWallet?.();
-		const isConnected = !!wallet?.isWalletConnected?.() && !!wallet?.getSigner?.();
-		
-		if (isConnected) {
-			// Use in-app transition for connected users to preserve active tab
-			await this.handleSuccessfulConnectedNetworkTransition(network, {
-				source: 'network-selector',
-				selectedChainChanged,
-			});
-		} else {
-			// Use page reload for disconnected/read-only users
-			triggerPageReloadWithSwitchFallback({
-				loaderMode: 'spinner',
-				loaderMessage: `Switching to ${getNetworkLabel(network)}...`
-			});
-		}
+		// Network switches always do a full page reload. In-page transitions
+		// were a source of subtle bugs (stale WS subscriptions, orphaned
+		// promises, half-torn-down contracts). A reload gives a guaranteed
+		// clean slate, and the active tab is already preserved via
+		// ACTIVE_TAB_STATE_KEY in history.state (see persistBootstrapLoaderState).
+		triggerPageReloadWithSwitchFallback({
+			loaderMode: 'spinner',
+			loaderMessage: `Switching to ${getNetworkLabel(network)}...`
+		});
 	}
 
 	async load () {
@@ -1226,7 +1224,10 @@ class App {
 			this.updateGlobalLoaderText('Initializing pricing...');
 			await this.initializePricingService();
 			this.updateGlobalLoaderText('Connecting to order feed...');
-			await this.initializeWebSocket({ awaitReady: hasInitialConnectedContext });
+			// Never block initial paint (or reload-on-network-switch) on WS readiness.
+			// Public WS endpoints can be intermittently slow/rate-limited; any waits here
+			// can strand the global loader during rapid chain toggles.
+			await this.initializeWebSocket({ awaitReady: false });
 
 			// Initialize CreateOrder first
 			this.components = {
@@ -1368,16 +1369,18 @@ class App {
 							this.ctx.setWalletChainId(walletChainId);
 							syncNetworkBadgeFromState();
 
-								const selectedNetwork = this.getSelectedNetwork();
-								const walletNetwork = getNetworkById(walletChainId);
-								if (walletNetwork && walletNetwork.slug === selectedNetwork.slug) {
-									const pendingSwitchRequest = this.getPendingWalletSwitchRequest(walletNetwork);
-									await this.handleSuccessfulConnectedNetworkTransition(walletNetwork, {
-										source: pendingSwitchRequest?.source || 'chain-changed',
-										selectedChainChanged: Boolean(pendingSwitchRequest?.selectedChainChanged),
-										walletChainId,
-									});
-								} else {
+							const selectedNetwork = this.getSelectedNetwork();
+							const walletNetwork = getNetworkById(walletChainId);
+							if (walletNetwork && walletNetwork.slug === selectedNetwork.slug) {
+								// Wallet now matches the selected chain: do a full reload
+								// to adopt the new chain state from scratch (see
+								// handleNetworkSelectionCommit for rationale). The active
+								// tab is preserved via history.state.
+								triggerPageReloadWithSwitchFallback({
+									loaderMode: 'spinner',
+									loaderMessage: `Switching to ${getNetworkLabel(walletNetwork)}...`
+								});
+							} else {
 								this.updateTabVisibility(true);
 								await this.refreshAdminTabVisibility();
 								await this.refreshClaimTabVisibility();
@@ -1421,9 +1424,7 @@ class App {
 					// Keep hidden until owner check confirms visibility to avoid startup flicker.
 					adminButton.style.display = 'none';
 					const signer = await wallet.getSigner();
-					const ws = this.ctx.getWebSocket();
-					await ws?.waitForInitialization();
-					const contract = ws?.contract;
+					const contract = await contractService.readViaHttpRpc(({ contract: httpContract }) => httpContract);
 					if (!signer || !contract) throw new Error('Signer/contract unavailable');
 
 					const [owner, account] = await Promise.all([
@@ -1952,10 +1953,16 @@ class App {
 			// Ensure WebSocket is initialized and synced when preserving orders
 			if (preserveOrders && ws) {
 				try {
-					await ws.waitForInitialization();
-					if (ws.orderCache.size === 0) {
-						await ws.syncAllOrders();
-					}
+					// Never block connected-wallet reinit on WS readiness.
+					// If WS comes up later and the cache is empty, sync in background.
+					void ws.waitForInitialization()
+						.then(() => {
+							if (ws.orderCache.size === 0) {
+								return ws.syncAllOrders();
+							}
+							return null;
+						})
+						.catch((e) => this.debug('Deferred WS sync skipped/failed (preserveOrders)', e));
 				} catch (e) {
 					this.debug('WebSocket not ready during reinit (preserveOrders)', e);
 				}

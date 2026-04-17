@@ -98,9 +98,10 @@ const primaryNetworkConfig = {
         },
         // Multicall3
         multicallAddress: "0xca11bde05977b3631167028862be2a173976ca11",
-        wsUrl: "wss://bsc-rpc.publicnode.com",
+        wsUrl: "wss://bsc.drpc.org",
         fallbackWsUrls: [
-            "wss://bsc.publicnode.com"
+            "wss://bsc.publicnode.com",
+            "wss://bsc-rpc.publicnode.com"
         ]
     },
     "137": {

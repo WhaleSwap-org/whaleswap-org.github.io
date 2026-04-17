@@ -246,7 +246,6 @@ export class ContractParams extends BaseComponent {
         let successCount = 0;
 
         // Use HTTP RPC for contract parameter reads (avoids WebSocket timeout issues)
-        console.log('[CONTRACT_PARAMS] Starting HTTP RPC reads for contract parameters');
         await Promise.all(
             Object.entries(paramMethods).map(async ([key, method]) => {
                 try {

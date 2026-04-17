@@ -180,7 +180,8 @@ export class MyOrders extends BaseComponent {
                 Array.from(ws.tokenCache.values()),
                 this.ctx?.getWalletChainId?.()
             );
-            await ws.ensureChainTimeInitialized();
+            // Never block first render / refresh on chain-time bootstrap.
+            ws.ensureChainTimeInitialized().catch(() => {});
             let ordersToDisplay = Array.from(ws.orderCache.values());
             
             // Filter for user's orders only

@@ -299,9 +299,13 @@ export class OrdersComponentHelper {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 return this.initWebSocket(onRefresh); // Retry
             }
-
-            // Wait for WebSocket to be fully initialized
-            await ws.waitForInitialization();
+            // Never block UI initialization on WebSocket readiness.
+            // Public WS endpoints can be intermittently slow; waiting here can
+            // strand the global loader during rapid network toggles (especially
+            // when a wallet reconnects on reload).
+            void ws.waitForInitialization()
+                .then(() => this.setupWebSocket(onRefresh))
+                .catch((error) => this.debug('WebSocket not ready yet:', error));
             
             // Get current account
             const wallet = this.component.ctx.getWallet();
@@ -323,7 +327,7 @@ export class OrdersComponentHelper {
             };
             wallet?.addListener(this.component.walletListener);
             
-            // Setup WebSocket subscriptions
+            // Setup subscriptions opportunistically (will no-op until provider exists).
             await this.setupWebSocket(onRefresh);
             
             this.debug('WebSocket initialization complete');
@@ -504,6 +508,8 @@ export class OrdersComponentHelper {
                 throw new Error(`Order is not active (status: ${getOrderStatusText(currentOrderStatus)})`);
             }
 
+            // This path is about *validating a transaction* (not first paint),
+            // so we still want chain time. But do not hang forever.
             await ws.ensureChainTimeInitialized();
             const now = ws.getCurrentTimestamp();
             if (!Number.isFinite(now)) {

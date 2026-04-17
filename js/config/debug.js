@@ -1,23 +1,43 @@
+// Log toggles (default ON). The Debug Panel (Ctrl+Shift+D) persists
+// per-browser overrides in localStorage under `whaleswap_debug`, so if
+// you previously saved an override for any of these, it will take
+// precedence over the defaults below. Clear that key or hit "Select
+// all" + "Apply" in the panel to reset.
+//
+// NOTE: entries below that end in a comment like `// feature flag`
+// are NOT loggers - they change application behavior and should be
+// left false unless you know what you are doing.
 export const DEBUG_CONFIG = {
-    APP: false,
-    WEBSOCKET: true, // Enable to debug status calculation
-    WALLET: false,
-    VIEW_ORDERS: true, // Enable to debug status updates
-    CREATE_ORDER: false,
-    MY_ORDERS: false,
-    TAKER_ORDERS: false,
-    CLEANUP_ORDERS: false,
-    WALLET_UI: false,
-    BASE_COMPONENT: false,
-    PRICING: false,
-    TOKENS: false,
-    TOKEN_ICON_SERVICE: false, // Add token icon service debugging
-    TOAST: false, // Enable toast debugging for testing
-    PRICING_DEFAULT_TO_ONE: false, // Default missing prices to 1 for testing, false for production
-    ADMIN_BYPASS_OWNER_CHECK: false, // Temporary: bypass owner gating for Admin tab access
-    CONTRACT_SERVICE: true, // Enable to debug HTTP RPC calls
-    CONTRACT_PARAMS: true, // Enable to debug contract params reads
-    // Add more specific flags as needed
+    APP: true,
+    WEBSOCKET: true,
+    WALLET: true,
+    WALLET_UI: true,
+    BASE_COMPONENT: true,
+    VIEW_ORDERS: true,
+    CREATE_ORDER: true,
+    MY_ORDERS: true,
+    TAKER_ORDERS: true,
+    CLEANUP: true,
+    CLAIM: true,
+    ADMIN: true,
+    CONTRACT_SERVICE: true,
+    CONTRACT_PARAMS: true,
+    CONTRACT_TOKENS: true,
+    ORDERS_HELPER: true,
+    ORDERS_RENDERER: true,
+    MULTICALL: true,
+    TOKEN_METADATA_CACHE: true,
+    TOKEN_ICON_SERVICE: true,
+    TOKEN_ICONS: true,
+    BALANCE_VALIDATION: true,
+    PRICING: true,
+    TOKENS: true,
+    TOAST: true,
+    VersionService: true,
+
+    // --- feature flags (NOT log toggles) --------------------------------
+    PRICING_DEFAULT_TO_ONE: false, // feature flag: default missing prices to 1 (test-only)
+    ADMIN_BYPASS_OWNER_CHECK: false, // feature flag: bypass owner gating for Admin tab
 };
 
 export const DEBUG_STORAGE_KEY = 'whaleswap_debug';
