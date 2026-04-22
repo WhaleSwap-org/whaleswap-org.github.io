@@ -185,7 +185,10 @@ export class ContractParams extends BaseComponent {
                 lastError = error;
                 this.debug(`Contract params fetch attempt ${attempt + 1} failed:`, error);
 
-                if (attempt >= this.RECONNECT_RETRY_LIMIT || typeof ws.reconnect !== 'function') {
+                if (
+                    attempt >= this.RECONNECT_RETRY_LIMIT
+                    || (typeof ws.reconnect !== 'function' && typeof ws.waitForInitialization !== 'function')
+                ) {
                     break;
                 }
 
@@ -210,15 +213,8 @@ export class ContractParams extends BaseComponent {
     }
 
     async fetchParameters(ws) {
-        const wsReady = await this.readWithTimeout(
-            () => ws.waitForInitialization(),
-            'WebSocket initialization'
-        );
-        if (!wsReady) {
-            throw new Error('WebSocket initialization failed');
-        }
-
-        const contract = ws.contract;
+        // No longer waiting for WebSocket initialization (Issue #179)
+        const contract = ws?.contract;
         if (!contract) {
             throw new Error('Contract not initialized');
         }
@@ -363,9 +359,17 @@ export class ContractParams extends BaseComponent {
     }
 
     async waitForWsRecovery(ws) {
+        if (!ws) {
+            return false;
+        }
+
         const recoveryPromise = ws.isInitialized
-            ? ws.reconnect()
-            : ws.waitForInitialization();
+            ? (typeof ws.reconnect === 'function' ? ws.reconnect() : false)
+            : (typeof ws.waitForInitialization === 'function' ? ws.waitForInitialization() : false);
+
+        if (!recoveryPromise) {
+            return false;
+        }
 
         return await this.withTimeout(
             Promise.resolve(recoveryPromise),
