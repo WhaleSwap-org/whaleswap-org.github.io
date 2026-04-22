@@ -42,9 +42,18 @@ export async function validateSellBalance(tokenAddress, sellAmount, decimals = 1
 
         // Use optimized path from contractTokens (multicall + caching)
         const info = await getTokenBalanceInfoFromTokens(tokenAddress);
-        const tokenDecimals = info.decimals ?? 18;
-        const symbol = info.symbol ?? 'N/A';
-        const rawBalance = ethers.utils.parseUnits(info.balance ?? '0', tokenDecimals);
+        switch (info.type) {
+            case 'ok':
+                break;
+            case 'unavailable':
+                throw new Error(`Could not load ${info.symbol} balance`);
+            default:
+                throw new Error(`Unknown balance info type: ${info.type}`);
+        }
+
+        const tokenDecimals = info.decimals;
+        const symbol = info.symbol;
+        const rawBalance = ethers.utils.parseUnits(info.balance, tokenDecimals);
 
         // Convert sell amount to wei for comparison
         const sellAmountWei = ethers.utils.parseUnits(sellAmount, tokenDecimals);

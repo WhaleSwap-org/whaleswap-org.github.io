@@ -1033,6 +1033,17 @@ export class CreateOrder extends BaseComponent {
         });
     }
 
+    formatValidationAmount(amount) {
+        const value = String(amount ?? '0').trim() || '0';
+        const [wholeRaw = '0', fractionRaw = ''] = value.split('.');
+        let whole = wholeRaw;
+        try {
+            whole = ethers.utils.commify(wholeRaw);
+        } catch (_) {}
+        const fraction = fractionRaw.replace(/0+$/, '');
+        return fraction ? `${whole}.${fraction}` : whole;
+    }
+
     syncFeeTokenBalanceWithAllowedTokens(tokens = this.allowedTokens) {
         if (!this.feeToken?.address || !Array.isArray(tokens)) {
             return false;
@@ -1049,7 +1060,8 @@ export class CreateOrder extends BaseComponent {
         this.feeToken = {
             ...this.feeToken,
             balance: updatedFeeToken.balance,
-            balanceLoading: this.isTokenBalanceLoading(updatedFeeToken)
+            balanceLoading: this.isTokenBalanceLoading(updatedFeeToken),
+            balanceLookupFailed: false,
         };
         this.updateFeeDisplay();
         return true;
@@ -1062,7 +1074,8 @@ export class CreateOrder extends BaseComponent {
             if (this.feeToken?.balanceLoading) {
                 this.feeToken = {
                     ...this.feeToken,
-                    balanceLoading: false
+                    balanceLoading: false,
+                    balanceLookupFailed: false,
                 };
                 this.updateFeeDisplay();
             }
@@ -1091,20 +1104,35 @@ export class CreateOrder extends BaseComponent {
                     return this.feeToken;
                 }
 
-                this.feeToken = {
-                    ...this.feeToken,
-                    balance: balanceInfo?.balance || '0',
-                    balanceLoading: false
-                };
-                this.updateFeeDisplay();
-                return this.feeToken;
+                switch (balanceInfo.type) {
+                    case 'ok':
+                        this.feeToken = {
+                            ...this.feeToken,
+                            balance: balanceInfo.balance,
+                            balanceLoading: false,
+                            balanceLookupFailed: false,
+                        };
+                        this.updateFeeDisplay();
+                        return this.feeToken;
+                    case 'unavailable':
+                        this.feeToken = {
+                            ...this.feeToken,
+                            balanceLoading: false,
+                            balanceLookupFailed: true,
+                        };
+                        this.updateFeeDisplay();
+                        return this.feeToken;
+                    default:
+                        throw new Error(`Unknown fee token balance state: ${balanceInfo.type}`);
+                }
             })
             .catch((error) => {
                 this.debug(`Error refreshing fee token balance (${source}):`, error);
                 if (this.feeToken?.address && this.feeToken.address.toLowerCase() === requestedTokenAddress) {
                     this.feeToken = {
                         ...this.feeToken,
-                        balanceLoading: false
+                        balanceLoading: false,
+                        balanceLookupFailed: true,
                     };
                     this.updateFeeDisplay();
                 }
@@ -1666,6 +1694,73 @@ export class CreateOrder extends BaseComponent {
         this.updateCreateButtonState();
     }
 
+    async ensureFeeTokenReadyForSubmit() {
+        if (!this.feeToken?.address || !this.feeToken?.amount) {
+            await this.requestFeeConfigRefresh({ source: 'create-order:fee-balance-preflight' });
+        }
+
+        if (!this.feeToken?.address || !this.feeToken?.amount) {
+            throw new Error('Order creation fee data is still loading');
+        }
+
+        let refreshedFeeToken = await this.refreshFeeTokenBalanceInBackground({
+            source: 'create-order:fee-balance-preflight',
+        });
+        if (refreshedFeeToken?.balanceLoading && this.feeTokenBalanceLoadPromise) {
+            refreshedFeeToken = await this.feeTokenBalanceLoadPromise;
+        }
+        if (refreshedFeeToken?.balanceLoading) {
+            await this.requestVisibleBalanceRefresh('create-order:fee-balance-preflight');
+            refreshedFeeToken = this.feeToken;
+        }
+        if (!refreshedFeeToken || refreshedFeeToken.balanceLoading) {
+            throw new Error('Fee token balance is still loading');
+        }
+        if (refreshedFeeToken.balanceLookupFailed) {
+            throw new Error('Fee token balance could not be refreshed. Please try again.');
+        }
+
+        return refreshedFeeToken;
+    }
+
+    async validateFeeTokenBalanceBeforeSubmit(sellAmount) {
+        const refreshedFeeToken = await this.ensureFeeTokenReadyForSubmit();
+
+        const feeTokenAddress = String(refreshedFeeToken.address || '').toLowerCase();
+        const sellTokenAddress = String(this.sellToken?.address || '').toLowerCase();
+        const sameTokenForSellAndFee = feeTokenAddress && sellTokenAddress && feeTokenAddress === sellTokenAddress;
+
+        const feeTokenDecimals = Number.isInteger(refreshedFeeToken.decimals)
+            ? refreshedFeeToken.decimals
+            : 18;
+        const feeTokenSymbol = refreshedFeeToken.symbol || 'fee token';
+        const availableFeeTokenWei = ethers.utils.parseUnits(
+            refreshedFeeToken.balance || '0',
+            feeTokenDecimals
+        );
+        const feeAmountWei = ethers.BigNumber.from(refreshedFeeToken.amount);
+
+        let sellAmountWeiForFeeToken = ethers.constants.Zero;
+        if (sameTokenForSellAndFee) {
+            sellAmountWeiForFeeToken = ethers.utils.parseUnits(sellAmount, feeTokenDecimals);
+        }
+
+        const requiredFeeTokenWei = feeAmountWei.add(sellAmountWeiForFeeToken);
+        const hasSufficientBalance = availableFeeTokenWei.gte(requiredFeeTokenWei);
+
+        return {
+            hasSufficientBalance,
+            symbol: feeTokenSymbol,
+            sameTokenForSellAndFee,
+            formattedAvailable: ethers.utils.formatUnits(availableFeeTokenWei, feeTokenDecimals),
+            formattedFeeRequired: ethers.utils.formatUnits(feeAmountWei, feeTokenDecimals),
+            formattedTotalRequired: ethers.utils.formatUnits(requiredFeeTokenWei, feeTokenDecimals),
+            formattedSellAmount: sameTokenForSellAndFee
+                ? ethers.utils.formatUnits(sellAmountWeiForFeeToken, feeTokenDecimals)
+                : null,
+        };
+    }
+
     async handleCreateOrder(event) {
         event.preventDefault();
 
@@ -1824,6 +1919,36 @@ export class CreateOrder extends BaseComponent {
             } catch (balanceError) {
                 this.debug('Balance validation error:', balanceError);
                 this.showError(`Failed to validate balance: ${balanceError.message}`);
+                return;
+            }
+
+            // Validate fee-token balance before opening tx checklist / submitting tx.
+            try {
+                const feeBalanceValidation = await this.validateFeeTokenBalanceBeforeSubmit(sellAmount);
+                if (!feeBalanceValidation.hasSufficientBalance) {
+                    const tokenSymbol = feeBalanceValidation.symbol;
+                    if (feeBalanceValidation.sameTokenForSellAndFee) {
+                        this.showError(
+                            `Insufficient ${tokenSymbol} balance for this order.\n\n` +
+                            `Required for sell amount: ${this.formatValidationAmount(feeBalanceValidation.formattedSellAmount)} ${tokenSymbol}\n` +
+                            `Required for order fee: ${this.formatValidationAmount(feeBalanceValidation.formattedFeeRequired)} ${tokenSymbol}\n` +
+                            `Total required: ${this.formatValidationAmount(feeBalanceValidation.formattedTotalRequired)} ${tokenSymbol}\n` +
+                            `Available: ${this.formatValidationAmount(feeBalanceValidation.formattedAvailable)} ${tokenSymbol}\n\n` +
+                            `Please reduce the sell amount or top up your ${tokenSymbol} balance.`
+                        );
+                    } else {
+                        this.showError(
+                            `Insufficient ${tokenSymbol} balance for order creation fee.\n\n` +
+                            `Required fee: ${this.formatValidationAmount(feeBalanceValidation.formattedFeeRequired)} ${tokenSymbol}\n` +
+                            `Available: ${this.formatValidationAmount(feeBalanceValidation.formattedAvailable)} ${tokenSymbol}\n\n` +
+                            `Please top up your ${tokenSymbol} balance and try again.`
+                        );
+                    }
+                    return;
+                }
+            } catch (feeBalanceError) {
+                this.debug('Fee balance validation error:', feeBalanceError);
+                this.showError(`Failed to validate fee-token balance: ${feeBalanceError.message}`);
                 return;
             }
 
@@ -2860,7 +2985,7 @@ export class CreateOrder extends BaseComponent {
                 address: token.address,
                 symbol: token.symbol,
                 displaySymbol: token.displaySymbol || token.symbol,
-                decimals: token.decimals || 18,
+                decimals: this.getTokenInputDecimals(token) ?? 18,
                 balance: token.balance || '0',
                 balanceLoading: this.isTokenBalanceLoading(token),
                 iconUrl: token.iconUrl || null,

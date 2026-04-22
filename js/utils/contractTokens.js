@@ -195,54 +195,57 @@ async function getTokenMetadata(tokenAddress) {
  * @param {string} tokenAddress - The token address
  * @returns {Promise<string>} Formatted balance string
  */
-async function getUserTokenBalance(tokenAddress) {
-    try {
-        // Get user's wallet address using the same method as getAllWalletTokens
-        const userAddress = await contractService.getUserAddress();
-        if (!userAddress) {
-            return '0';
-        }
+async function readUserTokenBalance(tokenAddress) {
+    // Get user's wallet address using the same method as getAllWalletTokens
+    const userAddress = await contractService.getUserAddress();
+    if (!userAddress) {
+        return '0';
+    }
 
-        // Cache check
-        const cacheKey = `${tokenAddress.toLowerCase()}-${userAddress.toLowerCase()}`;
-        const cached = balanceCache.get(cacheKey);
-        if (cached && (Date.now() - cached.ts) < BALANCE_CACHE_TTL_MS) {
-            return cached.value;
-        }
-        
-        // Balance reads should be HTTP-only; WS can flap during network switches.
-        const provider = contractService.getHttpProvider() || contractService.getProvider();
+    // Cache check
+    const cacheKey = `${tokenAddress.toLowerCase()}-${userAddress.toLowerCase()}`;
+    const cached = balanceCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < BALANCE_CACHE_TTL_MS) {
+        return cached.value;
+    }
+    
+    // Balance reads should be HTTP-only; WS can flap during network switches.
+    const provider = contractService.getHttpProvider() || contractService.getProvider();
 
-        // First, try multicall for decimals and balanceOf (single ABI source: erc20.js)
-        const calls = [
-            { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('balanceOf', [userAddress]) },
-            { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('decimals', []) }
-        ];
-        let rawBalance, decimals;
-        const mcResult = await multicallTryAggregate(calls);
-        if (mcResult) {
-            try {
-                rawBalance = ERC20_INTERFACE.decodeFunctionResult('balanceOf', mcResult[0].returnData)[0];
-                decimals = ERC20_INTERFACE.decodeFunctionResult('decimals', mcResult[1].returnData)[0];
-            } catch (_) {
-                const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
-                [rawBalance, decimals] = await Promise.all([
-                    tokenContract.balanceOf(userAddress),
-                    tokenContract.decimals()
-                ]);
-            }
-        } else {
+    // First, try multicall for decimals and balanceOf (single ABI source: erc20.js)
+    const calls = [
+        { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('balanceOf', [userAddress]) },
+        { target: tokenAddress, callData: ERC20_INTERFACE.encodeFunctionData('decimals', []) }
+    ];
+    let rawBalance, decimals;
+    const mcResult = await multicallTryAggregate(calls);
+    if (mcResult) {
+        try {
+            rawBalance = ERC20_INTERFACE.decodeFunctionResult('balanceOf', mcResult[0].returnData)[0];
+            decimals = ERC20_INTERFACE.decodeFunctionResult('decimals', mcResult[1].returnData)[0];
+        } catch (_) {
             const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
             [rawBalance, decimals] = await Promise.all([
                 tokenContract.balanceOf(userAddress),
                 tokenContract.decimals()
             ]);
         }
+    } else {
+        const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, provider);
+        [rawBalance, decimals] = await Promise.all([
+            tokenContract.balanceOf(userAddress),
+            tokenContract.decimals()
+        ]);
+    }
 
-        const balance = ethers.utils.formatUnits(rawBalance, decimals);
-        balanceCache.set(cacheKey, { value: balance, ts: Date.now() });
-        return balance;
+    const balance = ethers.utils.formatUnits(rawBalance, decimals);
+    balanceCache.set(cacheKey, { value: balance, ts: Date.now() });
+    return balance;
+}
 
+async function getUserTokenBalance(tokenAddress) {
+    try {
+        return await readUserTokenBalance(tokenAddress);
     } catch (err) {
         // Check if it's a rate limit error
         if (err.code === -32005 || err.message?.includes('rate limit')) {
@@ -272,36 +275,41 @@ export async function isTokenAllowed(tokenAddress) {
 /**
  * Get formatted balance information for display using cached/multicall-backed paths
  * @param {string} tokenAddress
- * @returns {Promise<{balance: string, symbol: string, decimals: number}>}
+ * @returns {Promise<
+ *   | { type: 'ok', balance: string, symbol: string, decimals: number }
+ *   | { type: 'unavailable', symbol: string, decimals: number }
+ * >}
  */
 export async function getTokenBalanceInfo(tokenAddress) {
-    try {
-        if (!tokenAddress || !ethers.utils.isAddress(tokenAddress)) {
-            debug(`Invalid token address provided: ${tokenAddress}`);
-            return { balance: '0', symbol: 'N/A', decimals: 18 };
-        }
+    if (!tokenAddress || !ethers.utils.isAddress(tokenAddress)) {
+        debug(`Invalid token address provided: ${tokenAddress}`);
+        return { type: 'ok', balance: '0', symbol: 'N/A', decimals: 18 };
+    }
 
-        const userAddress = await contractService.getUserAddress();
-        if (!userAddress) {
-            debug('Wallet not connected');
-            const md = await getTokenMetadata(tokenAddress).catch(() => ({ symbol: 'N/A', decimals: 18 }));
-            return { balance: '0', symbol: md.symbol ?? 'N/A', decimals: md.decimals ?? 18 };
-        }
-
-        const metadata = await getTokenMetadata(tokenAddress);
-        const balance = await getUserTokenBalance(tokenAddress);
-        return {
-            balance: balance || '0',
+    const { symbol, decimals } = await getTokenMetadata(tokenAddress)
+        .then((metadata) => ({
             symbol: metadata.symbol ?? 'N/A',
-            decimals: metadata.decimals ?? 18
-        };
+            decimals: metadata.decimals ?? 18,
+        }))
+        .catch(() => ({ symbol: 'N/A', decimals: 18 }));
+
+    const userAddress = await contractService.getUserAddress();
+    if (!userAddress) {
+        debug('Wallet not connected');
+        return { type: 'ok', balance: '0', symbol, decimals };
+    }
+
+    try {
+        const balance = await readUserTokenBalance(tokenAddress);
+        return { type: 'ok', balance, symbol, decimals };
     } catch (err) {
         if (err.code === -32005 || err.message?.includes('rate limit')) {
             warn(`Rate limit hit while getting balance info for token ${tokenAddress}`);
-            return { balance: '0', symbol: 'N/A', decimals: 18 };
+        } else {
+            debug(`Failed to get balance info for token ${tokenAddress}:`, err);
         }
-        debug(`Failed to get balance info for token ${tokenAddress}:`, err);
-        return { balance: '0', symbol: 'N/A', decimals: 18 };
+
+        return { type: 'unavailable', symbol, decimals };
     }
 }
 
