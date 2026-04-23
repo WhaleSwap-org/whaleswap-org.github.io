@@ -419,7 +419,7 @@ export class OrdersComponentHelper {
      *
      * Side effects:
      * - Disables/enables the row button while the tx is in flight
-     * - Updates `component.isProcessingFill` as a re-entrancy guard
+     * - Updates `component.isProcessingFill` while the fill flow is active
      * - Shows success/error toasts
      * - Refreshes the owning component's orders view on success
      *
@@ -438,18 +438,15 @@ export class OrdersComponentHelper {
             return;
         }
 
-        // Prevent duplicate submissions while a fill tx is already in flight.
-        if (this.component.isProcessingFill) {
-            this.debug('Fill already in progress, ignoring duplicate request');
-            return;
-        }
-
         // Capture button state so we can restore the exact label afterward.
         const button = this.component.container.querySelector(
             `button[data-order-id="${normalizedOrderId}"]`
         );
         const originalButtonLabel = button?.textContent;
         let progressToast = null;
+        if (!this.component.startWalletAction()) {
+            return;
+        }
 
         this.component.isProcessingFill = true;
 
@@ -722,6 +719,7 @@ export class OrdersComponentHelper {
             }
             this.component.isProcessingFill = false;
             this.syncFillProgressButtons();
+            this.component.endWalletAction();
         }
     }
 

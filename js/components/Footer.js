@@ -19,7 +19,7 @@ export class Footer extends BaseComponent {
             <div class="footer-wrapper">
                 <a href="https://github.com/WhaleSwap-org" target="_blank" rel="noopener noreferrer" class="footer-link">Built</a>
                 <span class="footer-text">by</span>
-                <a href="https://liberdus.com/site/" target="_blank" rel="noopener noreferrer" class="footer-link">Liberdus</a>
+                <a href="https://liberdus.com" target="_blank" rel="noopener noreferrer" class="footer-link">Liberdus</a>
             </div>
             <div class="legal-help-inline" id="legal-help-inline" aria-label="Legal links">
                 <button

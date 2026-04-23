@@ -540,6 +540,11 @@
   color: var(--text-secondary, #6b7280);
 }
 
+.fee-balance-value--insufficient {
+  color: #dc2626;
+  font-weight: 600;
+}
+
 .fee-gas {
   font-size: 14px;
   color: #666;

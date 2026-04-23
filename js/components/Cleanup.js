@@ -13,12 +13,27 @@ export class Cleanup extends BaseComponent {
         this.currentMode = null; // track readOnly/connected mode to allow re-init on change
         this.eventSubscriptions = new Set(); // Track WebSocket subscriptions for cleanup
         this.initializationRetryTimer = null;
+        this.initializationRetryMode = null;
         
         // Initialize logger
         const logger = createLogger('CLEANUP');
         this.debug = logger.debug.bind(logger);
         this.error = logger.error.bind(logger);
         this.warn = logger.warn.bind(logger);
+    }
+
+    scheduleClaimVisibilityRefreshAfterCleanup() {
+        const app = window.app;
+        if (typeof app?.scheduleClaimTabVisibilityRefresh === 'function') {
+            app.scheduleClaimTabVisibilityRefresh(null, { force: true });
+            return;
+        }
+
+        if (typeof app?.refreshClaimTabVisibility === 'function') {
+            app.refreshClaimTabVisibility({ force: true }).catch((error) => {
+                this.debug('Fallback claim-tab visibility refresh failed after cleanup:', error);
+            });
+        }
     }
 
     async initialize(readOnlyMode = true) {
@@ -72,7 +87,8 @@ export class Cleanup extends BaseComponent {
                     <div class="cleanup-section">
                         <h2>Cleanup Expired Orders</h2>
                         <div class="cleanup-info">
-                            <p>Help maintain the orderbook by cleaning up expired orders</p>
+                            <p>Help maintain the orderbook by cleaning up expired orders.</p>
+                            <p>Cleanup rewards are credited to your Claim balance. Go to the Claim tab to withdraw.</p>
                             <div class="cleanup-stats">
                                 <div class="cleanup-rewards">
                                     <h3>Cleanup Information</h3>
@@ -143,7 +159,8 @@ export class Cleanup extends BaseComponent {
                 <div class="cleanup-section">
                     <h2>Cleanup Expired Orders</h2>
                     <div class="cleanup-info">
-                        <p>Help maintain the orderbook by cleaning up expired orders</p>
+                        <p>Help maintain the orderbook by cleaning up expired orders.</p>
+                        <p>Cleanup rewards are credited to your Claim balance. Go to the Claim tab to withdraw.</p>
                         <div class="cleanup-stats">
                             <div class="cleanup-rewards">
                                 <h3>Cleanup Information</h3>
@@ -212,12 +229,21 @@ export class Cleanup extends BaseComponent {
 
     scheduleInitializationRetry(readOnlyMode) {
         if (this.initializationRetryTimer) {
-            return;
+            if (this.initializationRetryMode === readOnlyMode) {
+                return;
+            }
+
+            clearTimeout(this.initializationRetryTimer);
+            this.initializationRetryTimer = null;
+            this.initializationRetryMode = null;
         }
 
+        this.initializationRetryMode = readOnlyMode;
         this.initializationRetryTimer = setTimeout(() => {
             this.initializationRetryTimer = null;
-            this.initialize(readOnlyMode).catch((error) => {
+            const retryMode = this.initializationRetryMode;
+            this.initializationRetryMode = null;
+            this.initialize(retryMode).catch((error) => {
                 this.debug('Deferred Cleanup initialization retry failed:', error);
             });
         }, 300);
@@ -389,6 +415,10 @@ export class Cleanup extends BaseComponent {
     }
 
     async performCleanup() {
+        if (!this.startWalletAction()) {
+            return;
+        }
+
         try {
             // Check if wallet is connected first
             const wallet = this.ctx.getWallet();
@@ -511,6 +541,7 @@ export class Cleanup extends BaseComponent {
             this.cleanupButton.textContent = 'Clean Orders';
             this.cleanupButton.disabled = false;
             await this.checkCleanupOpportunities();
+            this.endWalletAction();
         }
     }
 
@@ -567,11 +598,17 @@ export class Cleanup extends BaseComponent {
                     ethers.utils.formatUnits(userFeeEvent.amount, tokenInfo.decimals)
                 ).toFixed(6);
                 
-                this.showSuccess(`Cleanup successful! You received ${formattedAmount} ${tokenInfo.symbol} as reward.`);
+                this.showSuccess(
+                    `Cleanup successful! Reward added to your Claim balance: ${formattedAmount} ${tokenInfo.symbol}. ` +
+                    'Go to the Claim tab to withdraw.'
+                );
             } catch (error) {
                 this.debug('Error formatting fee amount:', error);
-                this.showSuccess('Cleanup successful! You received a reward. Check your wallet.');
+                this.showSuccess(
+                    'Cleanup successful! Reward added to your Claim balance. Go to the Claim tab to withdraw.'
+                );
             }
+            this.scheduleClaimVisibilityRefreshAfterCleanup();
         } else if (cleanedEvents.length > 0 && feeEvents.length === 0) {
             // Order was cleaned but no fees were distributed
             const cleanedMsg = cleanedEvents.map(c => `#${c.orderId}`).join(', ');
@@ -585,7 +622,7 @@ export class Cleanup extends BaseComponent {
                 msg += `${cleanedEvents.length} order(s) cleaned. `;
             }
             if (feeEvents.length > 0) {
-                msg += `Fees distributed to ${feeEvents.length} recipient(s).`;
+                msg += `Fees credited to Claim balances for ${feeEvents.length} recipient(s).`;
             }
             this.showSuccess(msg);
         }
@@ -628,6 +665,10 @@ export class Cleanup extends BaseComponent {
     }
 
     async disableContract() {
+        if (!this.startWalletAction()) {
+            return;
+        }
+
         try {
             const contract = this.webSocket?.contract;
             if (!contract) {
@@ -661,6 +702,8 @@ export class Cleanup extends BaseComponent {
             this.showError(`Failed to disable contract: ${error.message}`);
             this.disableContractButton.disabled = false;
             this.disableContractButton.textContent = 'Disable Contract';
+        } finally {
+            this.endWalletAction();
         }
     }
 
@@ -674,6 +717,7 @@ export class Cleanup extends BaseComponent {
             clearTimeout(this.initializationRetryTimer);
             this.initializationRetryTimer = null;
         }
+        this.initializationRetryMode = null;
         
         // Unsubscribe from WebSocket events
         if (this.eventSubscriptions && this.eventSubscriptions.size > 0) {
@@ -701,6 +745,10 @@ export class Cleanup extends BaseComponent {
     }
 
     async updateFeeConfig() {
+        if (!this.startWalletAction()) {
+            return;
+        }
+
         try {
             const contract = this.webSocket?.contract;
             if (!contract) {
@@ -747,6 +795,7 @@ export class Cleanup extends BaseComponent {
         } finally {
             this.updateFeeConfigButton.disabled = false;
             this.updateFeeConfigButton.textContent = 'Update Fee Config';
+            this.endWalletAction();
         }
     }
 } 

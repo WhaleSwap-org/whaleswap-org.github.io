@@ -258,7 +258,6 @@ export class Claim extends BaseComponent {
         }
 
         const tokenLower = normalizedToken.toLowerCase();
-        if (this.pendingClaims.has(tokenLower)) return;
 
         const wallet = this.ctx.getWallet();
         if (!wallet?.isWalletConnected?.()) {
@@ -268,6 +267,10 @@ export class Claim extends BaseComponent {
 
         if (!this.contract || typeof this.contract.withdraw !== 'function') {
             this.showError('Withdraw function is unavailable for this contract.');
+            return;
+        }
+
+        if (!this.startWalletAction()) {
             return;
         }
 
@@ -329,6 +332,7 @@ export class Claim extends BaseComponent {
             }
         } finally {
             this.pendingClaims.delete(tokenLower);
+            this.endWalletAction();
             await this.refreshClaimables();
         }
     }

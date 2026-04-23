@@ -1033,6 +1033,24 @@ export class CreateOrder extends BaseComponent {
         });
     }
 
+    hasInsufficientFeeBalance() {
+        if (!this.feeToken?.amount || !Number.isInteger(this.feeToken?.decimals)) {
+            return false;
+        }
+
+        try {
+            const requiredFeeWei = ethers.BigNumber.from(this.feeToken.amount);
+            const availableBalanceWei = ethers.utils.parseUnits(
+                this.feeToken.balance || '0',
+                this.feeToken.decimals
+            );
+            return availableBalanceWei.lt(requiredFeeWei);
+        } catch (error) {
+            this.debug('Unable to evaluate fee balance sufficiency:', error);
+            return false;
+        }
+    }
+
     formatValidationAmount(amount) {
         const value = String(amount ?? '0').trim() || '0';
         const [wholeRaw = '0', fractionRaw = ''] = value.split('.');
@@ -1776,8 +1794,7 @@ export class CreateOrder extends BaseComponent {
             return;
         }
 
-        if (this.isSubmitting) {
-            this.debug('Already processing a transaction');
+        if (!this.startWalletAction()) {
             return;
         }
 
@@ -2154,6 +2171,7 @@ export class CreateOrder extends BaseComponent {
         } finally {
             this.isSubmitting = false;
             this.updateCreateButtonState();
+            this.endWalletAction();
         }
     }
 
@@ -2896,11 +2914,14 @@ export class CreateOrder extends BaseComponent {
             if (!isWalletConnected || this.isReadOnlyMode) {
                 setVisibility(feeBalance, false);
                 feeBalanceValue.textContent = this.formatFeeTokenBalanceValue(0);
+                feeBalanceValue.classList.remove('fee-balance-value--insufficient');
             } else {
                 const balanceText = this.feeToken.balanceLoading
                     ? 'loading...'
                     : this.formatFeeTokenBalanceValue(this.feeToken.balance);
                 feeBalanceValue.textContent = balanceText;
+                const isInsufficient = !this.feeToken.balanceLoading && this.hasInsufficientFeeBalance();
+                feeBalanceValue.classList.toggle('fee-balance-value--insufficient', isInsufficient);
                 setVisibility(feeBalance, true);
             }
         }

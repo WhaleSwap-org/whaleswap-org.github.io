@@ -74,6 +74,19 @@ export class WalletManager {
         };
     }
 
+    isLikelyMetaMaskProvider(provider) {
+        return Boolean(
+            provider?.isMetaMask
+            && !provider?.isBraveWallet
+            && !provider?.isCoinbaseWallet
+            && !provider?.isPhantom
+        );
+    }
+
+    isConnectedWalletMetaMask() {
+        return this.isLikelyMetaMaskProvider(this.getInjectedProvider());
+    }
+
     isRequestCapableInjectedProvider(provider) {
         return typeof provider?.request === 'function';
     }
@@ -340,13 +353,15 @@ export class WalletManager {
             this.notifyListeners('connect', {
                 account: this.account,
                 chainId: this.chainId,
-                userInitiated
+                userInitiated,
+                isMetaMaskWallet: this.isConnectedWalletMetaMask()
             });
 
             return {
                 account: this.account,
                 chainId: this.chainId,
-                userInitiated
+                userInitiated,
+                isMetaMaskWallet: this.isConnectedWalletMetaMask()
             };
         } catch (error) {
             this.debug('Connection error:', error);

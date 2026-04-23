@@ -383,6 +383,10 @@ export class MyOrders extends BaseComponent {
                 cancelButton.textContent = 'Cancel';
                 
                 cancelButton.addEventListener('click', async () => {
+                    if (!this.startWalletAction()) {
+                        return;
+                    }
+
                     try {
                         if (!this.provider) {
                             throw new Error('No injected wallet detected. Please install or unlock a wallet to cancel orders.');
@@ -447,6 +451,7 @@ export class MyOrders extends BaseComponent {
                         cancelButton.disabled = false;
                         cancelButton.textContent = 'Cancel';
                         cancelButton.classList.remove('disabled');
+                        this.endWalletAction();
                     }
                 });
                 
@@ -497,6 +502,10 @@ export class MyOrders extends BaseComponent {
                 cancelButton.textContent = 'Cancel';
                 
                 cancelButton.addEventListener('click', async () => {
+                    if (!this.startWalletAction()) {
+                        return;
+                    }
+
                     try {
                         if (!this.provider) {
                             throw new Error('No injected wallet detected. Please install or unlock a wallet to cancel orders.');
@@ -543,6 +552,8 @@ export class MyOrders extends BaseComponent {
                         handleTransactionError(error, this, 'order cancellation');
                         cancelButton.disabled = false;
                         cancelButton.textContent = 'Cancel';
+                    } finally {
+                        this.endWalletAction();
                     }
                 });
                 

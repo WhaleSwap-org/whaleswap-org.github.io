@@ -81,7 +81,10 @@ class App {
 
 	async handleWalletConnectEvent(data = {}) {
 		const walletChainId = data?.chainId || walletManager.chainId || null;
-		const shouldShowCompatibilityNotice = data?.userInitiated === true;
+		const isMetaMaskWallet = typeof data?.isMetaMaskWallet === 'boolean'
+			? data.isMetaMaskWallet
+			: walletManager.isConnectedWalletMetaMask();
+		const shouldShowCompatibilityNotice = data?.userInitiated === true && !isMetaMaskWallet;
 
 		clearNetworkSetupRequired();
 		this.ctx.setWalletChainId(walletChainId);
@@ -941,6 +944,46 @@ class App {
 		return this.pendingWalletSwitchRequest;
 	}
 
+	async handleWalletChainChangedEvent(walletChainId) {
+		const previousWalletChainId = this.ctx?.getWalletChainId?.() ?? null;
+		this.debug('Chain changed event received:', walletChainId);
+		this.ctx.setWalletChainId(walletChainId);
+		syncNetworkBadgeFromState();
+
+		const selectedNetwork = this.getSelectedNetwork();
+		const walletNetwork = getNetworkById(walletChainId);
+		if (walletNetwork && walletNetwork.slug === selectedNetwork.slug) {
+			if (String(previousWalletChainId ?? '').toLowerCase() === String(walletChainId ?? '').toLowerCase()) {
+				return;
+			}
+
+			const pendingSwitchRequest = this.getPendingWalletSwitchRequest(walletNetwork);
+			if (pendingSwitchRequest?.selectedChainChanged === false) {
+				await this.handleSuccessfulConnectedNetworkTransition(walletNetwork, {
+					source: pendingSwitchRequest.source || 'wallet:chainChanged',
+					selectedChainChanged: false,
+					walletChainId,
+				});
+				return;
+			}
+
+			// Wallet now matches the selected chain: do a full reload
+			// to adopt the new chain state from scratch (see
+			// handleNetworkSelectionCommit for rationale). The active
+			// tab is preserved via history.state.
+			triggerPageReloadWithSwitchFallback({
+				loaderMode: 'spinner',
+				loaderMessage: `Switching to ${getNetworkLabel(walletNetwork)}...`
+			});
+			return;
+		}
+
+		this.updateTabVisibility(true);
+		await this.refreshAdminTabVisibility();
+		await this.refreshClaimTabVisibility();
+		await this.refreshOrderTabVisibility();
+	}
+
 	subscribeToAppWebSocketEvents(ws = this.ctx?.getWebSocket?.()) {
 		if (!ws?.subscribe) {
 			return;
@@ -1007,31 +1050,15 @@ class App {
 		const {
 			walletChainId = null,
 		} = options;
-		const preferredTab = this.currentTab;
-		const wallet = this.ctx?.getWallet?.();
 
 		this.debug('Handling wallet alignment on already-selected network:', {
 			targetNetwork: targetNetwork.slug,
-			preferredTab,
 		});
 
 		this.ctx?.setWalletChainId?.(walletChainId ?? walletManager.chainId ?? targetNetwork.chainId);
 		clearNetworkSetupRequired();
 		setActiveNetwork(targetNetwork);
 		syncNetworkBadgeFromState();
-
-		this.updateTabVisibility(true);
-		await this.refreshAdminTabVisibility();
-		await this.refreshClaimTabVisibility({ force: true });
-		await this.refreshOrderTabVisibility({ force: true });
-
-		await this.refreshActiveComponent();
-
-		if (!this.isTabVisible(preferredTab)) {
-			await this.showTab('create-order', !wallet?.isWalletConnected?.(), {
-				skipInitialize: this.tabReady.has('create-order'),
-			});
-		}
 
 		return true;
 	}
@@ -1070,10 +1097,16 @@ class App {
 			});
 
 			if (!requiresNetworkDataRefresh) {
-				return await this.handleWalletAlignedToSelectedNetwork(targetNetwork, {
-					source,
-					walletChainId,
-				});
+				try {
+					return await this.handleWalletAlignedToSelectedNetwork(targetNetwork, {
+						source,
+						walletChainId,
+					});
+				} finally {
+					if (this.pendingWalletSwitchRequest?.targetSlug === targetNetwork.slug) {
+						this.pendingWalletSwitchRequest = null;
+					}
+				}
 			}
 
 			this.showGlobalLoader(`Switching to ${getNetworkLabel(targetNetwork)}...`, { mode: 'spinner' });
@@ -1158,15 +1191,6 @@ class App {
 
 		try {
 			await walletManager.switchToNetwork(resolvedTargetNetwork);
-			// The wallet's chainChanged event (see handler above) will fire
-			// and trigger the full-reload path. Trigger it here as a safety
-			// net in case the wallet does not emit chainChanged (some
-			// providers skip the event when the chain is already correct).
-			triggerPageReloadWithSwitchFallback({
-				loaderMode: 'spinner',
-				loaderMessage: `Switching to ${getNetworkLabel(resolvedTargetNetwork)}...`
-			});
-			return true;
 		} catch (error) {
 			const pendingSwitchRequest = this.pendingWalletSwitchRequest;
 			if (this.pendingWalletSwitchRequest?.targetSlug === resolvedTargetNetwork.slug) {
@@ -1177,26 +1201,70 @@ class App {
 			});
 			return false;
 		}
+
+		if (selectedChainChanged === false) {
+			const walletChainId = getNetworkById(walletManager.chainId)?.slug === resolvedTargetNetwork.slug
+				? walletManager.chainId
+				: resolvedTargetNetwork.chainId;
+			await this.handleSuccessfulConnectedNetworkTransition(resolvedTargetNetwork, {
+				source,
+				selectedChainChanged: false,
+				walletChainId,
+			});
+			return true;
+		}
+
+		// The wallet's chainChanged event (see handler above) will fire
+		// and trigger the full-reload path. Trigger it here as a safety
+		// net in case the wallet does not emit chainChanged (some
+		// providers skip the event when the chain is already correct).
+		triggerPageReloadWithSwitchFallback({
+			loaderMode: 'spinner',
+			loaderMessage: `Switching to ${getNetworkLabel(resolvedTargetNetwork)}...`
+		});
+		return true;
 	}
 
 	async handleNetworkSelectionCommit(network, options = {}) {
 		if (!network) return;
+		if (isNetworkSelectorLockedByWalletAction()) {
+			this.showWarning(NETWORK_SELECTOR_LOCK_WARNING);
+			return false;
+		}
 
-		try {
-			setActiveNetwork(network);
-		} catch (error) {
-			this.error('Failed to set active network from selection:', error);
+		const {
+			selectedChainChanged = true,
+			previousSelectedNetwork = null,
+		} = options;
+
+		setActiveNetwork(network);
+
+		const wallet = this.ctx?.getWallet?.();
+		if (!wallet?.isWalletConnected?.()) {
+			if (!selectedChainChanged) {
+				return;
+			}
+
+			// Network switches always do a full page reload. In-page transitions
+			// were a source of subtle bugs (stale WS subscriptions, orphaned
+			// promises, half-torn-down contracts). A reload gives a guaranteed
+			// clean slate, and the active tab is already preserved via
+			// ACTIVE_TAB_STATE_KEY in history.state (see persistBootstrapLoaderState).
+			triggerPageReloadWithSwitchFallback({
+				loaderMode: 'spinner',
+				loaderMessage: `Switching to ${getNetworkLabel(network)}...`
+			});
 			return;
 		}
 
-		// Network switches always do a full page reload. In-page transitions
-		// were a source of subtle bugs (stale WS subscriptions, orphaned
-		// promises, half-torn-down contracts). A reload gives a guaranteed
-		// clean slate, and the active tab is already preserved via
-		// ACTIVE_TAB_STATE_KEY in history.state (see persistBootstrapLoaderState).
-		triggerPageReloadWithSwitchFallback({
-			loaderMode: 'spinner',
-			loaderMessage: `Switching to ${getNetworkLabel(network)}...`
+		if (!selectedChainChanged && this.isWalletOnSelectedNetwork()) {
+			return;
+		}
+
+		return await this.switchWalletToNetwork(network, {
+			source: 'header:network-selection',
+			selectedChainChanged,
+			previousSelectedNetwork,
 		});
 	}
 
@@ -1398,28 +1466,7 @@ class App {
 					}
 					case 'chainChanged': {
 						try {
-							this.debug('Chain changed event received:', data?.chainId);
-							const walletChainId = data?.chainId || null;
-							this.ctx.setWalletChainId(walletChainId);
-							syncNetworkBadgeFromState();
-
-							const selectedNetwork = this.getSelectedNetwork();
-							const walletNetwork = getNetworkById(walletChainId);
-							if (walletNetwork && walletNetwork.slug === selectedNetwork.slug) {
-								// Wallet now matches the selected chain: do a full reload
-								// to adopt the new chain state from scratch (see
-								// handleNetworkSelectionCommit for rationale). The active
-								// tab is preserved via history.state.
-								triggerPageReloadWithSwitchFallback({
-									loaderMode: 'spinner',
-									loaderMessage: `Switching to ${getNetworkLabel(walletNetwork)}...`
-								});
-							} else {
-								this.updateTabVisibility(true);
-								await this.refreshAdminTabVisibility();
-								await this.refreshClaimTabVisibility();
-								await this.refreshOrderTabVisibility();
-							}
+							await this.handleWalletChainChangedEvent(data?.chainId || null);
 						} catch (error) {
 							console.error('[App] Error handling chainChanged:', error);
 						}
@@ -2076,6 +2123,7 @@ let addNetworkButton, networkButton, networkDropdown, networkBadge;
 let networkSelectorElement;
 let selectedNetworkSlug = null;
 let networkSetupRequiredSlug = null;
+const NETWORK_SELECTOR_LOCK_WARNING = 'Finish or cancel the current wallet action before switching networks.';
 
 function getNetworkLogoPath(network) {
 	return typeof network?.logo === 'string' ? network.logo : '';
@@ -2193,6 +2241,29 @@ function syncAddNetworkButtonVisibility() {
 		: 'Add Network';
 }
 
+function isNetworkSelectorLockedByWalletAction() {
+	return Boolean(window.app?.ctx?.isWalletActionInFlight?.());
+}
+
+function syncNetworkSelectorWalletActionState() {
+	const isLocked = isNetworkSelectorLockedByWalletAction();
+
+	if (networkButton) {
+		networkButton.disabled = isLocked;
+		networkButton.setAttribute('aria-disabled', String(isLocked));
+		networkButton.classList.toggle('wallet-action-pending', isLocked);
+	}
+
+	if (networkDropdown) {
+		networkDropdown.dataset.walletActionPending = String(isLocked);
+		networkDropdown.classList.toggle('wallet-action-pending', isLocked);
+	}
+
+	if (isLocked) {
+		toggleNetworkDropdown(false);
+	}
+}
+
 function triggerPageReloadWithSwitchFallback(options = {}) {
 	try {
 		window.app?.prepareForNetworkReload?.(options);
@@ -2227,6 +2298,7 @@ function syncNetworkBadgeFromState() {
 	if (networkDropdown) {
 		networkDropdown.dataset.networkStatus = 'default';
 	}
+	syncNetworkSelectorWalletActionState();
 
 	// Let syncAddNetworkButtonVisibility() decide visibility based on networkSetupRequiredSlug (PR #178 review)
 	// This preserves the "Add <Network>" retry affordance when setup is required
@@ -2289,6 +2361,11 @@ const populateNetworkOptions = () => {
 	// Re-attach click handlers only if multiple networks.
 		document.querySelectorAll('.network-option').forEach(option => {
 			const commitSelection = async () => {
+				if (isNetworkSelectorLockedByWalletAction()) {
+					window.app?.showWarning?.(NETWORK_SELECTOR_LOCK_WARNING);
+					return;
+				}
+
 				const network = getNetworkBySlug(option.dataset.slug);
 				if (!network) return;
 				const previousSelectedNetwork = getNetworkBySlug(
@@ -2321,6 +2398,7 @@ const populateNetworkOptions = () => {
 	});
 
 	applySelectedNetwork(getInitialSelectedNetwork(), { updateUrl: true });
+	syncNetworkSelectorWalletActionState();
 };
 
 // Initialize network dropdown when DOM is ready
@@ -2369,6 +2447,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		networkButton.addEventListener('click', (event) => {
 			event.preventDefault();
 			if (networkButton.classList.contains('single-network')) return;
+			if (isNetworkSelectorLockedByWalletAction()) {
+				window.app?.showWarning?.(NETWORK_SELECTOR_LOCK_WARNING);
+				return;
+			}
 			toggleNetworkDropdown();
 		});
 	}
@@ -2392,6 +2474,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	window.addEventListener('popstate', () => {
 		applySelectedNetwork(getInitialSelectedNetwork(), { updateUrl: false });
+	});
+	window.addEventListener('wallet-action-lock-changed', () => {
+		syncNetworkSelectorWalletActionState();
 	});
 
 	window.syncNetworkBadgeFromState = syncNetworkBadgeFromState;

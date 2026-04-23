@@ -33,6 +33,22 @@
  * Values are populated by App during initialization
  * @returns {AppContext}
  */
+function assert(condition, message) {
+    if (!condition) {
+        throw new Error(message);
+    }
+}
+
+function emitWalletActionStateChange(isActive) {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+        return;
+    }
+
+    window.dispatchEvent(new CustomEvent('wallet-action-lock-changed', {
+        detail: { isActive: !!isActive }
+    }));
+}
+
 export function createAppContext() {
     return {
         // Core services (set by App during load)
@@ -42,6 +58,7 @@ export function createAppContext() {
         contractService: null,
         selectedChainSlug: null,
         walletChainId: null,
+        isWalletActionActive: false,
         
         // Toast functions
         toast: {
@@ -114,6 +131,22 @@ export function createAppContext() {
          */
         getWalletChainId() {
             return this.walletChainId;
+        },
+
+        beginWalletAction() {
+            assert(!this.isWalletActionActive, 'Wallet action already active');
+            this.isWalletActionActive = true;
+            emitWalletActionStateChange(true);
+        },
+
+        endWalletAction() {
+            assert(this.isWalletActionActive, 'Wallet action not active');
+            this.isWalletActionActive = false;
+            emitWalletActionStateChange(false);
+        },
+
+        isWalletActionInFlight() {
+            return this.isWalletActionActive;
         },
         
         /**
