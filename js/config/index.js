@@ -1,5 +1,6 @@
 export const APP_BRAND = 'WhaleSwap';
 export const APP_LOGO = 'img/whaleSwap.png';
+export const WALLET_COMPATIBILITY_NOTICE = 'Optimized for MetaMask compatible wallets. If you are using a different wallet, you may encounter errors.';
 
 // Centralized order-related constants
 export const ORDER_CONSTANTS = {

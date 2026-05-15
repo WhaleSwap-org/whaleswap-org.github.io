@@ -48,23 +48,6 @@
   color: var(--text-primary);
 }
 
-.cleanup-reward-token {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  vertical-align: middle;
-}
-
-.cleanup-reward-token .token-icon.small {
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
-}
-
-.cleanup-reward-token .token-icon-fallback {
-  font-size: 0.7rem;
-}
-
 #cleanup-button {
   width: 100%;
   max-width: 300px;

@@ -1,5 +1,6 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ethers } from 'ethers';
+import { WALLET_COMPATIBILITY_NOTICE } from '../config/index.js';
 import { erc20Abi } from '../abi/erc20.js';
 import { contractService } from '../services/ContractService.js';
 
@@ -247,7 +248,7 @@ export class Intro extends BaseComponent {
 									</svg>
 									<span>Wallet Compatibility</span>
 								</h4>
-								<p>Use the Connect Wallet menu to choose any compatible browser wallet discovered by WhaleSwap.</p>
+								<p>${WALLET_COMPATIBILITY_NOTICE}</p>
 							</div>
 
 							<div class="faq-item">

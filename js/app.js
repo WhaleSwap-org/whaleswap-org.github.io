@@ -1,6 +1,6 @@
 import { BaseComponent } from './components/BaseComponent.js';
 import { CreateOrder } from './components/CreateOrder.js';
-import { APP_BRAND, APP_LOGO } from './config/index.js';
+import { APP_BRAND, APP_LOGO, WALLET_COMPATIBILITY_NOTICE } from './config/index.js';
 import { DEBUG_CONFIG } from './config/debug.js';
 import {
 	getNetworkConfig,
@@ -81,10 +81,18 @@ class App {
 
 	async handleWalletConnectEvent(data = {}) {
 		const walletChainId = data?.chainId || walletManager.chainId || null;
+		const isMetaMaskWallet = typeof data?.isMetaMaskWallet === 'boolean'
+			? data.isMetaMaskWallet
+			: walletManager.isConnectedWalletMetaMask();
+		const shouldShowCompatibilityNotice = data?.userInitiated === true && !isMetaMaskWallet;
 
 		clearNetworkSetupRequired();
 		this.ctx.setWalletChainId(walletChainId);
 		syncNetworkBadgeFromState();
+
+		if (shouldShowCompatibilityNotice) {
+			this.showWarning(WALLET_COMPATIBILITY_NOTICE);
+		}
 
 		this.debug('Wallet connected, reinitializing components...');
 		this.updateTabVisibility(true);
