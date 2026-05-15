@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { BaseComponent } from './BaseComponent.js';
 import { createLogger } from '../services/LogService.js';
 import { handleTransactionError } from '../utils/ui.js';
-import { getFallbackIconData } from '../utils/tokenIcons.js';
+import { contractService } from '../services/ContractService.js';
 
 export class Cleanup extends BaseComponent {
     constructor(containerId) {
@@ -34,87 +34,6 @@ export class Cleanup extends BaseComponent {
                 this.debug('Fallback claim-tab visibility refresh failed after cleanup:', error);
             });
         }
-    }
-
-    async openWalletPicker() {
-        const walletUI = window.app?.walletUI || window.app?.components?.['wallet-info'];
-        if (typeof walletUI?.showWalletSelection === 'function') {
-            await walletUI.showWalletSelection();
-            return true;
-        }
-
-        this.warn('Wallet picker is not available from Cleanup');
-        this.showError('Use the header Connect Wallet button to choose a wallet.');
-        return false;
-    }
-
-    getOrderCleanupFee(order) {
-        if (!order?.feeToken || order.orderCreationFee === null || order.orderCreationFee === undefined) {
-            return null;
-        }
-
-        return {
-            feeToken: order.feeToken,
-            feeAmount: ethers.BigNumber.from(order.orderCreationFee)
-        };
-    }
-
-    getFallbackTokenSymbol(tokenAddress) {
-        if (!tokenAddress || typeof tokenAddress !== 'string') {
-            return 'Fee token';
-        }
-        return `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
-    }
-
-    setCurrentRewardText(element, text) {
-        if (!element) return;
-        element.replaceChildren();
-        element.textContent = text;
-        element.removeAttribute('aria-label');
-    }
-
-    createCleanupRewardIcon(tokenInfo, tokenAddress, symbol) {
-        const icon = document.createElement('span');
-        icon.className = 'token-icon small cleanup-reward-icon';
-        icon.setAttribute('aria-hidden', 'true');
-
-        const fallbackData = getFallbackIconData(tokenAddress, symbol);
-        const fallback = document.createElement('span');
-        fallback.className = 'token-icon-fallback small';
-        fallback.style.background = fallbackData.backgroundColor;
-        fallback.textContent = fallbackData.text;
-
-        if (tokenInfo?.iconUrl && tokenInfo.iconUrl !== 'fallback') {
-            const image = document.createElement('img');
-            image.src = tokenInfo.iconUrl;
-            image.alt = '';
-            image.className = 'token-icon-image';
-            fallback.style.display = 'none';
-            image.addEventListener('error', () => {
-                image.style.display = 'none';
-                fallback.style.display = 'flex';
-            });
-            icon.append(image, fallback);
-            return icon;
-        }
-
-        icon.append(fallback);
-        return icon;
-    }
-
-    renderCurrentReward(element, { formattedAmount, tokenInfo, feeToken }) {
-        if (!element) return;
-
-        const symbol = tokenInfo?.symbol || this.getFallbackTokenSymbol(feeToken);
-        const wrapper = document.createElement('span');
-        wrapper.className = 'cleanup-reward-token';
-        wrapper.append(
-            this.createCleanupRewardIcon(tokenInfo, feeToken, symbol),
-            this.createElement('span', 'cleanup-reward-amount', `${formattedAmount} ${symbol}`)
-        );
-
-        element.replaceChildren(wrapper);
-        element.setAttribute('aria-label', `${formattedAmount} ${symbol}`);
     }
 
     async initialize(readOnlyMode = true) {
@@ -191,15 +110,18 @@ export class Cleanup extends BaseComponent {
                 // Set up the cleanup button event listener for read-only mode
                 this.cleanupButton = document.getElementById('cleanup-button');
                 if (this.cleanupButton) {
-                    this.cleanupButton.addEventListener('click', (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        this.debug('Cleanup button clicked (read-only): opening wallet picker');
-                        this.openWalletPicker()
-                            .catch(error => {
-                                this.error('Failed to open wallet picker from cleanup (read-only):', error);
-                                this.showError('Failed to load wallets: ' + error.message);
-                            });
+                    this.cleanupButton.addEventListener('click', () => {
+                        this.debug('Cleanup button clicked (read-only): attempting wallet connect');
+                        const wallet = this.ctx.getWallet();
+                        if (wallet) {
+                            wallet.connect({ userInitiated: true })
+                                .catch(error => {
+                                    this.error('Wallet connect failed from cleanup (read-only):', error);
+                                    this.showError('Failed to connect wallet: ' + error.message);
+                                });
+                        } else {
+                            this.warn('WalletManager not available on cleanup button click (read-only)');
+                        }
                     });
                 }
 
@@ -257,9 +179,7 @@ export class Cleanup extends BaseComponent {
             // Only set up the cleanup button event listener
             this.cleanupButton = document.getElementById('cleanup-button');
             if (this.cleanupButton) {
-                this.cleanupButton.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
+                this.cleanupButton.addEventListener('click', () => {
                     this.debug('Cleanup button clicked (connected): starting performCleanup');
                     this.performCleanup();
                 });
@@ -372,46 +292,33 @@ export class Cleanup extends BaseComponent {
             // Display reward for next cleanup
             if (elements.currentReward && nextOrderToClean) {
                 try {
-                    const cleanupFee = this.getOrderCleanupFee(nextOrderToClean);
-                    if (!cleanupFee) {
-                        throw new Error(`Missing cleanup fee details for order ${nextOrderToClean.id}`);
-                    }
+                    // Use HTTP RPC for fee config to avoid WebSocket timeout issues
+                    const { feeToken, feeAmount } = await contractService.getFeeConfig();
 
-                    const { feeToken, feeAmount } = cleanupFee;
-                    this.debug('Fee info from order:', {
-                        orderId: nextOrderToClean.id,
-                        feeToken,
-                        feeAmount: feeAmount.toString()
-                    });
+                    this.debug('Fee info from contract:', { feeToken, feeAmount: feeAmount.toString() });
 
                     const tokenInfo = await this.webSocket.getTokenInfo(feeToken);
-                    const decimals = Number.isInteger(tokenInfo?.decimals) ? tokenInfo.decimals : 18;
                     
                     // Format with proper decimals and round to 6 decimal places
                     const formattedAmount = parseFloat(
-                        ethers.utils.formatUnits(feeAmount, decimals)
+                        ethers.utils.formatUnits(feeAmount, tokenInfo.decimals)
                     ).toFixed(6);
 
-                    this.renderCurrentReward(elements.currentReward, {
-                        formattedAmount,
-                        tokenInfo,
-                        feeToken
-                    });
+                    elements.currentReward.textContent = `${formattedAmount} ${tokenInfo.symbol}`;
 
                     this.debug('Reward formatting:', {
-                        orderId: nextOrderToClean.id,
                         feeToken,
                         feeAmount: feeAmount.toString(),
-                        decimals,
+                        decimals: tokenInfo.decimals,
                         formatted: formattedAmount,
-                        symbol: tokenInfo?.symbol
+                        symbol: tokenInfo.symbol
                     });
                 } catch (error) {
                     this.debug('Error formatting reward:', error);
-                    this.setCurrentRewardText(elements.currentReward, 'Error getting reward amount');
+                    elements.currentReward.textContent = 'Error getting reward amount';
                 }
             } else if (elements.currentReward) {
-                this.setCurrentRewardText(elements.currentReward, 'No orders to clean');
+                elements.currentReward.textContent = 'No orders to clean';
             }
 
             if (elements.cleanupButton) {
@@ -516,15 +423,15 @@ export class Cleanup extends BaseComponent {
             // Check if wallet is connected first
             const wallet = this.ctx.getWallet();
             if (!wallet?.isWalletConnected()) {
-                this.debug('Wallet not connected, opening wallet picker...');
+                this.debug('Wallet not connected, attempting to connect...');
                 try {
-                    await this.openWalletPicker();
-                    // After the picker opens, refresh the button state.
+                    await wallet.connect({ userInitiated: true });
+                    // After successful connection, refresh the button state
                     await this.checkCleanupOpportunities();
                     return;
                 } catch (error) {
-                    this.error('Failed to open wallet picker:', error);
-                    this.showError('Failed to load wallets: ' + error.message);
+                    this.error('Failed to connect wallet:', error);
+                    this.showError('Failed to connect wallet: ' + error.message);
                     return;
                 }
             }
