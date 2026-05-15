@@ -21,7 +21,7 @@ jobs:
     if: github.event.pull_request.draft == false
     uses: WhaleSwap-org/WhaleSwap-E2E/.github/workflows/manual-e2e.yml@main
     with:
-      e2e_ref: main
+      e2e_ref: wallet-module-import
       contract_ref: main
       ui_repository: ${{ github.event.pull_request.head.repo.full_name }}
       ui_ref: ${{ github.event.pull_request.head.sha }}
