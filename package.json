@@ -4,9 +4,14 @@
   "description": "WhaleSwap Decentralized Trading Interface",
   "main": "index.js",
   "scripts": {
+    "ensure:wallet-core": "node scripts/ensure-wallet-core.mjs",
+    "pretest": "npm run ensure:wallet-core",
     "test": "vitest run",
+    "pretest:coverage": "npm run ensure:wallet-core",
     "test:coverage": "vitest run --coverage",
+    "pretest:watch": "npm run ensure:wallet-core",
     "test:watch": "vitest",
+    "prestart": "npm run ensure:wallet-core",
     "start": "npx http-server -c-1"
   },
   "keywords": [],

@@ -1,4 +1,9 @@
 import { ethers } from 'ethers';
+import { createWalletCore } from '../../vendor/liberdus-wallet-core/index.js';
+import {
+    addEthereumChain,
+    switchEthereumChain
+} from '../../vendor/liberdus-wallet-core/adapters/chain.js';
 import { abi as CONTRACT_ABI } from '../abi/OTCSwap.js';
 import { createLogger } from './LogService.js';
 import {
@@ -54,84 +59,19 @@ export class WalletManager {
         this.isInitialized = false;
         this.contractInitialized = false;
         this.injectedProvider = null;
-        this.boundHandleAccountsChanged = this.handleAccountsChanged.bind(this);
-        this.boundHandleChainChanged = this.handleChainChanged.bind(this);
-        this.boundHandleConnect = this.handleConnect.bind(this);
-        this.boundHandleDisconnect = this.handleDisconnect.bind(this);
+        this.walletCore = createWalletCore({
+            walletSessionKey: 'whaleswap-ui:wallet-session',
+            discoveryWaitMs: 250
+        });
+        this.walletCoreUnsubscribe = null;
         
         // Add user preference tracking for disconnect state
         this.userDisconnected = false;
         this.STORAGE_KEY = 'wallet_user_disconnected';
     }
 
-    describeProvider(provider, index = null) {
-        return {
-            index,
-            isMetaMask: !!provider?.isMetaMask,
-            isPhantom: !!provider?.isPhantom,
-            isCoinbaseWallet: !!provider?.isCoinbaseWallet,
-            isBraveWallet: !!provider?.isBraveWallet
-        };
-    }
-
-    isLikelyMetaMaskProvider(provider) {
-        return Boolean(
-            provider?.isMetaMask
-            && !provider?.isBraveWallet
-            && !provider?.isCoinbaseWallet
-            && !provider?.isPhantom
-        );
-    }
-
-    isConnectedWalletMetaMask() {
-        return this.isLikelyMetaMaskProvider(this.getInjectedProvider());
-    }
-
-    isRequestCapableInjectedProvider(provider) {
-        return typeof provider?.request === 'function';
-    }
-
     resolveInjectedProvider() {
-        if (typeof window === 'undefined') {
-            return null;
-        }
-
-        const { ethereum } = window;
-        if (!ethereum) {
-            return null;
-        }
-
-        const providers = Array.isArray(ethereum.providers)
-            ? ethereum.providers.filter(Boolean)
-            : [];
-
-        if (providers.length === 0) {
-            if (this.isRequestCapableInjectedProvider(ethereum)) {
-                return ethereum;
-            }
-
-            this.warn('Injected provider is missing an EIP-1193 request method.', {
-                provider: this.describeProvider(ethereum)
-            });
-            return null;
-        }
-
-        const selectedProvider = providers.find((provider) => !!provider?.isMetaMask)
-            || providers.find((provider) => this.isRequestCapableInjectedProvider(provider))
-            || null;
-        if (!selectedProvider) {
-            this.warn('No injected wallet provider with request support was found.', {
-                providers: providers.map((provider, index) => this.describeProvider(provider, index))
-            });
-            return null;
-        }
-
-        this.debug('Multiple wallet providers detected; selected injected provider:', {
-            selected: this.describeProvider(selectedProvider),
-            providers: providers.map((provider, index) => this.describeProvider(provider, index))
-        });
-
-        return selectedProvider;
+        return this.walletCore.getEip1193Provider();
     }
 
     getInjectedProvider() {
@@ -139,6 +79,95 @@ export class WalletManager {
             this.injectedProvider = this.resolveInjectedProvider();
         }
         return this.injectedProvider;
+    }
+
+    normalizeWalletCoreChainId(chainId) {
+        if (chainId === null || chainId === undefined) {
+            return null;
+        }
+        if (typeof chainId === 'number' && Number.isFinite(chainId)) {
+            return `0x${chainId.toString(16)}`;
+        }
+        return chainId;
+    }
+
+    syncInjectedProviderFromCore() {
+        this.injectedProvider = this.walletCore.getEip1193Provider();
+        return this.injectedProvider;
+    }
+
+    clearSignerAndContractState() {
+        this.signer = null;
+        this.contract = null;
+        this.contractInitialized = false;
+    }
+
+    ensureWeb3Provider() {
+        const previousInjectedProvider = this.injectedProvider;
+        const injectedProvider = this.syncInjectedProviderFromCore();
+        if (!injectedProvider) {
+            this.provider = null;
+            this.clearSignerAndContractState();
+            return null;
+        }
+
+        if (!this.provider || previousInjectedProvider !== injectedProvider) {
+            this.provider = new ethers.providers.Web3Provider(injectedProvider, 'any');
+            this.clearSignerAndContractState();
+        }
+
+        return this.provider;
+    }
+
+    setupWalletCoreSubscription() {
+        if (this.walletCoreUnsubscribe) return;
+        this.walletCoreUnsubscribe = this.walletCore.subscribe((event, data) => {
+            if (event === 'accountChanged') {
+                this.handleAccountsChanged(data ? [data] : []);
+                return;
+            }
+            if (event === 'chainChanged') {
+                this.handleChainChanged(this.normalizeWalletCoreChainId(data));
+            }
+        });
+    }
+
+    syncConnectedStateFromWalletCore({ userInitiated = false } = {}) {
+        const state = this.walletCore.getState();
+        this.account = state.account;
+        this.chainId = this.normalizeWalletCoreChainId(state.chainId);
+        this.isConnected = Boolean(this.account);
+        this.ensureWeb3Provider();
+        return {
+            account: this.account,
+            chainId: this.chainId,
+            userInitiated
+        };
+    }
+
+    async getAvailableWallets() {
+        return await this.walletCore.discoverWallets();
+    }
+
+    hasWalletSession() {
+        return this.walletCore.hasWalletSession();
+    }
+
+    async selectWalletForConnection(walletId = null) {
+        const wallets = await this.walletCore.discoverWallets();
+        const state = this.walletCore.getState();
+
+        if (walletId) {
+            const selectedWallet = wallets.find((wallet) => wallet.id === walletId);
+            if (!selectedWallet) {
+                throw new Error('Selected wallet is no longer available.');
+            }
+            return selectedWallet;
+        }
+
+        return wallets.find((wallet) => wallet.id === state.selectedWalletId)
+            || (wallets.length === 1 ? wallets[0] : null)
+            || null;
     }
 
     hasInjectedProvider() {
@@ -191,52 +220,33 @@ export class WalletManager {
                 return;
             }
 
-            const injectedProvider = this.getInjectedProvider();
-            if (!injectedProvider) {
-                this.debug('No injected wallet provider found, initializing in read-only mode');
-                this.provider = null;
-                this.isInitialized = true;
-                return;
-            }
-
-            // Use the "any" network so the provider survives chain changes without
-            // throwing "underlying network changed" on the next signer/contract call.
-            this.provider = new ethers.providers.Web3Provider(injectedProvider, 'any');
-            
             // Set contract configuration
             const networkCfg = getNetworkConfig();
             this.contractAddress = networkCfg.contractAddress;
             this.contractABI = CONTRACT_ABI;
             
-            this.debug('Provider initialized');
             this.debug('Contract config:', {
                 address: this.contractAddress,
                 hasABI: !!this.contractABI
             });
 
-            // Setup event listeners
-            injectedProvider.on('accountsChanged', this.boundHandleAccountsChanged);
-            injectedProvider.on('chainChanged', this.boundHandleChainChanged);
-            injectedProvider.on('connect', this.boundHandleConnect);
-            injectedProvider.on('disconnect', this.boundHandleDisconnect);
+            this.setupWalletCoreSubscription();
 
             // Check user disconnect preference before auto-connecting
             this.loadUserDisconnectPreference();
+
+            await this.walletCore.discoverWallets();
             
             // Only auto-connect if user hasn't manually disconnected
-            if (!this.userDisconnected) {
+            if (!this.userDisconnected && this.hasWalletSession()) {
                 try {
-                    const accounts = await this.requestWithTimeout('eth_accounts');
+                    await this.walletCore.sync();
+                    this.syncConnectedStateFromWalletCore();
 
-                    if (accounts.length > 0) {
+                    if (this.account) {
                         this.debug('Auto-connecting to existing wallet session');
-                        // Ensure internal state reflects connected session
-                        this.account = accounts[0];
-                        const chainId = await this.requestWithTimeout('eth_chainId');
-                        this.chainId = chainId;
                         // Keep wallet-reported chain state; app-level logic decides if network is acceptable.
-                        this.notifyListeners('chainChanged', { chainId });
-                        this.isConnected = true;
+                        this.notifyListeners('chainChanged', { chainId: this.chainId });
                         // Initialize signer and contract for the session
                         await this.initializeSigner(this.account);
                         // Notify listeners so UI can react as connected
@@ -249,7 +259,7 @@ export class WalletManager {
                     this.warn('Wallet auto-connect check failed, continuing in read-only mode', autoConnectError);
                 }
             } else {
-                this.debug('User has manually disconnected, skipping auto-connect');
+                this.debug('No saved wallet session to restore, skipping wallet probe');
             }
 
             this.isInitialized = true;
@@ -315,33 +325,26 @@ export class WalletManager {
     }
 
     async connect(options = {}) {
-        const { userInitiated = false } = options;
+        const { userInitiated = false, walletId = null } = options;
 
         if (this.isConnecting) {
             console.log('[WalletManager] Connection already in progress');
             return null;
         }
 
-        if (!this.provider) {
-            throw new Error('No injected wallet provider detected.');
-        }
-
         this.isConnecting = true;
         try {
-            this.debug('Requesting accounts...');
-            const accounts = await this.request('eth_requestAccounts');
-            
-            this.debug('Accounts received:', accounts);
-            
-            const chainId = await this.request('eth_chainId');
-            this.debug('Chain ID:', chainId);
+            this.debug('Discovering wallets...');
+            const wallet = await this.selectWalletForConnection(walletId);
+            if (!wallet) {
+                throw new Error('Select a wallet to connect.');
+            }
 
-            const decimalChainId = parseInt(chainId, 16).toString();
-            this.debug('Decimal Chain ID:', decimalChainId);
-
-            this.account = accounts[0];
-            this.chainId = chainId;
-            this.isConnected = true;
+            this.debug('Requesting accounts through wallet core...', wallet.info?.name || wallet.id);
+            await this.walletCore.connect({ walletId: wallet.id });
+            const result = this.syncConnectedStateFromWalletCore({ userInitiated });
+            this.debug('Accounts received:', [this.account]);
+            this.debug('Chain ID:', this.chainId);
 
             // Clear user disconnect preference when they manually connect
             this.saveUserDisconnectPreference(false);
@@ -351,18 +354,12 @@ export class WalletManager {
 
             this.debug('Notifying listeners of connection');
             this.notifyListeners('connect', {
-                account: this.account,
-                chainId: this.chainId,
-                userInitiated,
-                isMetaMaskWallet: this.isConnectedWalletMetaMask()
+                account: result.account,
+                chainId: result.chainId,
+                userInitiated
             });
 
-            return {
-                account: this.account,
-                chainId: this.chainId,
-                userInitiated,
-                isMetaMaskWallet: this.isConnectedWalletMetaMask()
-            };
+            return result;
         } catch (error) {
             this.debug('Connection error:', error);
             throw error;
@@ -392,20 +389,20 @@ export class WalletManager {
         }
 
         try {
-            await this.request('wallet_switchEthereumChain', [{ chainId: targetNetwork.chainId }]);
+            await switchEthereumChain(this.getInjectedProvider(), targetNetwork.chainId);
         } catch (error) {
             if (error?.code !== 4902) {
                 throw error;
             }
 
             try {
-                await this.request('wallet_addEthereumChain', [{
-                        chainId: targetNetwork.chainId,
-                        chainName: targetNetwork.displayName || targetNetwork.name,
-                        nativeCurrency: targetNetwork.nativeCurrency,
-                        rpcUrls: [targetNetwork.rpcUrl, ...(targetNetwork.fallbackRpcUrls || [])],
-                        blockExplorerUrls: [targetNetwork.explorer]
-                    }]);
+                await addEthereumChain(this.getInjectedProvider(), {
+                    chainId: targetNetwork.chainId,
+                    chainName: targetNetwork.displayName || targetNetwork.name,
+                    nativeCurrency: targetNetwork.nativeCurrency,
+                    rpcUrls: [targetNetwork.rpcUrl, ...(targetNetwork.fallbackRpcUrls || [])],
+                    blockExplorerUrls: [targetNetwork.explorer]
+                });
             } catch (addError) {
                 addError.requiresWalletNetworkAddition = true;
                 addError.missingNetworkSlug = targetNetwork.slug;
@@ -415,7 +412,7 @@ export class WalletManager {
             }
 
             try {
-                await this.request('wallet_switchEthereumChain', [{ chainId: targetNetwork.chainId }]);
+                await switchEthereumChain(this.getInjectedProvider(), targetNetwork.chainId);
             } catch (switchAfterAddError) {
                 if (switchAfterAddError?.code === 4902) {
                     switchAfterAddError.requiresWalletNetworkAddition = true;
@@ -446,6 +443,7 @@ export class WalletManager {
             this.signer = null;
             this.contract = null;
             this.contractInitialized = false;
+            this.walletCore.disconnect();
             this.debug('No accounts, triggering disconnect');
             this.notifyListeners('disconnect', {});
         } else if (accounts[0] !== this.account) {
@@ -477,6 +475,11 @@ export class WalletManager {
 
     handleDisconnect(error) {
         this.isConnected = false;
+        this.account = null;
+        this.signer = null;
+        this.contract = null;
+        this.contractInitialized = false;
+        this.walletCore.disconnect();
         if (this.onDisconnect) {
             this.onDisconnect(error);
         }
@@ -507,6 +510,7 @@ export class WalletManager {
         this.signer = null;
         this.contract = null;
         this.contractInitialized = false;
+        this.walletCore.disconnect();
         
         // Notify listeners of disconnect
         this.notifyListeners('disconnect', {});

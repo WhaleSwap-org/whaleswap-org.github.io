@@ -17,10 +17,12 @@ export class WalletUI extends BaseComponent {
         this._boundWalletInfoHandler = null;
         this._boundPopupContainerHandler = null;
         this._boundDocumentClickHandler = null;
+        this._boundWalletSelectionHandler = null;
         this._boundWalletListener = null;
         this.popupContainer = null;
         this.popupAccount = null;
         this.walletPopup = null;
+        this.walletSelectionMenu = null;
         
         this.debug('Constructor completed (no side effects)');
     }
@@ -84,11 +86,16 @@ export class WalletUI extends BaseComponent {
             this.popupContainer.removeEventListener('click', this._boundPopupContainerHandler);
         }
 
+        if (this.walletSelectionMenu && this._boundWalletSelectionHandler) {
+            this.walletSelectionMenu.removeEventListener('click', this._boundWalletSelectionHandler);
+        }
+
         // Remove outside click listener
         if (this._boundDocumentClickHandler) {
             document.removeEventListener('click', this._boundDocumentClickHandler);
         }
 
+        this.hideWalletSelection();
         this.hideWalletPopup();
         
         // Remove wallet manager listener
@@ -114,6 +121,15 @@ export class WalletUI extends BaseComponent {
                 throw new Error('Required wallet UI elements not found');
             }
 
+            this.walletSelectionMenu = document.createElement('div');
+            this.walletSelectionMenu.id = 'walletSelectionMenu';
+            this.walletSelectionMenu.className = 'wallet-selection-menu hidden';
+            this.walletSelectionMenu.setAttribute('role', 'menu');
+            this.walletSelectionMenu.setAttribute('aria-label', 'Select wallet');
+            this.connectButton.insertAdjacentElement('afterend', this.walletSelectionMenu);
+            this.connectButton.setAttribute('aria-haspopup', 'menu');
+            this.connectButton.setAttribute('aria-expanded', 'false');
+
             this.debug('DOM elements initialized');
         } catch (error) {
             this.error('Error in initializeElements:', error);
@@ -130,10 +146,24 @@ export class WalletUI extends BaseComponent {
         this.connectButton.addEventListener('click', this._boundConnectHandler);
         this.debug('Click listener added to connect button');
 
+        this._boundWalletSelectionHandler = async (e) => {
+            const target = e.target;
+            if (!(target instanceof Element)) return;
+
+            const walletOption = target.closest('[data-wallet-id]');
+            if (!walletOption) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            await this.connectWallet(walletOption.dataset.walletId || null);
+        };
+        this.walletSelectionMenu.addEventListener('click', this._boundWalletSelectionHandler);
+
         // Click on connected wallet chip opens popup
         this._boundWalletInfoHandler = (e) => {
             e.preventDefault();
             e.stopPropagation();
+            this.hideWalletSelection();
             this.toggleWalletPopup();
         };
         this.walletInfo.addEventListener('click', this._boundWalletInfoHandler);
@@ -174,12 +204,16 @@ export class WalletUI extends BaseComponent {
 
         // Close popup on outside click
         this._boundDocumentClickHandler = (e) => {
-            if (!this.walletPopup) return;
             const target = e.target;
             if (!(target instanceof Element)) {
                 this.hideWalletPopup();
+                this.hideWalletSelection();
                 return;
             }
+            if (!target.closest('.wallet-selection-menu') && !target.closest('#walletConnect')) {
+                this.hideWalletSelection();
+            }
+            if (!this.walletPopup) return;
             if (!target.closest('.wallet-info-popup') && !target.closest('#walletInfo')) {
                 this.hideWalletPopup();
             }
@@ -261,11 +295,6 @@ export class WalletUI extends BaseComponent {
         try {
             this.debug('Checking initial connection state...');
             
-            if (!walletManager.hasInjectedProvider()) {
-                this.debug('No injected wallet provider found, initializing in read-only mode');
-                return;
-            }
-            
             // Check if user has manually disconnected
             if (walletManager.hasUserDisconnected()) {
                 this.debug('User has manually disconnected, showing connect button');
@@ -280,6 +309,17 @@ export class WalletUI extends BaseComponent {
                 this.debug('Found existing wallet manager session, syncing UI');
                 this.updateUI(existingAccount);
                 this.updateNetworkBadge(walletManager.chainId);
+                return;
+            }
+
+            if (!walletManager.hasWalletSession()) {
+                this.debug('No saved wallet session found, showing connect button');
+                this.showConnectButton();
+                return;
+            }
+
+            if (!walletManager.hasInjectedProvider()) {
+                this.debug('No injected wallet provider found, initializing in read-only mode');
                 return;
             }
 
@@ -312,30 +352,20 @@ export class WalletUI extends BaseComponent {
         try {
             this.debug('Handle connect click called');
             e.preventDefault();
-            
-            // Disable connect button while connecting
-            if (this.connectButton) {
-                this.connectButton.disabled = true;
-                this.connectButton.textContent = 'Connecting...';
+
+            if (this.walletSelectionMenu && !this.walletSelectionMenu.classList.contains('hidden')) {
+                this.hideWalletSelection();
+                return;
             }
 
-            const result = await this.connectWallet();
-            this.debug('Connect result:', result);
-            if (result && result.account) {
-                this.updateUI(result.account);
-            }
+            await this.showWalletSelection();
         } catch (error) {
             this.error('Error in handleConnectClick:', error);
-        } finally {
-            // Re-enable connect button
-            if (this.connectButton) {
-                this.connectButton.disabled = false;
-                this.connectButton.textContent = 'Connect Wallet';
-            }
+            this.showError("Failed to load wallets: " + error.message);
         }
     }
 
-    async connectWallet() {
+    async connectWallet(walletId = null) {
         try {
             this.debug('Connecting wallet...');
             
@@ -347,13 +377,110 @@ export class WalletUI extends BaseComponent {
             // Add a small delay to ensure any previous pending requests are cleared
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            const result = await walletManager.connect({ userInitiated: true });
+            this.hideWalletSelection();
+            this.setConnectButtonBusy(true);
+
+            const result = await walletManager.connect({ userInitiated: true, walletId });
+            this.debug('Connect result:', result);
+            if (result && result.account) {
+                this.updateUI(result.account);
+            }
             return result;
         } catch (error) {
             this.error('Failed to connect wallet:', error);
             this.showError("Failed to connect wallet: " + error.message);
             return null;
+        } finally {
+            this.setConnectButtonBusy(false);
         }
+    }
+
+    async showWalletSelection() {
+        this.hideWalletPopup();
+        if (!this.walletSelectionMenu) return;
+
+        this.walletSelectionMenu.classList.remove('hidden');
+        this.walletSelectionMenu.replaceChildren(this.createWalletSelectionMessage('Loading wallets...'));
+        this.connectButton.setAttribute('aria-expanded', 'true');
+
+        const wallets = await walletManager.getAvailableWallets();
+        this.walletSelectionMenu.replaceChildren();
+
+        const title = document.createElement('div');
+        title.className = 'wallet-selection-title';
+        title.textContent = 'Select Wallet';
+        this.walletSelectionMenu.append(title);
+
+        if (!wallets.length) {
+            this.walletSelectionMenu.append(this.createWalletSelectionMessage('No compatible browser wallet was detected.'));
+            return;
+        }
+
+        for (const wallet of wallets) {
+            this.walletSelectionMenu.append(this.createWalletOption(wallet));
+        }
+    }
+
+    createWalletOption(wallet) {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'wallet-selection-option';
+        option.dataset.walletId = wallet.id;
+        option.setAttribute('role', 'menuitem');
+
+        const icon = document.createElement('span');
+        icon.className = 'wallet-selection-icon';
+
+        const name = wallet?.info?.name || 'Injected Wallet';
+        icon.textContent = name.trim().slice(0, 2).toUpperCase() || 'W';
+
+        if (wallet?.info?.icon) {
+            const image = document.createElement('img');
+            image.src = wallet.info.icon;
+            image.alt = '';
+            image.addEventListener('load', () => {
+                icon.textContent = '';
+                icon.append(image);
+            });
+        }
+
+        const copy = document.createElement('span');
+        copy.className = 'wallet-selection-copy';
+
+        const label = document.createElement('span');
+        label.className = 'wallet-selection-name';
+        label.textContent = name;
+
+        const meta = document.createElement('span');
+        meta.className = 'wallet-selection-meta';
+        meta.textContent = wallet?.info?.rdns || wallet?.source || 'Injected provider';
+
+        copy.append(label, meta);
+        option.append(icon, copy);
+        return option;
+    }
+
+    createWalletSelectionMessage(messageText) {
+        const message = document.createElement('div');
+        message.className = 'wallet-selection-message';
+        message.textContent = messageText;
+        return message;
+    }
+
+    hideWalletSelection() {
+        if (!this.walletSelectionMenu) return;
+        this.walletSelectionMenu.classList.add('hidden');
+        this.walletSelectionMenu.replaceChildren();
+        this.connectButton?.setAttribute('aria-expanded', 'false');
+    }
+
+    setConnectButtonBusy(isBusy) {
+        if (!this.connectButton) return;
+        this.connectButton.disabled = isBusy;
+        const label = document.createElement('span');
+        label.className = 'wallet-button-text';
+        label.textContent = isBusy ? 'Connecting...' : 'Connect Wallet';
+        this.connectButton.replaceChildren(label);
     }
 
     updateUI(account) {
@@ -371,6 +498,7 @@ export class WalletUI extends BaseComponent {
             this.debug('Setting short address:', shortAddress);
             
             this.connectButton.classList.add('hidden');
+            this.hideWalletSelection();
             this.walletInfo.classList.remove('hidden');
             this.accountAddress.textContent = shortAddress;
             
@@ -393,6 +521,7 @@ export class WalletUI extends BaseComponent {
             this.connectButton.classList.remove('hidden');
             this.walletInfo.classList.add('hidden');
             this.hideWalletPopup();
+            this.hideWalletSelection();
             // Remove wallet-connected class
             document.querySelector('.swap-section')?.classList.remove('wallet-connected');
             this.debug('Connect button shown');
